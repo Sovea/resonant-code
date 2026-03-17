@@ -1,0 +1,17 @@
+{
+  "name": "sovea",
+  "owner": {
+    "name": "Sovea"
+  },
+  "plugins": [
+    {
+      "name": "resonant-code",
+      "source": "./plugins/resonant-code",
+      "description": "Playbook-driven code generation and review with shared core and TypeScript guidance.",
+      "version": "0.0.1",
+      "author": {
+        "name": "Sovea"
+      }
+    }
+  ]
+}
