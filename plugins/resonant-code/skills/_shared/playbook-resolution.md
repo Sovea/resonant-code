@@ -1,72 +1,131 @@
 # Playbook Resolution
 
-## 1. Find Playbook
+## Overview
 
-Execute the following steps in order to resolve the playbook for tasks:
+Playbook resolution is handled by the Playbook Runtime, not by the agent directly.
+The agent's responsibility is to collect the correct inputs, invoke the Runtime,
+and apply the resulting Effective Guidance Object (EGO) when generating or reviewing code.
 
-Step 1: Check if the user explicitly specified a playbook path in this conversation. If yes, use it as PLAYBOOK_ROOT_PATH.
+Do not attempt to read, interpret, or merge playbook files manually.
+The Runtime handles parsing, conflict resolution, RCCL calibration, and EGO assembly.
 
-Step 2: Check if a `.playbook.yaml` exists in the current project root directory. If yes, read it, use the `playbook.root_path` field as PLAYBOOK_ROOT_PATH.
+---
 
-Step 3: Fall back to the default built-in playbook path: `<this-plugin-directory>/playbook/`.
+## 1. Collect Inputs
 
-Once PLAYBOOK_ROOT_PATH is resolved, announce it: "📝 Using playbook at `<PLAYBOOK_ROOT_PATH>`".
+Before invoking the Runtime, collect the following inputs:
 
-## 2. Understand Playbook Structure
+**Built-in playbook root**
+The default built-in playbook ships with the plugin:
+`<plugin-directory>/playbook/`
+This path is always available and requires no resolution step.
 
-A playbook is a directory-based collection of coding specifications. `playbook.yaml` defines structure and metadata.
+**Local playbook (optional)**
+Check for `.resonant-code/playbook/local-augment.yaml` in the current project root.
+If it exists, pass its path to the Runtime.
+If it does not exist, proceed without it — the Runtime will use built-in rules only.
 
-Interpret the playbook by layer instead of treating it as one flat list of rules:
-  - `core`: universal engineering principles that apply across languages, frameworks, and domains
-  - `languages`: language-specific conventions, idioms, and constraints
-  - `frameworks`: framework-specific patterns, lifecycle expectations, and anti-patterns
-  - `task-types`: guidance for the current kind of work, such as feature work, bugfixes, refactors, migrations, or reviews
-  - `domains`: application- or product-specific preferences, priorities, and trade-offs
+**RCCL (optional)**
+Check for `.resonant-code/rccl.yaml` in the current project root.
+If it exists, pass its path to the Runtime.
+If it does not exist, proceed without it — the Runtime will skip RCCL calibration.
 
-Use each layer only for what it is meant to govern. Do not let one layer substitute for another.
+**Task intent**
+Describe the current task as a natural language string.
+The Runtime's Intent Parse stage will convert it to a structured `TaskIntent`.
+Be specific: include the operation type, target area, and relevant technology if known.
 
-## 3. Apply Playbook to the Current Task
+Example:
+```
+operation: "adding a new payment webhook handler"
+target: "src/features/payments/webhooks.ts"
+tech: "typescript, nextjs"
+```
 
-Apply the playbook in a focused way.
+---
 
-1. Identify the task type, language, framework, and domain that are relevant to the current request.
-2. Read only the playbook sections that materially affect the task.
-3. Start from `core`, then layer in more specific guidance from `languages`, `frameworks`, `task-types`, and `domains`.
-4. Combine the selected guidance into a single working interpretation for the task at hand.
-5. Use that resolved interpretation when generating code or reviewing code.
+## 2. Invoke the Runtime
 
-Do not load unrelated sections just because they exist. Prefer targeted application over exhaustive reading.
+Pass all collected inputs to the Playbook Runtime:
+```
+PlaybookRuntime.compile({
+  builtinRoot:   "<plugin-directory>/playbook/",
+  localAugment:  ".resonant-code/playbook/local-augment.yaml",   // omit if not present
+  rccl:          ".resonant-code/rccl.yaml",                     // omit if not present
+  taskIntent:    "<natural language task description>",
+})
+```
 
-## 4. Resolve Conflicts and Adopt Rules
+The Runtime will execute the full pipeline internally:
+1. Intent Parse — structured TaskIntent from natural language
+2. Layer Filter — drop layers irrelevant to the current task
+3. RCCL Verify Gate — validate observed patterns against actual code
+4. Semantic Merge — conflict detection and resolution
+5. EGO Assembly — produce the final guidance object within token budget
 
-Adopt playbook guidance with clear precedence.
+The Runtime returns an `EffectiveGuidanceObject (EGO)`.
 
-Prefer, in order:
+---
 
-1. explicit user instructions
-2. established repository reality and existing local conventions
-3. more specific playbook guidance
-4. broader playbook guidance
-5. default skill behavior
+## 3. Apply the EGO
 
-More specific guidance should usually override broader guidance when both apply. For example, task-type, framework, or domain guidance may refine how `core` principles are expressed in practice.
+The EGO contains four sections. Apply each as follows:
 
-Do not force playbook rules in ways that produce awkward, inconsistent, or clearly out-of-place results in the current repository.
+**`must_follow`**
+Non-negotiable directives for this task.
+Apply all of them. Do not skip or soften must directives.
+Each entry includes a `statement`, `rationale`, `exceptions`, and `examples`.
+Use the `rationale` when making trade-off decisions.
+Use the `examples` as the primary reference for what good and bad code looks like
+in this specific project.
 
-Treat playbook guidance as operational constraints, not as text to quote back. Apply the intent of the rules, not just their wording.
+**`avoid`**
+Patterns explicitly suppressed for this task.
+Do not generate code matching these patterns, even if they appear in the
+surrounding codebase. Each entry includes a `trigger` identifying the source rule.
 
-When multiple rules are compatible, prefer the interpretation that yields clearer, simpler, and more repository-consistent results.
+**`context_tensions`**
+Directives where the rule and the observed repository reality conflict.
+Each entry includes:
+- `directive_id` — which rule applies
+- `execution_mode` — how to apply it (`enforce` / `deviation-noted`)
+- `conflict` — what the tension is
+- `resolution` — the specific instruction for this task
 
-## 5. Handle Missing, Weak, or Conflicting Guidance
+Follow the `resolution` instruction exactly.
+`deviation-noted` means: apply the rule as stated, and account for the observed
+legacy pattern at interfaces and call sites — do not blindly ignore existing code.
 
-If relevant guidance is missing, continue with the best available lower-level or broader guidance instead of blocking on completeness.
+**`ambient`**
+Background context about the repository's observed patterns.
+Use this to inform style and structural decisions where the rules do not prescribe
+a specific outcome. These are not directives — they are environmental signals.
 
-If guidance is vague, apply its intent conservatively and prefer simpler, more legible outcomes.
+---
 
-If guidance conflicts and cannot be fully reconciled, choose the option that best preserves:
-- correctness
-- clarity
-- local consistency
-- minimal unnecessary change
+## 4. Handle Runtime Unavailability
 
-Do not overfit to incomplete playbook text. Avoid speculative abstractions or heavy rewrites just to appear compliant.
+If the Playbook Runtime is not yet available or fails to respond:
+
+1. Log the failure clearly: "Playbook Runtime unavailable — proceeding without EGO."
+2. Fall back to built-in `core` principles only (correctness, clarity, local consistency,
+   minimal change).
+3. Do not attempt to manually parse or interpret playbook YAML files as a substitute.
+4. Do not block the task — proceed with reduced guidance and note the limitation.
+
+---
+
+## 5. Precedence When Applying the EGO
+
+Apply EGO guidance with the following precedence:
+
+1. Explicit user instructions in the current conversation
+2. `must_follow` directives from the EGO
+3. `context_tensions` resolutions from the EGO
+4. Established repository conventions (informed by `ambient` signals)
+5. `avoid` suppressions from the EGO
+6. Default skill behavior
+
+Do not override explicit user instructions with EGO content.
+Do not quote EGO content back to the user — apply its intent in the code you generate.
+Treat the EGO as operational constraints, not as text to cite.
