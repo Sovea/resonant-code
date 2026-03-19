@@ -1,111 +1,95 @@
 ---
 name: code
-description: "Guide code generation and changes to make the result conforms to best practices, has excellent specifications, and especially mathches the user's personal coding style and taste. Use when generating or modifying code."
+description: "Compile task-time guidance through Runtime, apply the compiled EGO during implementation, and write quality signals back to the lockfile after the task."
 metadata:
-  version: "0.0.1"
+  version: "0.1.0"
   author: "Sovea"
 ---
 
-# Resonant Code
+# Implement Code With Runtime Guidance
 
-Generate and modify code guided by a structured playbook of coding specifications to make the code conform to best practices, has excellent specifications, and especially mathches the user's personal coding style and taste.
+This skill is a thin Runtime consumer.
 
-Use the shared playbook resolution guidance from `_shared/playbook-resolution.md` to locate, interpret, and apply playbook rules before writing or changing code.
+Do not read or merge playbook files manually.
+Do not reconstruct EGO logic in the skill.
+Do not use raw playbook YAML as the primary prompt input.
 
-## 1. Task Framing
+Use the Runtime to compile guidance for the current coding task, then apply the
+compiled `ego` while implementing the change.
 
-Before generating or modifying code, identify the task type. The task type determines which playbook sections are relevant and how aggressively to change the code.
+## Instructions
 
-Common task types include:
+### Step 1 - Compile task guidance
 
-- **Feature**: implement new product or technical behavior while keeping the result maintainable and consistent with the existing codebase
-- **Bugfix**: fix the root cause with the smallest reasonable change, preserve existing behavior outside the bug surface, and avoid unrelated rewrites
-- **Refactor**: improve structure, readability, or maintainability without changing intended external behavior
-- **Migration**: move code across APIs, patterns, versions, or architectures with emphasis on safety, compatibility, and incremental change
-- **Review-related implementation**: apply or follow up on review feedback while preserving the original intent of the code
+Run:
 
-Also determine the delivery context before coding:
+```sh
+node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<user task>" [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
+```
 
-- whether the task is **new implementation** or **modification of existing code**
-- whether the change should be **minimal and local** or may involve **broader restructuring**
-- which **language**, **framework**, and **domain** are relevant
-- whether the repository already shows strong local conventions that should be preserved
+Pass `--changed-file` for each known changed or directly relevant file.
+Pass `--tech` only when there is a strong hint not already obvious from the target file.
 
-Prefer the narrowest correct framing. Do not treat a small fix as a rewrite. Do not treat a rewrite as a local patch.
+The script prints JSON:
 
-## 2. Resolve Playbook
+```json
+{
+  "status": "ok",
+  "sessionPath": "<path>",
+  "ego": { "...": "compiled guidance object" },
+  "trace": { "...": "decision trace" },
+  "warnings": []
+}
+```
 
-Before writing code, resolve the applicable playbook guidance using `_shared/playbook-resolution.md`.
+If `status` is `ok`:
+- Use `ego.guidance.must_follow` as the operational constraints for implementation.
+- Use `ego.guidance.avoid` to suppress bad patterns.
+- Use `ego.guidance.context_tensions` to handle repository conflicts explicitly.
+- Use `ego.guidance.ambient` only as background repository context.
+- Treat `trace` as developer/debug output. Do not dump it to the user unless it helps explain a conflict or failure.
 
-Apply that shared resolution process to:
+If `status` is `degraded`:
+- State briefly that Runtime guidance was unavailable.
+- Continue with reduced guidance only: correctness, clarity, local consistency, minimal change.
+- Do not fall back to manually parsing playbook YAML.
 
-1. find the relevant playbook source
-2. identify the relevant sections
-3. get final single working interpretation for the current task
+### Step 2 - Implement the task
 
-When coding, do not quote the playbook back to the user. Internalize it and express it through the code itself.
+Implement the requested code change using the compiled `ego` as the guidance layer.
 
-Use the resolved playbook guidance to make implementation decisions such as:
+Precedence while coding:
+1. explicit user instructions
+2. `ego.guidance.must_follow`
+3. `ego.guidance.context_tensions`
+4. local repository reality informed by `ego.guidance.ambient`
+5. `ego.guidance.avoid`
 
-- how much to change
-- what to abstract and what to leave direct
-- how to name things
-- how to structure modules, functions, components, and interfaces
-- how strongly to optimize for clarity, reuse, performance, or flexibility
-- how to match repository conventions without blindly copying weak patterns
+Do not quote raw EGO sections back to the user as policy text.
+Apply them in the code and in your technical decisions.
 
-If the repository's established local style clearly conflicts with the broader playbook, prefer local consistency unless it would preserve a serious quality problem.
+### Step 3 - Write lockfile feedback
 
-## 3. Output Contract
+After the implementation work is complete, run:
 
-Produce code that is directly useful, context-aware, and aligned with the resolved playbook guidance.
+```sh
+node <this-skill-directory>/scripts/code.mjs complete --session <session-path> [--ignored <directive-id>] [--followed <directive-id>]
+```
 
-### Default output behavior
+If you do not pass any directive ids, the script uses a conservative first-pass approximation:
+- all compiled `must_follow` directives are treated as followed
+- no directives are treated as ignored
 
-- When the user asks for implementation, provide the implementation directly
-- Keep explanation brief unless the user explicitly asks for deeper reasoning
-- Do not spend output space repeating obvious rules or generic best practices
-- Prefer showing the concrete solution over describing what you might do
+The script prints JSON:
 
-### For new code
+```json
+{
+  "status": "updated",
+  "lockfilePath": "<project-root>/.resonant-code/playbook.lock.yaml",
+  "followedDirectiveIds": ["..."],
+  "ignoredDirectiveIds": []
+}
+```
 
-- Write code that is complete enough to be adopted or adapted with minimal extra work
-- Follow the relevant language, framework, task-type, and domain guidance
-- Choose straightforward designs unless the task clearly requires stronger abstraction
-- Make interfaces, naming, and control flow easy to understand
-- Include only the amount of structure the task actually earns
-
-### For changes to existing code
-
-- Prefer minimal, targeted, and reversible changes
-- Preserve surrounding conventions unless there is a strong reason to improve them
-- Do not rewrite unrelated areas just to make the result look cleaner
-- Improve local quality when possible, but avoid scope creep
-
-### For quality expectations
-
-Unless the task explicitly calls for a looser standard, aim for code that is:
-
-- correct
-- readable
-- locally consistent
-- maintainable
-- appropriately typed or structured for the language
-- careful at boundaries, side effects, and error cases
-
-Where relevant, also include:
-
-- necessary validation or guardrails at boundaries
-- tests or test updates for meaningful behavior changes
-- concise notes about important assumptions, trade-offs, or follow-up work
-
-### What to avoid
-
-- overengineering for hypothetical future reuse
-- speculative abstractions
-- clever but hard-to-read code
-- noisy commentary around obvious code
-- large structural rewrites when a smaller change is sufficient
-- mechanically applying playbook rules in ways that feel unnatural in the current repository
-
-The final result should feel like code that belongs in the target codebase and reflects strong engineering judgment, not just compliance with a checklist.
+If completion is skipped because Runtime guidance was unavailable, report that briefly.
+Do not manually write the lockfile.

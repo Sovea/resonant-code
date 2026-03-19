@@ -1,308 +1,60 @@
 # resonant-code
 
-`resonant-code` is currently implemented as a Claude Code plugin built around a reusable guidance compiler for coding tasks.
+A Claude Code plugin that aims to narrow the gap between plausible code and code worth keeping.
 
-Its goal is not to build a repository wiki or a generic knowledge base.
-Its goal is to improve code generation, code modification, and code review by compiling
-project-aware guidance that is:
-
-- aligned with built-in engineering best practices
-- aligned with project-local preferences and team taste
-- aware of current repository reality without blindly inheriting it
-- stable, explainable, and reusable across tasks
+Coding agents generate plausible code. The harder problem is generating code worth keeping — code that reflects engineering standards, fits local conventions, respects the current state of the codebase, and **most importantly, matches your preferences and taste**.
 
 ## Installation
 
-`resonant-code` is currently packaged as a Claude Code plugin.
-
-1. Add marketplace:
-
 ```sh
+# add marketplace
 /plugin marketplace add sovea/resonant-code
-```
 
-2. Install this plugin:
-
-```sh
+# install plugin
 /plugin install resonant-code@sovea
 ```
 
 ## Recommended workflow
 
-The recommended order is:
+```sh
+# 1. Initialize resonant-code
+/resonant-code:init
 
-1. Run `init` skill with slash command `/resonant-code:init`.
-2. (Optional) Review the generated local augment and adjust project metadata.
-3. Run `calibrate-repo-context` skill with slash command `/resonant-code:calibrate-repo-context` to generate RCCL (Repository Context Calibration Layer).
-4. Use the `code` skill for concrete implementation tasks.
+# 2. Analyze codebase for observational signals, generate RCCL
+/resonant-code:calibrate-repo-context
 
-## Core idea
-
-The project is built around four inputs:
-
-1. Built-in playbook
-2. Local project augment
-3. RCCL (Repository Context Calibration Layer)
-4. Task intent
-
-These inputs are not consumed directly by a skill.
-They are compiled into task-time guidance by a deterministic subsystem currently located at
-`plugins/resonant-code/runtime/`.
-
-The compiler's job is to produce:
-
-- `EGO` (Effective Guidance Object) for the agent
-- `Decision Trace` for developers and debugging
-
-The important boundary is this:
-
-- skills are thin consumers
-- the compiler owns parsing, filtering, verification, merge behavior, and guidance assembly
-
-That separation is central to the project. `code`, `review`, and future skills should not
-turn back into independent prompt-only rule engines.
-
-## Why this exists
-
-Many coding agents can already produce plausible code.
-
-The harder problem is whether the result is something a developer or team actually wants
-to keep.
-
-This project is trying to reduce common failure modes such as:
-
-- overengineering
-- unnecessary rewrites
-- poor fit with local repository structure and conventions
-- generic or style-less output
-- poor proportionality to the task
-- review output with too much noise and weak judgment
-
-## Architecture
-
-The current product model is:
-
-1. `init`
-2. `calibrate-repo-context`
-3. compiler invocation at task time
-4. thin consumer skills such as `code`
-
-### `init`
-
-`init` prepares local project guidance by generating:
-
-- `.resonant-code/playbook/local-augment.yaml`
-
-It also updates the project's `.gitignore` with resonant-code runtime artifacts such as:
-
-- `.resonant-code/context/cache/`
-
-### `calibrate-repo-context`
-
-`calibrate-repo-context` produces:
-
-- `.resonant-code/rccl.yaml`
-
-RCCL is observational, not prescriptive.
-It stores repository signals that materially affect code generation, modification, or review.
-
-### Compiler
-
-The compiler consumes:
-
-- built-in playbook
-- local augment
-- RCCL
-- task intent
-
-and produces:
-
-- `ego`
-- `trace`
-
-It also supports post-task quality writeback to:
-
-- `.resonant-code/playbook.lock.yaml`
-
-### `code`
-
-`code` is implemented as a thin task-time adapter on top of the compiler.
-
-Its flow is:
-
-1. collect task context
-2. call `compile()`
-3. use compiled `ego` during implementation
-4. optionally surface `trace`
-5. call `evaluateGuidance()` after completion
-
-## Playbook model
-
-The built-in playbook lives under:
-
-```text
-plugins/resonant-code/playbook/
-  core.yaml
-  languages/
-  frameworks/
-  domains/
-  task-types/
+# 3. Coding with Effective Guidance Object (EGO)
+/resonant-code:code <task description>
 ```
 
-The intended layer priority is:
+> Suggested step: Review, extend and commit `.playbook/local-augment.yaml` to share taste with your team.
 
-```text
-core > languages > frameworks > domains > local
-```
+## Design philosophy
 
-Directive design assumptions:
+resonant-code uses the following informations as raw inputs:
 
-- globally stable `id`
-- explicit `type`
-- explicit `scope`
-- explicit `prescription`
-- explicit `weight`
-- rationale and exceptions as first-class fields
-- examples as mandatory taste grounding
+| Input | What it represents |
+|---|---|
+| **Built-in playbook** | Prescriptive engineering standards (Rules the agent must/should/may/avoid obey) |
+| **Local augment** | Project-specific taste and convention overrides |
+| **RCCL** | Statically-verified observations of the current repository |
+| **Task intent** | What the user wants in this specific task |
 
-## RCCL model
+These inputs are compiled at task time by the Guidance Compiler — not interpreted ad hoc by each skill. The compiler resolves conflicts, calibrates rules against repository reality, and produces two outputs:
 
-RCCL is not a repository summary and not a wiki.
-It is a compact set of observational signals.
+- **EGO** (Effective Guidance Object) — structured guidance injected into the agent's context
+- **Decision Trace** — an auditable log of every rule applied, suppressed, or flagged as a deviation
 
-Each observation includes:
+The key architectural constraint: prescriptive guidance (playbook) and observational signals (RCCL) are separated at the data model layer and never compete on the same scoring axis. RCCL determines *how* a rule is applied — enforce, deviation-noted, ambient, or suppress — not *whether* it ranks above another rule.
 
-- stable `id`
-- `category`
-- `scope`
-- `pattern`
-- `confidence`
-- `adherence_quality`
-- non-empty `evidence`
-- runtime-owned `verification`
+Most agent tooling works by injecting rules as flat text and hoping the model interprets them consistently. resonant-code treats guidance compilation as an engineering problem:
 
-The verify gate is static and non-LLM.
-It checks:
+- Rules are structured data with explicit prescriptions, examples, and conflict semantics
+- RCCL observations are statically verified against actual code before they influence guidance
+- The runtime resolves all conflicts and ambiguities before the agent sees anything
+- The agent receives a clean, deterministic EGO — not raw rule text to interpret
 
-- file existence
-- valid line range
-- snippet similarity against actual source
-
-Expected dispositions:
-
-- verified observations stay trusted
-- partial observations keep reduced confidence
-- failed or unverifiable observations are demoted to ambient
-
-## Compiler pipeline
-
-The current target pipeline is:
-
-1. Intent Parse
-2. Layer Filter
-3. RCCL Verify Gate
-4. Semantic Merge
-5. EGO Assembly
-
-The project treats this as a compiler pipeline, not a prompt template.
-
-## Current implementation status
-
-The repository currently has:
-
-- built-in playbook files under `plugins/resonant-code/playbook/`
-- `init` skill
-- `calibrate-repo-context` skill
-- first-pass TypeScript compiler under `plugins/resonant-code/runtime/`
-- compiled ESM output under `plugins/resonant-code/runtime/dist/`
-- thin `code` skill under `plugins/resonant-code/skills/code/`
-
-The current first-pass compiler already supports:
-
-- deterministic intent parsing
-- built-in playbook loading
-- local augment loading
-- RCCL loading
-- RCCL verification consumption
-- basic layer filtering
-- deterministic EGO assembly
-- decision trace generation
-- lockfile quality writeback
-
-## Current limitations
-
-This repository is still early and the current implementation is intentionally conservative.
-
-Important current limitations:
-
-- intent parsing is heuristic, not full structured LLM parsing
-- semantic merge is conservative and lexical, not embedding-based
-- cache keys exist, but full cache storage and invalidation are not complete
-- layer filtering and merge behavior still need to move closer to the target architecture
-- `review` is still a planned consumer and is not implemented in the same shape as `code`
-
-These are implementation-stage gaps, not design changes.
-
-## Repository layout
-
-```text
-plugins/resonant-code/
-  playbook/
-  runtime/
-    src/
-    dist/
-  skills/
-    init/
-    calibrate-repo-context/
-    code/
-```
-
-## Typical flow
-
-### 1. Initialize the project
-
-Run the `init` skill to generate local project guidance:
-
-- `.resonant-code/playbook/local-augment.yaml`
-
-### 2. Calibrate repository context
-
-Run the `calibrate-repo-context` skill to generate:
-
-- `.resonant-code/rccl.yaml`
-
-### 3. Execute a coding task
-
-At task time, the `code` skill:
-
-- collects task context
-- invokes the compiler
-- receives compiled `ego` and `trace`
-- uses `ego` for implementation decisions
-- writes quality feedback back to the lockfile
-
-## Non-negotiable constraints
-
-When extending this project, avoid regressing into these anti-patterns:
-
-- raw prompt concatenation instead of compiled structural guidance
-- skill-specific manual parsing of playbook data
-- trusting RCCL without verification or disposition handling
-- omitting `Decision Trace`
-- treating lockfile feedback as optional decoration
-
-The long-term success condition is not simply that a compiler exists.
-It is that the compiler is deterministic enough to inspect, useful enough that multiple
-skills can rely on it, and able to improve over time through verified repository context
-and quality feedback.
-
-## Status
-
-Experimental, but no longer just a playbook sketch.
-
-The repository now has a working first-pass compiler, working `init` and
-`calibrate-repo-context` setup flows, and a thin `code` consumer that exercises the
-intended architecture end-to-end.
+The goal is a system that behaves like a compiler for engineering taste, not a collection of prompt templates.
 
 ## License
 
