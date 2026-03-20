@@ -14,7 +14,7 @@ Coding agents generate plausible code. The harder problem is generating code wor
 /plugin install resonant-code@sovea
 ```
 
-## Recommended workflow
+## Recommended quickstart workflow
 
 ```sh
 # 1. Initialize resonant-code
@@ -55,6 +55,12 @@ Most agent tooling works by injecting rules as flat text and hoping the model in
 - The agent receives a clean, deterministic EGO — not raw rule text to interpret
 
 The goal is a system that behaves like a compiler for engineering taste, not a collection of prompt templates.
+
+## Todo / Upcoming Features
+
+- [ ] directive refinement workflow
+- [ ] connect lockfile feedback to the quality flywheel
+- [ ] code review skill
 
 ## License
 
