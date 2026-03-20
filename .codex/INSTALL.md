@@ -21,17 +21,17 @@ These skills expect `playbook` and `runtime` to be available next to specific sk
 macOS/Linux:
 
 ```sh
-ln -s ~/.codex/resonant-code/plugins/resonant-code/playbook ~/.codex/resonant-code/plugins/resonant-code/skills/init/playbook
-ln -s ~/.codex/resonant-code/plugins/resonant-code/playbook ~/.codex/resonant-code/plugins/resonant-code/skills/code/playbook
-ln -s ~/.codex/resonant-code/plugins/resonant-code/runtime ~/.codex/resonant-code/plugins/resonant-code/skills/code/runtime
+ln -s ~/.codex/resonant-code/playbook ~/.codex/resonant-code/skills/init/playbook
+ln -s ~/.codex/resonant-code/playbook ~/.codex/resonant-code/skills/code/playbook
+ln -s ~/.codex/resonant-code/runtime ~/.codex/resonant-code/skills/code/runtime
 ```
 
 Windows (PowerShell):
 
 ```powershell
-cmd /c mklink /J "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\skills\init\playbook" "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\playbook"
-cmd /c mklink /J "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\skills\code\playbook" "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\playbook"
-cmd /c mklink /J "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\skills\code\runtime" "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\runtime"
+cmd /c mklink /J "$env:USERPROFILE\.codex\resonant-code\skills\init\playbook" "$env:USERPROFILE\.codex\resonant-code\playbook"
+cmd /c mklink /J "$env:USERPROFILE\.codex\resonant-code\skills\code\playbook" "$env:USERPROFILE\.codex\resonant-code\playbook"
+cmd /c mklink /J "$env:USERPROFILE\.codex\resonant-code\skills\code\runtime" "$env:USERPROFILE\.codex\resonant-code\runtime"
 ```
 
 3. Create the native skill discovery symlink.
@@ -40,7 +40,7 @@ macOS/Linux:
 
 ```sh
 mkdir -p ~/.agents/skills
-ln -s ~/.codex/resonant-code/plugins/resonant-code/skills ~/.agents/skills/resonant-code
+ln -s ~/.codex/resonant-code/skills ~/.agents/skills/resonant-code
 ```
 
 Windows (PowerShell):
@@ -84,18 +84,18 @@ macOS/Linux:
 
 ```sh
 rm ~/.agents/skills/resonant-code
-rm ~/.codex/resonant-code/plugins/resonant-code/skills/init/playbook
-rm ~/.codex/resonant-code/plugins/resonant-code/skills/code/playbook
-rm ~/.codex/resonant-code/plugins/resonant-code/skills/code/runtime
+rm ~/.codex/resonant-code/skills/init/playbook
+rm ~/.codex/resonant-code/skills/code/playbook
+rm ~/.codex/resonant-code/skills/code/runtime
 ```
 
 Windows (PowerShell):
 
 ```powershell
 Remove-Item "$env:USERPROFILE\.agents\skills\resonant-code"
-Remove-Item "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\skills\init\playbook"
-Remove-Item "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\skills\code\playbook"
-Remove-Item "$env:USERPROFILE\.codex\resonant-code\plugins\resonant-code\skills\code\runtime"
+Remove-Item "$env:USERPROFILE\.codex\resonant-code\skills\init\playbook"
+Remove-Item "$env:USERPROFILE\.codex\resonant-code\skills\code\playbook"
+Remove-Item "$env:USERPROFILE\.codex\resonant-code\skills\code\runtime"
 ```
 
 Optionally delete the clone:

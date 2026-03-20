@@ -8,7 +8,7 @@ Coding agents generate plausible code. The harder problem is generating code wor
 
 ```sh
 # add marketplace
-/plugin marketplace add sovea/resonant-code
+/plugin marketplace add sovea/cc-marketplace
 
 # install plugin
 /plugin install resonant-code@sovea
