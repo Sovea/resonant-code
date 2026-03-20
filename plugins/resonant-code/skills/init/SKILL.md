@@ -1,6 +1,6 @@
 ---
 name: init
-description: "Initialize .resonant-code/playbook/local-augment.yaml by detecting project language, framework, and toolchain from strong signal files. Use when setting up resonant-code for a new project."
+description: "Initialize resonant-code by detecting project language, framework, and toolchain from strong signal files. Use when setting up resonant-code for a project."
 metadata:
   version: "0.1.0"
   author: "Sovea"

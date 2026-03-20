@@ -1,12 +1,23 @@
 ---
 name: code
-description: "Compile task-time guidance through Runtime, apply the compiled EGO during implementation, and write quality signals back to the lockfile after the task."
+description: "Skill for implementing, modifying, fixing, or refactoring code. It compiles task-time guidance through Runtime, applies the compiled EGO during implementation, and writes quality signals back to the lockfile after the task."
 metadata:
   version: "0.1.0"
   author: "Sovea"
 ---
 
-# Implement Code With Runtime Guidance
+# Code And Modify With Runtime Guidance
+
+Use this skill for concrete coding work:
+
+- implement a feature
+- modify existing code
+- fix a bug
+- refactor an area without redesigning the whole system
+
+If the user is asking for actual code changes, this is the skill that should be used.
+Its primary job is coding. Runtime integration exists to guide that coding work, not to
+replace it.
 
 This skill is a thin Runtime consumer.
 
@@ -14,8 +25,8 @@ Do not read or merge playbook files manually.
 Do not reconstruct EGO logic in the skill.
 Do not use raw playbook YAML as the primary prompt input.
 
-Use the Runtime to compile guidance for the current coding task, then apply the
-compiled `ego` while implementing the change.
+Use the Runtime to compile guidance for the current coding task, then use the
+compiled `ego` while actually implementing the requested code change.
 
 ## Instructions
 
