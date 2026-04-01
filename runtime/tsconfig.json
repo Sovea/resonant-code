@@ -6,8 +6,7 @@
     "strict": true,
     "declaration": false,
     "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "exactOptionalPropertyTypes": true
+    "allowImportingTsExtensions": true
   },
   "include": ["src/**/*.ts"]
 }

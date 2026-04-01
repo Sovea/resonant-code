@@ -5,5 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node ./build.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15"
   }
 }
