@@ -1,29 +1,31 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseIntent } from './intent/parse-intent.ts';
+import { buildContextProfile, parseIntent } from './intent/parse-intent.ts';
+import { semanticMerge } from './merge/semantic-merge.ts';
 import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from './load/load-playbook.ts';
 import { loadRccl } from './load/load-rccl.ts';
 import { verifyRcclDocument } from './verify/verify-rccl.ts';
 import { minimatch } from './utils/glob.ts';
 import { stableHash } from './utils/hash.ts';
 import type {
+  ChangeDecisionPacket,
   CompileInput,
   CompileOutput,
-  ContextTension,
   DecisionTrace,
   Directive,
   EffectiveGuidanceObject,
-  ExecutionMode,
   RcclObservation,
+  SemanticMergeResult,
   TraceStep,
 } from './types.ts';
 
 /**
- * Runs the deterministic playbook pipeline and produces EGO plus decision trace.
+ * Runs the deterministic playbook pipeline and produces a change decision packet.
  */
 export async function compile(input: CompileInput): Promise<CompileOutput> {
   const traceSteps: TraceStep[] = [];
   const intent = parseIntent(input.task);
+  const contextProfile = buildContextProfile(input.task, intent);
   traceSteps.push({
     stage: 'Intent Parse',
     lines: [
@@ -31,6 +33,11 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       `target_layer: ${intent.target_layer}`,
       `tech_stack: ${intent.tech_stack.join(', ') || '(none)'}`,
       `target_file: ${intent.target_file ?? '(none)'}`,
+      `optimization_target: ${contextProfile.optimization_target}`,
+      `hard_constraints: ${contextProfile.hard_constraints.join(', ') || '(none)'}`,
+      `allowed_tradeoffs: ${contextProfile.allowed_tradeoffs.join(', ') || '(none)'}`,
+      `avoid: ${contextProfile.avoid.join(', ') || '(none)'}`,
+      `project_stage: ${contextProfile.project_stage ?? '(none)'}`,
     ],
   });
 
@@ -62,7 +69,18 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       : ['no rccl loaded'],
   });
 
-  const ego = assembleEgo(filteredDirectives, rccl?.observations ?? [], intent);
+  const semanticMergeResult = semanticMerge(filteredDirectives, rccl?.observations ?? [], intent, contextProfile);
+  traceSteps.push({
+    stage: 'Semantic Merge',
+    lines: [
+      `activated_directives: ${semanticMergeResult.activated_directives.length}`,
+      `suppressed_directives: ${semanticMergeResult.suppressed_directives.length}`,
+      `context_tensions: ${semanticMergeResult.context_tensions.length}`,
+      `context_influences: ${semanticMergeResult.context_influences.length}`,
+    ],
+  });
+
+  const ego = assembleEgo(filteredDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
   traceSteps.push({
     stage: 'EGO Assembly',
     lines: [
@@ -73,11 +91,31 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     ],
   });
 
-  const trace: DecisionTrace = { task: intent, steps: traceSteps };
+  const trace: DecisionTrace = {
+    task: intent,
+    steps: traceSteps,
+    activated_directives: semanticMergeResult.activated_directives,
+    suppressed_directives: semanticMergeResult.suppressed_directives,
+    directive_decisions: semanticMergeResult.directive_modes,
+    observation_links: semanticMergeResult.observation_links,
+    context_influences: semanticMergeResult.context_influences,
+  };
   const cache = buildCacheKeys(input, selectedLayerIds, rccl);
-  return { ego, trace, cache };
+  const packet: ChangeDecisionPacket = {
+    version: 1,
+    task_intent: intent,
+    context_profile: contextProfile,
+    semantic_merge: semanticMergeResult,
+    ego,
+    trace,
+    cache,
+  };
+  return { packet, ego: packet.ego, trace: packet.trace, cache: packet.cache };
 }
 
+/**
+ * Applies local suppressions, overrides, augments, and additions to built-in directives.
+ */
 function applyLocalAugment(directives: Directive[], local: ReturnType<typeof loadLocalPlaybook>): Directive[] {
   if (!local) return directives;
   const suppressed = new Set(local.suppresses.map((item) => item.id));
@@ -122,14 +160,26 @@ function scopeMatchesIntent(scope: string, targetFile: string | undefined, chang
   return changedFiles.some((file) => minimatch(file, scope));
 }
 
+/**
+ * Assembles the final agent-facing guidance object from filtered directives and observations.
+ */
 function assembleEgo(
   directives: Directive[],
   observations: RcclObservation[],
   intent: CompileOutput['ego']['taskIntent'],
+  contextProfile: ChangeDecisionPacket['context_profile'],
+  semanticMergeResult: SemanticMergeResult,
 ): EffectiveGuidanceObject {
+  const modeByDirectiveId = new Map(
+    semanticMergeResult.directive_modes.map((item) => [item.directive_id, item.execution_mode]),
+  );
+  const decisionByDirectiveId = new Map(
+    semanticMergeResult.directive_modes.map((item) => [item.directive_id, item]),
+  );
+
   const must_follow = directives
     .filter((directive) => directive.type !== 'anti-pattern')
-    .sort(compareDirectives)
+    .sort((a, b) => compareDirectives(a, b, contextProfile, decisionByDirectiveId))
     .map((directive) => ({
       id: directive.id,
       statement: directive.description,
@@ -137,7 +187,7 @@ function assembleEgo(
       prescription: directive.prescription,
       exceptions: directive.exceptions ?? [],
       examples: directive.examples,
-      execution_mode: deriveDirectiveMode(directive, observations),
+      execution_mode: modeByDirectiveId.get(directive.id) ?? 'ambient',
     }));
 
   const avoid = observations
@@ -149,9 +199,7 @@ function assembleEgo(
       trigger: `anti-pattern:${observation.id}`,
     }));
 
-  const context_tensions = observations
-    .filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files))
-    .flatMap((observation) => buildTensions(observation, directives));
+  const context_tensions = semanticMergeResult.context_tensions;
 
   const ambient = observations
     .filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files))
@@ -172,60 +220,59 @@ function assembleEgo(
   };
 }
 
-function buildTensions(observation: RcclObservation, directives: Directive[]): ContextTension[] {
-  if (observation.verification.disposition === 'demote-to-ambient') return [];
-  if (observation.adherence_quality === 'good') return [];
-  const candidates = directives
-    .map((directive) => ({ directive, score: lexicalSimilarity(directive.description, observation.pattern) }))
-    .filter((item) => item.score >= 0.2)
-    .sort((a, b) => b.score - a.score);
-  const match = candidates[0]?.directive;
-  if (!match || match.prescription !== 'must') return [];
-  const execution_mode: ExecutionMode = 'deviation-noted';
-  return [{
-    directive_id: match.id,
-    execution_mode,
-    conflict: `${match.description} conflicts with observed local pattern: ${observation.pattern}`,
-    resolution: `Follow ${match.id} for new code, but preserve compatibility with the observed repository pattern where interfaces depend on it.`,
-    rccl_confidence: observation.verification.verified_confidence ?? 0,
-  }];
-}
 
-function deriveDirectiveMode(directive: Directive, observations: RcclObservation[]): ExecutionMode {
-  if (directive.type === 'anti-pattern') return 'suppress';
-  if (directive.rccl_immune) return 'enforce';
-  const relevantScore = observations
-    .filter((observation) => observation.verification.disposition !== 'demote-to-ambient')
-    .map((observation) => lexicalSimilarity(directive.description, observation.pattern))
-    .sort((a, b) => b - a)[0] ?? 0;
-  if (relevantScore < 0.2) return directive.prescription === 'must' ? 'enforce' : 'ambient';
-  return directive.prescription === 'must' ? 'deviation-noted' : 'ambient';
-}
-
-function lexicalSimilarity(a: string, b: string): number {
-  const aTokens = tokenize(a);
-  const bTokens = tokenize(b);
-  if (aTokens.size === 0 || bTokens.size === 0) return 0;
-  let overlap = 0;
-  for (const token of bTokens) {
-    if (aTokens.has(token)) overlap += 1;
-  }
-  return overlap / Math.max(aTokens.size, bTokens.size);
-}
-
-function tokenize(text: string): Set<string> {
-  return new Set(text.toLowerCase().match(/[a-z][a-z0-9-]+/g)?.filter((token) => token.length > 2) ?? []);
-}
-
-function compareDirectives(a: Directive, b: Directive): number {
+function compareDirectives(
+  a: Directive,
+  b: Directive,
+  contextProfile: ChangeDecisionPacket['context_profile'],
+  decisionByDirectiveId: Map<string, SemanticMergeResult['directive_modes'][number]>,
+): number {
   const prescriptionScore = a.prescription === b.prescription ? 0 : a.prescription === 'must' ? -1 : 1;
   if (prescriptionScore !== 0) return prescriptionScore;
   const weights = { low: 0, normal: 1, high: 2, critical: 3 };
   const weightScore = weights[b.weight] - weights[a.weight];
   if (weightScore !== 0) return weightScore;
+
+  const contextAppliedScore = (decisionByDirectiveId.get(b.id)?.context_applied.length ?? 0)
+    - (decisionByDirectiveId.get(a.id)?.context_applied.length ?? 0);
+  if (contextAppliedScore !== 0) return contextAppliedScore;
+
+  const alignmentScore = scoreDirectiveContextAlignment(b, contextProfile) - scoreDirectiveContextAlignment(a, contextProfile);
+  if (alignmentScore !== 0) return alignmentScore;
+
   return a.id.localeCompare(b.id);
 }
 
+function scoreDirectiveContextAlignment(
+  directive: Directive,
+  contextProfile: ChangeDecisionPacket['context_profile'],
+): number {
+  const text = `${directive.description} ${directive.rationale}`.toLowerCase();
+  let score = 0;
+  if (contextProfile.optimization_target === 'safety' && /(safe|safety|correct|compatib|regression|constraint|migration)/.test(text)) {
+    score += 2;
+  }
+  if (contextProfile.optimization_target === 'reviewability' && /(readable|review|clear|legible|simple)/.test(text)) {
+    score += 2;
+  }
+  if (contextProfile.optimization_target === 'simplicity' && /(simple|minimal|small|narrow|focused)/.test(text)) {
+    score += 2;
+  }
+  if (contextProfile.optimization_target === 'maintainability' && /(maintain|structure|refactor|module|boundary)/.test(text)) {
+    score += 2;
+  }
+  if (contextProfile.allowed_tradeoffs.includes('prefer narrow change scope') && /(narrow|local|boundary|focused)/.test(text)) {
+    score += 1;
+  }
+  if (contextProfile.hard_constraints.includes('preserve compatibility') && /(compatib|public api|interface)/.test(text)) {
+    score += 1;
+  }
+  return score;
+}
+
+/**
+ * Derives stable cache keys for layered inputs and the concrete task payload.
+ */
 function buildCacheKeys(
   input: CompileInput,
   selectedLayerIds: string[],

@@ -31,7 +31,7 @@ export async function prepareCodeTask(options) {
     };
     const output = await runtime.compile(compileInput);
     const session = {
-      version: 1,
+      version: 2,
       status: 'ok',
       createdAt: new Date().toISOString(),
       paths,
@@ -45,6 +45,7 @@ export async function prepareCodeTask(options) {
       status: 'ok',
       sessionPath,
       paths,
+      packet: output.packet,
       ego: output.ego,
       trace: output.trace,
       warnings,
@@ -52,7 +53,7 @@ export async function prepareCodeTask(options) {
   } catch (error) {
     const message = formatError(error);
     const session = {
-      version: 1,
+      version: 2,
       status: 'degraded',
       createdAt: new Date().toISOString(),
       paths,
@@ -85,7 +86,7 @@ export async function prepareCodeTask(options) {
 
 export async function completeCodeTask(options) {
   const session = JSON.parse(readFileSync(resolve(options.sessionPath), 'utf-8'));
-  if (session.status !== 'ok' || !session.compileOutput?.ego) {
+  if (session.status !== 'ok' || !session.compileOutput?.packet?.ego) {
     return {
       status: 'skipped',
       sessionPath: resolve(options.sessionPath),
@@ -96,12 +97,14 @@ export async function completeCodeTask(options) {
 
   try {
     const runtime = await loadRuntime(session.paths.runtimeEntry);
+    const packet = session.compileOutput.packet;
     const followedDirectiveIds = options.followedDirectiveIds?.length
       ? unique(options.followedDirectiveIds)
-      : session.compileOutput.ego.guidance.must_follow.map((directive) => directive.id);
+      : packet.ego.guidance.must_follow.map((directive) => directive.id);
     const ignoredDirectiveIds = unique(options.ignoredDirectiveIds ?? []);
     runtime.evaluateGuidance({
-      ego: session.compileOutput.ego,
+      ego: packet.ego,
+      packet,
       lockfilePath: session.paths.lockfilePath,
       followedDirectiveIds,
       ignoredDirectiveIds,
@@ -162,6 +165,11 @@ function normalizeTaskInput(options, projectRoot) {
     changedFiles,
     techStack: unique(options.techStack ?? []),
     tags: unique(options.tags ?? []),
+    projectStage: options.projectStage,
+    optimizationTarget: options.optimizationTarget,
+    hardConstraints: unique(options.hardConstraints ?? []),
+    allowedTradeoffs: unique(options.allowedTradeoffs ?? []),
+    avoid: unique(options.avoid ?? []),
   };
 }
 
@@ -223,6 +231,11 @@ function parseCli(argv) {
         techStack: readMultiFlag(flags, 'tech'),
         tags: readMultiFlag(flags, 'tag'),
         operation: readSingleFlag(flags, 'operation'),
+        projectStage: readSingleFlag(flags, 'project-stage'),
+        optimizationTarget: readSingleFlag(flags, 'optimization-target'),
+        hardConstraints: readMultiFlag(flags, 'hard-constraint'),
+        allowedTradeoffs: readMultiFlag(flags, 'allowed-tradeoff'),
+        avoid: readMultiFlag(flags, 'avoid'),
       },
     };
   }

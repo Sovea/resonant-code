@@ -324,7 +324,7 @@ Current runtime state:
 
 - TypeScript source lives in `plugins/resonant-code/runtime/src/`
 - build output lives in `plugins/resonant-code/runtime/dist/`
-- build currently uses a no-dependency local script based on Node's `stripTypeScriptTypes`
+- build currently uses `tsdown` to emit the Runtime ESM dist under `runtime/dist/`
 - Runtime exposes compile and lockfile feedback entrypoints
 
 Current first-pass Runtime covers:

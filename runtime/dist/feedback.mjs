@@ -1,66 +1,135 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { parseYaml, toYaml } from './utils/yaml.mjs';
-                                                                        
-
+import { parseYaml, toYaml } from "./utils/yaml.mjs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+//#region src/feedback.ts
 /**
- * Updates the runtime lockfile with per-directive quality signals.
- */
-export function evaluateGuidance(input               )                                         {
-  const existing = loadLockfile(input.lockfilePath);
-  const followed = new Set(input.followedDirectiveIds ?? input.ego.guidance.must_follow.map((item) => item.id));
-  const ignored = new Set(input.ignoredDirectiveIds ?? []);
-  const taskType = input.ego.taskIntent.operation;
-  const today = new Date().toISOString().slice(0, 10);
-
-  for (const directive of input.ego.guidance.must_follow) {
-    const entry = existing[directive.id] ?? createEntry();
-    const counts = entry.quality_signal.by_task_type[taskType] ?? { followed: 0, ignored: 0 };
-    if (ignored.has(directive.id)) {
-      entry.quality_signal.overall.ignored += 1;
-      counts.ignored += 1;
-    } else if (followed.has(directive.id)) {
-      entry.quality_signal.overall.followed += 1;
-      counts.followed += 1;
-    }
-    entry.quality_signal.by_task_type[taskType] = counts;
-    entry.quality_signal.overall.follow_rate = computeFollowRate(entry);
-    entry.quality_signal.overall.trend = computeTrend(entry);
-    entry.quality_signal.last_seen = today;
-    existing[directive.id] = entry;
-  }
-
-  writeFileSync(input.lockfilePath, toYaml(existing), 'utf-8');
-  return existing;
+* Updates the runtime lockfile with per-directive quality signals.
+*/
+function evaluateGuidance(input) {
+	const existing = loadLockfile(input.lockfilePath);
+	const followed = new Set(input.followedDirectiveIds ?? input.ego.guidance.must_follow.map((item) => item.id));
+	const ignored = new Set(input.ignoredDirectiveIds ?? []);
+	const taskType = input.ego.taskIntent.operation;
+	const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+	const now = (/* @__PURE__ */ new Date()).toISOString();
+	const modeCounts = summarizeExecutionModes(input);
+	const tensionCount = input.packet?.semantic_merge.context_tensions.length ?? input.ego.guidance.context_tensions.length;
+	existing.governance_summary.total_tasks += 1;
+	existing.governance_summary.by_task_type[taskType] = (existing.governance_summary.by_task_type[taskType] ?? 0) + 1;
+	existing.governance_summary.last_execution_modes = modeCounts;
+	existing.governance_summary.last_tension_count = tensionCount;
+	existing.governance_summary.last_updated_at = now;
+	for (const directive of input.ego.guidance.must_follow) {
+		const entry = existing.directives[directive.id] ?? createEntry();
+		const counts = entry.quality_signal.by_task_type[taskType] ?? {
+			followed: 0,
+			ignored: 0
+		};
+		if (ignored.has(directive.id)) {
+			entry.quality_signal.overall.ignored += 1;
+			counts.ignored += 1;
+		} else if (followed.has(directive.id)) {
+			entry.quality_signal.overall.followed += 1;
+			counts.followed += 1;
+		}
+		entry.quality_signal.by_task_type[taskType] = counts;
+		entry.quality_signal.overall.follow_rate = computeFollowRate(entry);
+		entry.quality_signal.overall.trend = computeTrend(entry);
+		entry.quality_signal.last_seen = today;
+		entry.governance = { outcomes: {
+			total_tasks: (entry.governance?.outcomes.total_tasks ?? 0) + 1,
+			with_tensions: (entry.governance?.outcomes.with_tensions ?? 0) + (tensionCount > 0 ? 1 : 0),
+			last_execution_modes: modeCounts,
+			last_tension_count: tensionCount,
+			last_updated_at: now
+		} };
+		existing.directives[directive.id] = entry;
+	}
+	writeFileSync(input.lockfilePath, toYaml(existing), "utf-8");
+	return existing;
 }
-
-function loadLockfile(filePath        )                                         {
-  if (!existsSync(filePath)) return {};
-  return parseYaml(readFileSync(filePath, 'utf-8'))                                          ;
+function loadLockfile(filePath) {
+	if (!existsSync(filePath)) return createDocument();
+	const parsed = parseYaml(readFileSync(filePath, "utf-8"));
+	if ("directives" in parsed && "governance_summary" in parsed) return {
+		version: 2,
+		directives: parsed.directives,
+		governance_summary: parsed.governance_summary
+	};
+	return {
+		version: 2,
+		directives: parsed,
+		governance_summary: {
+			total_tasks: 0,
+			by_task_type: {},
+			last_execution_modes: emptyModeCounts(),
+			last_tension_count: 0,
+			last_updated_at: ""
+		}
+	};
 }
-
-function createEntry()                         {
-  return {
-    quality_signal: {
-      overall: {
-        followed: 0,
-        ignored: 0,
-        follow_rate: 0,
-        trend: 'stable',
-      },
-      by_task_type: {},
-      last_seen: '',
-    },
-  };
+function createDocument() {
+	return {
+		version: 2,
+		directives: {},
+		governance_summary: {
+			total_tasks: 0,
+			by_task_type: {},
+			last_execution_modes: emptyModeCounts(),
+			last_tension_count: 0,
+			last_updated_at: ""
+		}
+	};
 }
-
-function computeFollowRate(entry                        )         {
-  const total = entry.quality_signal.overall.followed + entry.quality_signal.overall.ignored;
-  return total === 0 ? 0 : Number((entry.quality_signal.overall.followed / total).toFixed(2));
+function createEntry() {
+	return {
+		quality_signal: {
+			overall: {
+				followed: 0,
+				ignored: 0,
+				follow_rate: 0,
+				trend: "stable"
+			},
+			by_task_type: {},
+			last_seen: ""
+		},
+		governance: { outcomes: {
+			total_tasks: 0,
+			with_tensions: 0,
+			last_execution_modes: emptyModeCounts(),
+			last_tension_count: 0,
+			last_updated_at: ""
+		} }
+	};
 }
-
-function computeTrend(entry                        )                                       {
-  const rate = entry.quality_signal.overall.follow_rate;
-  if (rate >= 0.9) return 'stable';
-  if (rate >= 0.75) return 'improving';
-  return 'degrading';
+function emptyModeCounts() {
+	return {
+		enforce: 0,
+		"deviation-noted": 0,
+		ambient: 0,
+		suppress: 0
+	};
 }
+function summarizeExecutionModes(input) {
+	const counts = emptyModeCounts();
+	const directives = input.packet?.semantic_merge.directive_modes ?? input.ego.guidance.must_follow.map((directive) => ({
+		directive_id: directive.id,
+		observation_ids: [],
+		execution_mode: directive.execution_mode,
+		reason: "derived from effective guidance fallback",
+		decision_basis: "default"
+	}));
+	for (const directive of directives) counts[directive.execution_mode] += 1;
+	return counts;
+}
+function computeFollowRate(entry) {
+	const total = entry.quality_signal.overall.followed + entry.quality_signal.overall.ignored;
+	return total === 0 ? 0 : Number((entry.quality_signal.overall.followed / total).toFixed(2));
+}
+function computeTrend(entry) {
+	const rate = entry.quality_signal.overall.follow_rate;
+	if (rate >= .9) return "stable";
+	if (rate >= .75) return "improving";
+	return "degrading";
+}
+//#endregion
+export { evaluateGuidance };
