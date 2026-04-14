@@ -2,20 +2,19 @@
 
 ## Project Background
 
-`resonant-code` is a plugin-oriented guidance system for coding agents.
+`resonant-code` is an AI coding governance/runtime layer for code changes.
 
-Its goal is not to build a full repository wiki or a general knowledge base.
-Its goal is to help coding agents generate, modify, and review code in a way that is:
+Its job is not to build a repository wiki, a general knowledge base, or another agent wrapper full of static rules. Its job is to help coding agents generate, modify, and review code in a way that is:
 
-- aligned with built-in engineering best practices
-- aligned with project-local preferences and team taste
-- aware of the current repository reality without blindly inheriting it
-- stable, explainable, and reusable across tasks
+- aligned with contextual engineering best practice instead of generic best practice
+- aligned with project-level principles and durable local decisions
+- aware of current repository reality without blindly inheriting it
+- stable, explainable, reviewable, and reusable across tasks
 
 The core problem this project addresses is the gap between:
 
 - code that is merely plausible
-- code that a developer or team actually wants to keep
+- code that a developer or team actually wants to adopt and keep
 
 Common failure modes this project tries to reduce:
 
@@ -25,39 +24,47 @@ Common failure modes this project tries to reduce:
 - generic or style-less output
 - poor proportionality to the task
 - review output with too much noise and weak judgment
+- weak decision transparency before and during code generation
 
 ## Core Architecture
 
-The system is organized around four major inputs:
+The technical solution is organized around five cooperating parts:
 
 1. Built-in playbook
 2. Local project augment
 3. RCCL (Repository Context Calibration Layer)
-4. Task intent
+4. Runtime
+5. Lockfile feedback loop
 
-The plugin is designed so that:
+The system is designed so that:
 
-- `init` prepares local project guidance
-- `calibrate-repo-context` prepares repository observation signals
-- Runtime compiles all relevant inputs into task-specific guidance
-- `code`, `review`, and similar skills are only the moments that call Runtime
+- `init` prepares local prescriptive guidance
+- `calibrate-repo-context` prepares verified repository observation signals
+- Runtime compiles all relevant inputs into a task-level change decision packet
+- `code`, `review`, and similar skills are runtime consumers, not alternative rule engines
+- runtime feedback is written back into a lockfile quality loop
 
 Runtime is not the final artifact.
-Runtime is the compile-and-decision mechanism.
-Its main outputs are:
+Runtime is the deterministic compile-and-decision mechanism.
+Its task-level artifact is a change decision packet whose primary views are:
 
 - `EGO` (Effective Guidance Object) for the agent
 - `Decision Trace` for developers and debugging
 
+This framing matters: the system is not trying to hand an agent a pile of text rules. It is trying to compile the right decision context for a specific change before implementation begins.
+
 ## Playbook Compiler Runtime - Target Design
 
-The target Runtime is a deterministic guidance compiler and decision runtime.
+The target Runtime is a deterministic governance runtime for AI-driven code changes.
+It compiles prescriptive guidance, verified repository observations, and task intent into a task-level change decision packet.
+
 Prescriptive signals and observational signals must remain hard-separated in the data model:
 
 - Playbook is prescriptive
 - RCCL is observational
 
 The runtime should produce controlled tension between them instead of letting an LLM improvise trade-offs ad hoc.
+This separation is a core governance constraint, not an implementation detail.
 
 ### Layered Playbook Layout
 
@@ -162,6 +169,15 @@ Target `TaskIntent` fields:
 - optional `target_file`
 - optional `tags`
 
+Longer-term, task intent should compose with a small, explicit context profile so the runtime can compile contextual best practice instead of generic advice. Typical dimensions include:
+
+- `project_stage`
+- `change_type`
+- `optimization_target`
+- `hard_constraints`
+- `allowed_tradeoffs`
+- `avoid`
+
 The long-term design allows LLM-based structured parse with caching.
 If implemented with heuristics first, keep the contract stable so it can be upgraded later.
 
@@ -191,6 +207,18 @@ Target execution modes:
 
 `deviation-noted` is especially important:
 it means "follow the rule for new work, but account for the current repository reality at interfaces and compatibility boundaries."
+
+### Change Decision Packet
+
+The runtime should produce a task-level change decision packet.
+That packet is the primary artifact for a single change and should make it possible to understand what the runtime decided before implementation proceeds.
+
+Its core views are:
+
+- `EGO` for the agent-facing executable guidance
+- `Decision Trace` for the developer-facing explanation and audit trail
+
+Longer-term, the packet may also explicitly carry task context, activated guidance, repository tensions, and review focus points, but the current architectural minimum is EGO plus Decision Trace.
 
 ### EGO Output
 
@@ -230,7 +258,7 @@ The lockfile should track:
 - breakdown by task type
 - last seen
 
-This exists to support long-term playbook evolution, not just single-task compilation.
+This is not optional decoration. It is the feedback side of the governance loop: task-time change decisions should leave behind quality signals that help evolve playbook guidance over time instead of forcing the same human corrections to repeat forever.
 
 ## Current Roadmap Model
 
@@ -238,20 +266,22 @@ The intended user flow is:
 
 1. Run `init`
 2. Run `calibrate-repo-context`
-3. During a concrete coding/review task, Runtime compiles guidance from:
+3. During a concrete coding/review task, Runtime compiles a change decision packet from:
    - built-in playbook
    - local augment
    - RCCL
    - task intent
 4. Agent consumes the compiled `EGO`
-5. Runtime writes feedback to the lockfile
+5. Developers can inspect the `Decision Trace`
+6. Runtime writes feedback to the lockfile
 
 At a product level:
 
 - `init` creates local prescriptive guidance
 - `calibrate-repo-context` creates observational guidance with verify gate
-- Runtime is invoked at task time
+- Runtime is invoked at task time as the decision compiler
 - `code` / `review` are runtime consumers, not alternative rule engines
+- lockfile feedback closes the loop between execution and future guidance quality
 
 ## Runtime Implementation Guidance
 

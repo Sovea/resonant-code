@@ -1,8 +1,10 @@
 # resonant-code
 
-A Claude Code plugin that aims to narrow the gap between plausible code and code worth keeping.
+An AI coding governance/runtime layer that helps agents produce code worth adopting, not just code that looks plausible.
 
-Coding agents generate plausible code. The harder problem is generating code worth keeping — code that reflects engineering standards, fits local conventions, respects the current state of the codebase, and **most importantly, matches your preferences and taste**.
+Coding agents can already generate plausible code. The harder problem is producing changes that fit the current repository, respect engineering constraints, stay proportional to the task, and are easy for a human developer to review and trust. resonant-code is built for that problem.
+
+It is designed for high-standard individual developers and small-team tech leads who want AI coding to feel collaborative rather than opaque: engineering principles should activate by context, tradeoffs should be explainable, and accepted or rejected decisions should improve future behavior.
 
 ## Installation
 
@@ -17,50 +19,57 @@ Coding agents generate plausible code. The harder problem is generating code wor
 ## Recommended quickstart workflow
 
 ```sh
-# 1. Initialize resonant-code
+# 1. Initialize local prescriptive guidance
 /resonant-code:init
 
-# 2. Analyze codebase for observational signals, generate RCCL
+# 2. Analyze the repository and generate verified observational signals
 /resonant-code:calibrate-repo-context
 
-# 3. Coding with Effective Guidance Object (EGO)
+# 3. Run task-time change decision compilation before coding
 /resonant-code:code <task description>
 ```
 
-> Suggested step: Review, extend and commit `.playbook/local-augment.yaml` to share taste with your team.
+> Suggested step: Review, extend, and commit `.playbook/local-augment.yaml` so project-specific engineering decisions become durable team assets.
+
+## Architecture in one line
+
+**Playbook** defines what should happen. **RCCL** captures what is true in the repository now. **Runtime** compiles both against task intent into a task-level change decision packet. **Lockfile feedback** records what happened so the system can improve over time.
 
 ## Design philosophy
 
-resonant-code uses the following informations as raw inputs:
+resonant-code treats AI coding as a change-governance problem rather than a prompt-writing problem. Its task-time runtime compiles the following inputs:
 
 | Input | What it represents |
 |---|---|
-| **Built-in playbook** | Prescriptive engineering standards (Rules the agent must/should/may/avoid obey) |
-| **Local augment** | Project-specific taste and convention overrides |
-| **RCCL** | Statically-verified observations of the current repository |
-| **Task intent** | What the user wants in this specific task |
+| **Built-in playbook** | Prescriptive engineering guidance and default rules |
+| **Local augment** | Project-specific principles, tradeoffs, and overrides |
+| **RCCL** | Verified observational signals about current repository reality |
+| **Task intent** | The goal, scope, and shape of the current change |
 
-These inputs are compiled at task time by the Guidance Compiler — not interpreted ad hoc by each skill. The compiler resolves conflicts, calibrates rules against repository reality, and produces two outputs:
+The runtime does not hand raw rules to the agent and hope for the best. It compiles these inputs into a task-level decision artifact with two primary views:
 
-- **EGO** (Effective Guidance Object) — structured guidance injected into the agent's context
-- **Decision Trace** — an auditable log of every rule applied, suppressed, or flagged as a deviation
+- **EGO** (Effective Guidance Object) — the structured agent-facing guidance for this task
+- **Decision Trace** — the developer-facing record of what was applied, suppressed, or marked as a repository tension
 
-The key architectural constraint: prescriptive guidance (playbook) and observational signals (RCCL) are separated at the data model layer and never compete on the same scoring axis. RCCL determines *how* a rule is applied — enforce, deviation-noted, ambient, or suppress — not *whether* it ranks above another rule.
+That artifact is the core unit of collaboration for a change: it explains why the agent should take a particular path before code is generated, not just after the diff appears.
 
-Most agent tooling works by injecting rules as flat text and hoping the model interprets them consistently. resonant-code treats guidance compilation as an engineering problem:
+The key architectural constraint is unchanged: prescriptive guidance (playbook) and observational signals (RCCL) stay separated in the data model and never compete on the same scoring axis. RCCL changes how a rule is executed in this repository — `enforce`, `deviation-noted`, `ambient`, or `suppress` — instead of acting like another loose pile of rules.
 
-- Rules are structured data with explicit prescriptions, examples, and conflict semantics
-- RCCL observations are statically verified against actual code before they influence guidance
-- The runtime resolves all conflicts and ambiguities before the agent sees anything
-- The agent receives a clean, deterministic EGO — not raw rule text to interpret
+Most agent tooling injects flat text instructions and relies on the model to resolve conflicts ad hoc. resonant-code treats this as a runtime and data-model problem:
 
-The goal is a system that behaves like a compiler for engineering taste, not a collection of prompt templates.
+- Guidance is structured, layered, and designed for conflict handling
+- Repository observations are statically verified before they influence behavior
+- Runtime resolves tensions before the agent starts coding
+- The agent receives a deterministic EGO instead of raw policy text
+- Feedback from real task outcomes can flow back into the quality loop
+
+The goal is not another wrapper around an agent. The goal is a reusable collaboration runtime for change decisions.
 
 ## Todo / Upcoming Features
 
 - [ ] directive refinement workflow
-- [ ] connect lockfile feedback to the quality flywheel
-- [ ] code review skill
+- [ ] stronger lockfile-driven quality flywheel
+- [ ] code review skill built on the same runtime
 
 ## License
 
