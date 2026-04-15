@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { collectScope } from './lib/collect-scope.mjs';
 import { sampleFiles } from './lib/sample-files.mjs';
 import { buildPrompt } from './lib/build-prompt.mjs';
@@ -18,15 +19,28 @@ function runPrepare(options = {}) {
   const sampleResult = sampleFiles(projectRoot, files, { maxFiles: 30, maxLines: 100 });
   // The LLM only sees a prompt assembled from deterministic repo sampling.
   const prompt = buildPrompt(sampleResult, scopeGlob, contextMeta);
+  const promptPath = writePromptArtifact(projectRoot, prompt, scopeGlob);
 
   process.stdout.write(JSON.stringify({
-    prompt,
+    promptPath,
     metadata: {
       scope: scopeGlob,
       stats: sampleResult.stats,
     },
   }, null, 2) + '\n');
   process.exit(0);
+}
+
+function writePromptArtifact(projectRoot, prompt, scopeGlob) {
+  const digest = createHash('sha1')
+    .update(JSON.stringify({ scopeGlob, promptLength: prompt.length }))
+    .digest('hex')
+    .slice(0, 10);
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  const promptPath = join(projectRoot, '.resonant-code', 'context', 'calibration-prompts', `${stamp}-${digest}.md`);
+  mkdirSync(dirname(promptPath), { recursive: true });
+  writeFileSync(promptPath, prompt, 'utf-8');
+  return promptPath;
 }
 
 function runCommit(options = {}) {

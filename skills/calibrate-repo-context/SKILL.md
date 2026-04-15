@@ -35,7 +35,7 @@ The script prints JSON:
 
 ```json
 {
-  "prompt": "<structured prompt text for LLM>",
+  "promptPath": "<path-to-generated-prompt-file>",
   "metadata": {
     "scope": "src/**",
     "stats": { "total": 120, "sampled": 30, "truncated": 5 }
@@ -48,7 +48,7 @@ Exit `1`: report stderr and stop.
 
 ### Step 2 - Generate RCCL observations
 
-Use the returned `prompt` as your own input and generate YAML that strictly matches the RCCL schema embedded in the prompt.
+Read the prompt text from the returned `promptPath` file. Use that file content as your own input and write the generated RCCL YAML to a file. Do not inline the full prompt into a shell-quoted command.
 
 Critical constraints:
 - Every observation must include real `evidence`
