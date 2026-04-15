@@ -13,7 +13,7 @@ export function evaluateGuidance(input: EvaluateInput): LockfileDocument {
   const today = new Date().toISOString().slice(0, 10);
   const now = new Date().toISOString();
   const modeCounts = summarizeExecutionModes(input);
-  const tensionCount = input.packet?.semantic_merge.context_tensions.length ?? input.ego.guidance.context_tensions.length;
+  const tensionCount = input.packet?.governance.semantic_merge.context_tensions.length ?? input.ego.guidance.context_tensions.length;
 
   existing.governance_summary.total_tasks += 1;
   existing.governance_summary.by_task_type[taskType] = (existing.governance_summary.by_task_type[taskType] ?? 0) + 1;
@@ -47,31 +47,43 @@ export function evaluateGuidance(input: EvaluateInput): LockfileDocument {
     existing.directives[directive.id] = entry;
   }
 
-  writeFileSync(input.lockfilePath, toYaml(existing), 'utf-8');
+  writeFileSync(input.lockfilePath, toYaml(existing as never), 'utf-8');
   return existing;
 }
 
 function loadLockfile(filePath: string): LockfileDocument {
   if (!existsSync(filePath)) return createDocument();
-  const parsed = parseYaml(readFileSync(filePath, 'utf-8')) as (LockfileDocument & { version?: number }) | Record<string, LockfileDirectiveEntry>;
-  if ('directives' in parsed && 'governance_summary' in parsed) {
+  const parsed = parseYaml(readFileSync(filePath, 'utf-8')) as unknown;
+  if (isLockfileDocument(parsed)) {
     return {
       version: 2,
       directives: parsed.directives,
       governance_summary: parsed.governance_summary,
     };
   }
-  return {
-    version: 2,
-    directives: parsed as Record<string, LockfileDirectiveEntry>,
-    governance_summary: {
-      total_tasks: 0,
-      by_task_type: {},
-      last_execution_modes: emptyModeCounts(),
-      last_tension_count: 0,
-      last_updated_at: '',
-    },
-  };
+  if (isDirectiveRecord(parsed)) {
+    return {
+      version: 2,
+      directives: parsed,
+      governance_summary: {
+        total_tasks: 0,
+        by_task_type: {},
+        last_execution_modes: emptyModeCounts(),
+        last_tension_count: 0,
+        last_updated_at: '',
+      },
+    };
+  }
+  return createDocument();
+}
+
+function isLockfileDocument(value: unknown): value is LockfileDocument & { version?: number } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return 'directives' in value && 'governance_summary' in value;
+}
+
+function isDirectiveRecord(value: unknown): value is Record<string, LockfileDirectiveEntry> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function createDocument(): LockfileDocument {
@@ -123,7 +135,7 @@ function emptyModeCounts(): Record<ExecutionMode, number> {
 
 function summarizeExecutionModes(input: EvaluateInput): Record<ExecutionMode, number> {
   const counts = emptyModeCounts();
-  const directives = input.packet?.semantic_merge.directive_modes ?? input.ego.guidance.must_follow.map((directive) => ({
+  const directives = input.packet?.governance.semantic_merge.directive_modes ?? input.ego.guidance.must_follow.map((directive) => ({
     directive_id: directive.id,
     observation_ids: [],
     execution_mode: directive.execution_mode,

@@ -1,4 +1,4 @@
-import { buildContextProfile, parseIntent } from "./intent/parse-intent.mjs";
+import { resolveTask } from "./interpret/normalize-candidate.mjs";
 import { minimatch } from "./utils/glob.mjs";
 import { semanticMerge } from "./merge/semantic-merge.mjs";
 import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from "./load/load-playbook.mjs";
@@ -7,16 +7,67 @@ import { verifyRcclDocument } from "./verify/verify-rccl.mjs";
 import { stableHash } from "./utils/hash.mjs";
 import { readFileSync } from "node:fs";
 //#region src/compile.ts
+function hasResolvedTask(input) {
+	return "resolvedTask" in input;
+}
+function toResolvedCompileInput(input) {
+	if (hasResolvedTask(input)) return input;
+	return {
+		builtinRoot: input.builtinRoot,
+		localAugmentPath: input.localAugmentPath,
+		rcclPath: input.rcclPath,
+		projectRoot: input.projectRoot,
+		lockfilePath: input.lockfilePath,
+		resolvedTask: resolveTask({
+			task: input.task,
+			candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
+			interpretationMode: input.interpretationMode
+		})
+	};
+}
+function buildInterpretationPacket(resolved) {
+	return {
+		candidates: resolved.candidates,
+		input_provenance: resolved.input_provenance,
+		diagnostics: resolved.diagnostics,
+		trace: resolved.trace,
+		resolved: {
+			task_intent: resolved.task_intent,
+			context_profile: resolved.context_profile
+		}
+	};
+}
+function buildGovernancePacket(semantic_merge, ego, trace) {
+	return {
+		semantic_merge,
+		ego,
+		trace
+	};
+}
+function compileResolvedOutput(packet, resolvedTask) {
+	return {
+		packet,
+		resolvedTask,
+		ego: packet.governance.ego,
+		trace: packet.governance.trace,
+		cache: packet.cache
+	};
+}
 /**
 * Runs the deterministic playbook pipeline and produces a change decision packet.
 */
 async function compile(input) {
+	const normalizedInput = toResolvedCompileInput(input);
+	const resolved = normalizedInput.resolvedTask;
 	const traceSteps = [];
-	const intent = parseIntent(input.task);
-	const contextProfile = buildContextProfile(input.task, intent);
+	const intent = resolved.task_intent;
+	const contextProfile = resolved.context_profile;
 	traceSteps.push({
 		stage: "Intent Parse",
 		lines: [
+			`interpretation_mode: ${resolved.input_provenance.interpretation_mode}`,
+			`resolved_fields: ${resolved.input_provenance.resolved_fields.length}`,
+			`unresolved_fields: ${resolved.input_provenance.unresolved_fields.join(", ") || "(none)"}`,
 			`operation: ${intent.operation}`,
 			`target_layer: ${intent.target_layer}`,
 			`tech_stack: ${intent.tech_stack.join(", ") || "(none)"}`,
@@ -28,8 +79,8 @@ async function compile(input) {
 			`project_stage: ${contextProfile.project_stage ?? "(none)"}`
 		]
 	});
-	const builtinLayers = discoverBuiltinLayers(input.builtinRoot);
-	const local = loadLocalPlaybook(input.localAugmentPath);
+	const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
+	const local = loadLocalPlaybook(normalizedInput.localAugmentPath);
 	const selectedLayerIds = local?.meta.extends.length ? resolveExtendedLayers(local.meta.extends, builtinLayers) : ["builtin/core"];
 	traceSteps.push({
 		stage: "Layer Filter",
@@ -39,8 +90,8 @@ async function compile(input) {
 		const filePath = builtinLayers.get(layerId);
 		return filePath ? loadDirectiveFile(filePath, layerId) : [];
 	}), local).filter((directive) => layerMatchesIntent(directive, intent)).filter((directive) => scopeMatchesIntent(directive.scope.path, intent.target_file, intent.changed_files));
-	const loadedRccl = loadRccl(input.rcclPath);
-	const rccl = loadedRccl ? verifyRcclDocument(loadedRccl, input.projectRoot) : null;
+	const loadedRccl = loadRccl(normalizedInput.rcclPath);
+	const rccl = loadedRccl ? verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
 	traceSteps.push({
 		stage: "RCCL Verify Gate",
 		lines: rccl?.observations.length ? rccl.observations.map((observation) => `${observation.id}: ${observation.verification.status}/${observation.verification.disposition}`) : ["no rccl loaded"]
@@ -65,29 +116,31 @@ async function compile(input) {
 			`ambient: ${ego.guidance.ambient.length}`
 		]
 	});
-	const packet = {
-		version: 1,
-		task_intent: intent,
-		context_profile: contextProfile,
-		semantic_merge: semanticMergeResult,
-		ego,
-		trace: {
-			task: intent,
-			steps: traceSteps,
-			activated_directives: semanticMergeResult.activated_directives,
-			suppressed_directives: semanticMergeResult.suppressed_directives,
-			directive_decisions: semanticMergeResult.directive_modes,
-			observation_links: semanticMergeResult.observation_links,
-			context_influences: semanticMergeResult.context_influences
+	const trace = {
+		task: intent,
+		steps: traceSteps,
+		activated_directives: semanticMergeResult.activated_directives,
+		suppressed_directives: semanticMergeResult.suppressed_directives,
+		directive_decisions: semanticMergeResult.directive_modes,
+		observation_links: semanticMergeResult.observation_links,
+		context_influences: semanticMergeResult.context_influences
+	};
+	const cache = buildCacheKeys({
+		builtinRoot: normalizedInput.builtinRoot,
+		localAugmentPath: normalizedInput.localAugmentPath,
+		rcclPath: normalizedInput.rcclPath,
+		task: resolved.task
+	}, selectedLayerIds, rccl);
+	return compileResolvedOutput({
+		version: 2,
+		task: {
+			task_kind: resolved.taskKind,
+			input: resolved.task
 		},
-		cache: buildCacheKeys(input, selectedLayerIds, rccl)
-	};
-	return {
-		packet,
-		ego: packet.ego,
-		trace: packet.trace,
-		cache: packet.cache
-	};
+		interpretation: buildInterpretationPacket(resolved),
+		governance: buildGovernancePacket(semanticMergeResult, ego, trace),
+		cache
+	}, resolved);
 }
 /**
 * Applies local suppressions, overrides, augments, and additions to built-in directives.
@@ -208,4 +261,4 @@ function buildCacheKeys(input, selectedLayerIds, rccl) {
 	};
 }
 //#endregion
-export { compile };
+export { compile, resolveTask };

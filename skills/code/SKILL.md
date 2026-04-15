@@ -32,14 +32,23 @@ compiled `ego` while actually implementing the requested code change.
 
 ### Step 1 - Compile task guidance
 
-Run:
+First, when the task is semantically ambiguous, run:
 
 ```sh
-node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<user task>" [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
+node <this-skill-directory>/scripts/code.mjs prepare-interpretation <project-root> --task "<user task>" [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
+```
+
+This prints a Runtime-owned interpretation prompt, candidate schema, normalized task input, and ambiguity hints. Use host Claude to produce a JSON candidate file only when that extra interpretation help is useful.
+
+Then run:
+
+```sh
+node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<user task>" [--candidate-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
 ```
 
 Pass `--changed-file` for each known changed or directly relevant file.
 Pass `--tech` only when there is a strong hint not already obvious from the target file.
+Pass `--candidate-file` only when host Claude produced a structured interpretation candidate.
 
 The script prints JSON:
 

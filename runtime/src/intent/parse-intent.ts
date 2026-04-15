@@ -15,6 +15,7 @@ export function parseIntent(task: CompileTaskInput): TaskIntent {
 
   const operation = task.operation ?? inferOperation(description);
   return {
+    task_kind: task.taskKind ?? 'code',
     operation,
     target_layer: inferTargetLayer(targetFile, description),
     tech_stack: techStack,

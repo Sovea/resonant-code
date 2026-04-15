@@ -11,8 +11,10 @@ function parseIntent(task) {
 		...targetFile?.endsWith(".ts") || targetFile?.endsWith(".tsx") ? ["typescript"] : [],
 		...description.includes("react") || targetFile?.endsWith(".tsx") ? ["react"] : []
 	])];
+	const operation = task.operation ?? inferOperation(description);
 	return {
-		operation: task.operation ?? inferOperation(description),
+		task_kind: task.taskKind ?? "code",
+		operation,
 		target_layer: inferTargetLayer(targetFile, description),
 		tech_stack: techStack,
 		target_file: targetFile,

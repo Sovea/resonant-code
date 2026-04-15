@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildContextProfile, parseIntent } from './intent/parse-intent.ts';
+import { resolveTask } from './interpret/normalize-candidate.ts';
 import { semanticMerge } from './merge/semantic-merge.ts';
 import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from './load/load-playbook.ts';
 import { loadRccl } from './load/load-rccl.ts';
@@ -11,24 +11,87 @@ import type {
   ChangeDecisionPacket,
   CompileInput,
   CompileOutput,
+  ContextProfile,
   DecisionTrace,
   Directive,
   EffectiveGuidanceObject,
+  GovernancePacket,
+  InterpretationPacket,
   RcclObservation,
+  ResolvedCompileInput,
+  ResolvedTaskOutput,
   SemanticMergeResult,
+  TaskIntent,
   TraceStep,
 } from './types.ts';
+
+function hasResolvedTask(input: CompileInput): input is ResolvedCompileInput {
+  return 'resolvedTask' in input;
+}
+
+function toResolvedCompileInput(input: CompileInput): ResolvedCompileInput {
+  if (hasResolvedTask(input)) return input;
+  return {
+    builtinRoot: input.builtinRoot,
+    localAugmentPath: input.localAugmentPath,
+    rcclPath: input.rcclPath,
+    projectRoot: input.projectRoot,
+    lockfilePath: input.lockfilePath,
+    resolvedTask: resolveTask({
+      task: input.task,
+      candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
+      interpretationMode: input.interpretationMode,
+    }),
+  };
+}
+
+function buildInterpretationPacket(resolved: ResolvedTaskOutput): InterpretationPacket {
+  return {
+    candidates: resolved.candidates,
+    input_provenance: resolved.input_provenance,
+    diagnostics: resolved.diagnostics,
+    trace: resolved.trace,
+    resolved: {
+      task_intent: resolved.task_intent,
+      context_profile: resolved.context_profile,
+    },
+  };
+}
+
+function buildGovernancePacket(
+  semantic_merge: SemanticMergeResult,
+  ego: EffectiveGuidanceObject,
+  trace: DecisionTrace,
+): GovernancePacket {
+  return { semantic_merge, ego, trace };
+}
+
+function compileResolvedOutput(packet: ChangeDecisionPacket, resolvedTask: ResolvedTaskOutput): CompileOutput {
+  return {
+    packet,
+    resolvedTask,
+    ego: packet.governance.ego,
+    trace: packet.governance.trace,
+    cache: packet.cache,
+  };
+}
 
 /**
  * Runs the deterministic playbook pipeline and produces a change decision packet.
  */
 export async function compile(input: CompileInput): Promise<CompileOutput> {
+  const normalizedInput = toResolvedCompileInput(input);
+  const resolved = normalizedInput.resolvedTask;
   const traceSteps: TraceStep[] = [];
-  const intent = parseIntent(input.task);
-  const contextProfile = buildContextProfile(input.task, intent);
+  const intent = resolved.task_intent;
+  const contextProfile = resolved.context_profile;
+
   traceSteps.push({
     stage: 'Intent Parse',
     lines: [
+      `interpretation_mode: ${resolved.input_provenance.interpretation_mode}`,
+      `resolved_fields: ${resolved.input_provenance.resolved_fields.length}`,
+      `unresolved_fields: ${resolved.input_provenance.unresolved_fields.join(', ') || '(none)'}`,
       `operation: ${intent.operation}`,
       `target_layer: ${intent.target_layer}`,
       `tech_stack: ${intent.tech_stack.join(', ') || '(none)'}`,
@@ -41,8 +104,8 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     ],
   });
 
-  const builtinLayers = discoverBuiltinLayers(input.builtinRoot);
-  const local = loadLocalPlaybook(input.localAugmentPath);
+  const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
+  const local = loadLocalPlaybook(normalizedInput.localAugmentPath);
   const selectedLayerIds = local?.meta.extends.length
     ? resolveExtendedLayers(local.meta.extends, builtinLayers)
     : ['builtin/core'];
@@ -60,8 +123,8 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     .filter((directive) => layerMatchesIntent(directive, intent))
     .filter((directive) => scopeMatchesIntent(directive.scope.path, intent.target_file, intent.changed_files));
 
-  const loadedRccl = loadRccl(input.rcclPath);
-  const rccl = loadedRccl ? verifyRcclDocument(loadedRccl, input.projectRoot) : null;
+  const loadedRccl = loadRccl(normalizedInput.rcclPath);
+  const rccl = loadedRccl ? verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
   traceSteps.push({
     stage: 'RCCL Verify Gate',
     lines: rccl?.observations.length
@@ -100,17 +163,26 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     observation_links: semanticMergeResult.observation_links,
     context_influences: semanticMergeResult.context_influences,
   };
-  const cache = buildCacheKeys(input, selectedLayerIds, rccl);
+
+  const cache = buildCacheKeys({
+    builtinRoot: normalizedInput.builtinRoot,
+    localAugmentPath: normalizedInput.localAugmentPath,
+    rcclPath: normalizedInput.rcclPath,
+    task: resolved.task,
+  }, selectedLayerIds, rccl);
+
   const packet: ChangeDecisionPacket = {
-    version: 1,
-    task_intent: intent,
-    context_profile: contextProfile,
-    semantic_merge: semanticMergeResult,
-    ego,
-    trace,
+    version: 2,
+    task: {
+      task_kind: resolved.taskKind,
+      input: resolved.task,
+    },
+    interpretation: buildInterpretationPacket(resolved),
+    governance: buildGovernancePacket(semanticMergeResult, ego, trace),
     cache,
   };
-  return { packet, ego: packet.ego, trace: packet.trace, cache: packet.cache };
+
+  return compileResolvedOutput(packet, resolved);
 }
 
 /**
@@ -139,7 +211,7 @@ function applyLocalAugment(directives: Directive[], local: ReturnType<typeof loa
   return [...result, ...local.additions];
 }
 
-function layerMatchesIntent(directive: Directive, intent: CompileOutput['ego']['taskIntent']): boolean {
+function layerMatchesIntent(directive: Directive, intent: TaskIntent): boolean {
   const sourceLayer = directive.source.layerId;
   if (sourceLayer === 'builtin/core' || directive.layer.startsWith('local')) return true;
   if (sourceLayer.startsWith('builtin/task-types/')) {
@@ -166,8 +238,8 @@ function scopeMatchesIntent(scope: string, targetFile: string | undefined, chang
 function assembleEgo(
   directives: Directive[],
   observations: RcclObservation[],
-  intent: CompileOutput['ego']['taskIntent'],
-  contextProfile: ChangeDecisionPacket['context_profile'],
+  intent: TaskIntent,
+  contextProfile: ContextProfile,
   semanticMergeResult: SemanticMergeResult,
 ): EffectiveGuidanceObject {
   const modeByDirectiveId = new Map(
@@ -220,11 +292,10 @@ function assembleEgo(
   };
 }
 
-
 function compareDirectives(
   a: Directive,
   b: Directive,
-  contextProfile: ChangeDecisionPacket['context_profile'],
+  contextProfile: ContextProfile,
   decisionByDirectiveId: Map<string, SemanticMergeResult['directive_modes'][number]>,
 ): number {
   const prescriptionScore = a.prescription === b.prescription ? 0 : a.prescription === 'must' ? -1 : 1;
@@ -243,10 +314,7 @@ function compareDirectives(
   return a.id.localeCompare(b.id);
 }
 
-function scoreDirectiveContextAlignment(
-  directive: Directive,
-  contextProfile: ChangeDecisionPacket['context_profile'],
-): number {
+function scoreDirectiveContextAlignment(directive: Directive, contextProfile: ContextProfile): number {
   const text = `${directive.description} ${directive.rationale}`.toLowerCase();
   let score = 0;
   if (contextProfile.optimization_target === 'safety' && /(safe|safety|correct|compatib|regression|constraint|migration)/.test(text)) {
@@ -274,7 +342,7 @@ function scoreDirectiveContextAlignment(
  * Derives stable cache keys for layered inputs and the concrete task payload.
  */
 function buildCacheKeys(
-  input: CompileInput,
+  input: Pick<ResolvedCompileInput, 'builtinRoot' | 'localAugmentPath' | 'rcclPath'> & { task: ResolvedTaskOutput['task'] },
   selectedLayerIds: string[],
   rccl: ReturnType<typeof loadRccl>,
 ): CompileOutput['cache'] {
@@ -292,3 +360,5 @@ function buildCacheKeys(
   const l3Key = stableHash([l2Key, input.task]);
   return { l1Key, l2Key, l3Key };
 }
+
+export { resolveTask } from './interpret/normalize-candidate.ts';

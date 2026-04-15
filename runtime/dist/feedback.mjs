@@ -12,7 +12,7 @@ function evaluateGuidance(input) {
 	const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 	const now = (/* @__PURE__ */ new Date()).toISOString();
 	const modeCounts = summarizeExecutionModes(input);
-	const tensionCount = input.packet?.semantic_merge.context_tensions.length ?? input.ego.guidance.context_tensions.length;
+	const tensionCount = input.packet?.governance.semantic_merge.context_tensions.length ?? input.ego.guidance.context_tensions.length;
 	existing.governance_summary.total_tasks += 1;
 	existing.governance_summary.by_task_type[taskType] = (existing.governance_summary.by_task_type[taskType] ?? 0) + 1;
 	existing.governance_summary.last_execution_modes = modeCounts;
@@ -50,12 +50,12 @@ function evaluateGuidance(input) {
 function loadLockfile(filePath) {
 	if (!existsSync(filePath)) return createDocument();
 	const parsed = parseYaml(readFileSync(filePath, "utf-8"));
-	if ("directives" in parsed && "governance_summary" in parsed) return {
+	if (isLockfileDocument(parsed)) return {
 		version: 2,
 		directives: parsed.directives,
 		governance_summary: parsed.governance_summary
 	};
-	return {
+	if (isDirectiveRecord(parsed)) return {
 		version: 2,
 		directives: parsed,
 		governance_summary: {
@@ -66,6 +66,14 @@ function loadLockfile(filePath) {
 			last_updated_at: ""
 		}
 	};
+	return createDocument();
+}
+function isLockfileDocument(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	return "directives" in value && "governance_summary" in value;
+}
+function isDirectiveRecord(value) {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function createDocument() {
 	return {
@@ -111,7 +119,7 @@ function emptyModeCounts() {
 }
 function summarizeExecutionModes(input) {
 	const counts = emptyModeCounts();
-	const directives = input.packet?.semantic_merge.directive_modes ?? input.ego.guidance.must_follow.map((directive) => ({
+	const directives = input.packet?.governance.semantic_merge.directive_modes ?? input.ego.guidance.must_follow.map((directive) => ({
 		directive_id: directive.id,
 		observation_ids: [],
 		execution_mode: directive.execution_mode,

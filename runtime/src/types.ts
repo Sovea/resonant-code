@@ -1,3 +1,12 @@
+import type {
+  InputProvenance,
+  ParsedTaskCandidate,
+  ResolveTaskInput as RuntimeResolveTaskInput,
+  RuntimeDiagnostics,
+  TaskInterpretationTrace,
+} from './interpret/types.ts';
+
+export type TaskKind = 'code' | 'review' | 'analysis' | 'migration';
 export type Operation = 'create' | 'modify' | 'review' | 'refactor' | 'bugfix';
 export type Prescription = 'must' | 'should';
 export type Weight = 'low' | 'normal' | 'high' | 'critical';
@@ -21,9 +30,6 @@ export interface DirectiveScope {
   path: string;
 }
 
-/**
- * Represents one prescriptive rule compiled from the playbook.
- */
 export interface Directive {
   id: string;
   type: DirectiveType;
@@ -43,9 +49,6 @@ export interface Directive {
   };
 }
 
-/**
- * Represents one verified or pending repository observation from RCCL.
- */
 export interface RcclObservation {
   id: string;
   category: 'style' | 'architecture' | 'pattern' | 'constraint' | 'legacy' | 'anti-pattern' | 'migration';
@@ -57,9 +60,6 @@ export interface RcclObservation {
   verification: RcclVerification;
 }
 
-/**
- * Represents the loaded RCCL document consumed by the Runtime.
- */
 export interface RcclDocument {
   version: string;
   generated_at: string | null;
@@ -67,10 +67,8 @@ export interface RcclDocument {
   observations: RcclObservation[];
 }
 
-/**
- * Captures the normalized task intent used by the Runtime pipeline.
- */
 export interface TaskIntent {
+  task_kind: TaskKind;
   operation: Operation;
   target_layer: string;
   tech_stack: string[];
@@ -79,9 +77,6 @@ export interface TaskIntent {
   tags: string[];
 }
 
-/**
- * Captures contextual priorities and constraints inferred for the task.
- */
 export interface ContextProfile {
   project_stage?: 'prototype' | 'growth' | 'stable' | 'critical';
   change_type: Operation;
@@ -135,13 +130,9 @@ export interface RcclVerification {
   disposition: VerificationDisposition | null;
 }
 
-
-export interface CompileTaskInput {
+export interface BaseTaskInput {
   description: string;
-  operation?: Operation;
-  targetFile?: string;
-  changedFiles?: string[];
-  techStack?: string[];
+  taskKind?: TaskKind;
   tags?: string[];
   projectStage?: ContextProfile['project_stage'];
   optimizationTarget?: ContextProfile['optimization_target'];
@@ -150,21 +141,66 @@ export interface CompileTaskInput {
   avoid?: string[];
 }
 
-/**
- * Describes the inputs required to compile one Runtime packet.
- */
-export interface CompileInput {
+export interface CompileTaskInput extends BaseTaskInput {
+  operation?: Operation;
+  targetFile?: string;
+  changedFiles?: string[];
+  techStack?: string[];
+}
+
+export interface ReviewTaskInput extends BaseTaskInput {
+  reviewScope?: string;
+  diffPaths?: string[];
+  focusAreas?: string[];
+  riskProfile?: 'low' | 'medium' | 'high';
+}
+
+export interface ResolveTaskInput extends RuntimeResolveTaskInput {}
+
+export interface CompileInputBase {
   builtinRoot: string;
   localAugmentPath?: string;
   rcclPath?: string;
-  task: CompileTaskInput;
   projectRoot: string;
   lockfilePath?: string;
 }
 
-/**
- * Represents one agent-facing directive after Runtime compilation.
- */
+export interface LegacyCompileInput extends CompileInputBase {
+  task: CompileTaskInput;
+  parsedTaskCandidate?: ParsedTaskCandidate;
+  interpretationMode?: InputProvenance['interpretation_mode'];
+}
+
+export interface ResolveTaskRequest {
+  task: CompileTaskInput;
+  taskKind?: TaskKind;
+  candidates?: ParsedTaskCandidate[];
+  interpretationMode?: InputProvenance['interpretation_mode'];
+}
+
+export interface ResolvedCompileInput extends CompileInputBase {
+  resolvedTask: ResolvedTaskOutput;
+}
+
+export type CompileInput = LegacyCompileInput | ResolvedCompileInput;
+
+export interface InterpretationPacket {
+  candidates?: ParsedTaskCandidate[];
+  input_provenance: InputProvenance;
+  diagnostics: RuntimeDiagnostics;
+  trace: TaskInterpretationTrace;
+  resolved: {
+    task_intent: TaskIntent;
+    context_profile: ContextProfile;
+  };
+}
+
+export interface GovernancePacket {
+  semantic_merge: SemanticMergeResult;
+  ego: EffectiveGuidanceObject;
+  trace: DecisionTrace;
+}
+
 export interface GuidanceDirective {
   id: string;
   statement: string;
@@ -175,17 +211,11 @@ export interface GuidanceDirective {
   execution_mode: ExecutionMode;
 }
 
-/**
- * Represents one anti-pattern warning surfaced to the agent.
- */
 export interface AvoidEntry {
   statement: string;
   trigger: string;
 }
 
-/**
- * Describes a repository-pattern tension that should shape implementation behavior.
- */
 export interface ContextTension {
   directive_id: string;
   execution_mode: ExecutionMode;
@@ -194,9 +224,6 @@ export interface ContextTension {
   rccl_confidence: number;
 }
 
-/**
- * Packages the final executable guidance that an agent should follow.
- */
 export interface EffectiveGuidanceObject {
   taskIntent: TaskIntent;
   guidance: {
@@ -212,9 +239,6 @@ export interface TraceStep {
   lines: string[];
 }
 
-/**
- * Records the developer-facing explanation of how the Runtime reached its output.
- */
 export interface DecisionTrace {
   task: TaskIntent;
   steps: TraceStep[];
@@ -235,9 +259,6 @@ export interface ContextInfluenceRecord {
   effect: string;
 }
 
-/**
- * Captures the execution decision for one directive during semantic merge.
- */
 export interface SemanticMergeDirectiveLink {
   directive_id: string;
   observation_ids: string[];
@@ -253,9 +274,6 @@ export interface SemanticMergeObservationLink {
   directive_ids: string[];
 }
 
-/**
- * Summarizes which directives were activated, suppressed, or adjusted by repository context.
- */
 export interface SemanticMergeResult {
   activated_directives: string[];
   suppressed_directives: string[];
@@ -265,16 +283,25 @@ export interface SemanticMergeResult {
   context_influences: ContextInfluenceRecord[];
 }
 
-/**
- * Represents the full task-level Runtime artifact for one code change.
- */
-export interface ChangeDecisionPacket {
-  version: 1;
+export interface ResolvedTaskOutput {
+  task: CompileTaskInput;
+  taskKind: TaskKind;
+  candidates?: ParsedTaskCandidate[];
   task_intent: TaskIntent;
   context_profile: ContextProfile;
-  semantic_merge: SemanticMergeResult;
-  ego: EffectiveGuidanceObject;
-  trace: DecisionTrace;
+  input_provenance: InputProvenance;
+  diagnostics: RuntimeDiagnostics;
+  trace: TaskInterpretationTrace;
+}
+
+export interface ChangeDecisionPacket {
+  version: 2;
+  task: {
+    task_kind: TaskKind;
+    input: CompileTaskInput;
+  };
+  interpretation: InterpretationPacket;
+  governance: GovernancePacket;
   cache: {
     l1Key: string;
     l2Key: string;
@@ -282,11 +309,84 @@ export interface ChangeDecisionPacket {
   };
 }
 
-/**
- * Returns the packet plus the most commonly consumed Runtime views.
- */
+export interface PrepareInterpretationOutput {
+  task: CompileTaskInput;
+  interpretationPrompt: string;
+  taskSchema: string;
+  ambiguityHints: string[];
+}
+
+export interface RuntimeSessionRecord {
+  version: 3;
+  status: 'ok' | 'degraded';
+  createdAt: string;
+  paths: {
+    projectRoot: string;
+    pluginRoot: string;
+    builtinRoot: string;
+    runtimeEntry: string;
+    localAugmentPath?: string;
+    rcclPath?: string;
+    lockfilePath: string;
+  };
+  taskInput: CompileTaskInput;
+  interpretation: {
+    mode: InputProvenance['interpretation_mode'];
+    candidates?: ParsedTaskCandidate[];
+    provenance?: InputProvenance;
+    diagnostics?: RuntimeDiagnostics;
+    trace?: TaskInterpretationTrace;
+  };
+  compileInput: {
+    builtinRoot: string;
+    localAugmentPath?: string;
+    rcclPath?: string;
+    lockfilePath?: string;
+    projectRoot: string;
+    resolvedTask?: ResolvedTaskOutput;
+    task?: CompileTaskInput;
+    parsedTaskCandidate?: ParsedTaskCandidate;
+    interpretationMode?: InputProvenance['interpretation_mode'];
+  };
+  compileOutput: CompileOutput | null;
+  fallbackGuidance: string[];
+  warnings: string[];
+  error?: string;
+}
+
+export interface PrepareCodeTaskResult {
+  status: 'ok' | 'degraded';
+  sessionPath: string;
+  paths: RuntimeSessionRecord['paths'];
+  packet?: ChangeDecisionPacket;
+  ego: EffectiveGuidanceObject | null;
+  trace: DecisionTrace | null;
+  warnings: string[];
+  fallbackGuidance?: string[];
+  error?: string;
+}
+
+export interface CompleteCodeTaskResult {
+  status: 'updated' | 'skipped';
+  sessionPath: string;
+  lockfilePath: string | null;
+  followedDirectiveIds?: string[];
+  ignoredDirectiveIds?: string[];
+  reason?: string;
+}
+
+export interface ResolveTaskResult extends ResolvedTaskOutput {}
+
+export interface PrepareCodeTaskInput extends CompileTaskInput {
+  projectRoot: string;
+  pluginRoot?: string;
+  taskDescription: string;
+  candidateFile?: string;
+}
+
 export interface CompileOutput {
   packet: ChangeDecisionPacket;
+  resolvedTask: ResolvedTaskOutput;
   ego: EffectiveGuidanceObject;
   trace: DecisionTrace;
   cache: {
@@ -296,9 +396,6 @@ export interface CompileOutput {
   };
 }
 
-/**
- * Describes the feedback payload used to update lockfile quality signals.
- */
 export interface EvaluateInput {
   ego: EffectiveGuidanceObject;
   packet?: ChangeDecisionPacket;
@@ -322,9 +419,6 @@ export interface LockfileTaskOutcome {
   last_updated_at: string;
 }
 
-/**
- * Stores accumulated quality and governance outcomes for one directive.
- */
 export interface LockfileDirectiveEntry {
   quality_signal: {
     overall: LockfileSignal;
@@ -336,9 +430,6 @@ export interface LockfileDirectiveEntry {
   };
 }
 
-/**
- * Represents the versioned Runtime lockfile document written after task execution.
- */
 export interface LockfileDocument {
   version: 2;
   directives: Record<string, LockfileDirectiveEntry>;
@@ -350,6 +441,3 @@ export interface LockfileDocument {
     last_updated_at: string;
   };
 }
-
-
-
