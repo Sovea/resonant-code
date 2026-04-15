@@ -7,7 +7,8 @@ import type { EvaluateInput, ExecutionMode, LockfileDirectiveEntry, LockfileDocu
  */
 export function evaluateGuidance(input: EvaluateInput): LockfileDocument {
   const existing = loadLockfile(input.lockfilePath);
-  const followed = new Set(input.followedDirectiveIds ?? input.ego.guidance.must_follow.map((item) => item.id));
+  const trackedDirectiveIds = getTrackedDirectiveIds(input);
+  const followed = new Set(input.followedDirectiveIds ?? trackedDirectiveIds);
   const ignored = new Set(input.ignoredDirectiveIds ?? []);
   const taskType = input.ego.taskIntent.operation;
   const today = new Date().toISOString().slice(0, 10);
@@ -21,13 +22,13 @@ export function evaluateGuidance(input: EvaluateInput): LockfileDocument {
   existing.governance_summary.last_tension_count = tensionCount;
   existing.governance_summary.last_updated_at = now;
 
-  for (const directive of input.ego.guidance.must_follow) {
-    const entry = existing.directives[directive.id] ?? createEntry();
+  for (const directiveId of trackedDirectiveIds) {
+    const entry = existing.directives[directiveId] ?? createEntry();
     const counts = entry.quality_signal.by_task_type[taskType] ?? { followed: 0, ignored: 0 };
-    if (ignored.has(directive.id)) {
+    if (ignored.has(directiveId)) {
       entry.quality_signal.overall.ignored += 1;
       counts.ignored += 1;
-    } else if (followed.has(directive.id)) {
+    } else if (followed.has(directiveId)) {
       entry.quality_signal.overall.followed += 1;
       counts.followed += 1;
     }
@@ -44,7 +45,7 @@ export function evaluateGuidance(input: EvaluateInput): LockfileDocument {
         last_updated_at: now,
       },
     };
-    existing.directives[directive.id] = entry;
+    existing.directives[directiveId] = entry;
   }
 
   writeFileSync(input.lockfilePath, toYaml(existing as never), 'utf-8');
@@ -131,6 +132,15 @@ function emptyModeCounts(): Record<ExecutionMode, number> {
     ambient: 0,
     suppress: 0,
   };
+}
+
+function getTrackedDirectiveIds(input: EvaluateInput): string[] {
+  if (input.packet) {
+    return input.packet.governance.semantic_merge.directive_modes
+      .filter((directive) => directive.execution_mode !== 'suppress')
+      .map((directive) => directive.directive_id);
+  }
+  return input.ego.guidance.must_follow.map((directive) => directive.id);
 }
 
 function summarizeExecutionModes(input: EvaluateInput): Record<ExecutionMode, number> {

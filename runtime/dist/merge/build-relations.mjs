@@ -1,0 +1,68 @@
+import { minimatch } from "../utils/glob.mjs";
+//#region src/merge/build-relations.ts
+function buildRelations(directives, observations, intent) {
+	const scopedObservations = observations.filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files));
+	return directives.flatMap((directive) => scopedObservations.map((observation) => {
+		const similarity = lexicalSimilarity(directive.description, observation.pattern);
+		if (observation.verification.disposition === "demote-to-ambient") return {
+			directive_id: directive.id,
+			observation_id: observation.id,
+			relation: "ambient-only",
+			confidence: observation.verification.verified_confidence ?? 0,
+			basis: ["scope", "verification"],
+			reason: "observation was demoted by verify gate and can only contribute ambient context"
+		};
+		if (directive.type === "anti-pattern" || observation.category === "anti-pattern") return {
+			directive_id: directive.id,
+			observation_id: observation.id,
+			relation: similarity >= .2 ? "anti-pattern-suppress" : "none",
+			confidence: similarity,
+			basis: similarity >= .2 ? [
+				"scope",
+				"category",
+				"lexical"
+			] : ["scope", "category"],
+			reason: similarity >= .2 ? "anti-pattern classification indicates suppression-worthy overlap" : "anti-pattern observation did not materially overlap this directive"
+		};
+		if (similarity < .2) return {
+			directive_id: directive.id,
+			observation_id: observation.id,
+			relation: "none",
+			confidence: similarity,
+			basis: ["scope", "lexical"],
+			reason: "no material semantic overlap found using current deterministic lexical baseline"
+		};
+		const relation = observation.adherence_quality === "good" ? "reinforce" : "tension";
+		return {
+			directive_id: directive.id,
+			observation_id: observation.id,
+			relation,
+			confidence: Math.max(similarity, observation.verification.verified_confidence ?? 0),
+			basis: [
+				"scope",
+				"verification",
+				"category",
+				"lexical"
+			],
+			reason: relation === "reinforce" ? "verified observation reinforces this directive in the current repository context" : "verified observation creates tension with this directive in the current repository context"
+		};
+	}));
+}
+function lexicalSimilarity(a, b) {
+	const aTokens = tokenize(a);
+	const bTokens = tokenize(b);
+	if (aTokens.size === 0 || bTokens.size === 0) return 0;
+	let overlap = 0;
+	for (const token of bTokens) if (aTokens.has(token)) overlap += 1;
+	return overlap / Math.max(aTokens.size, bTokens.size);
+}
+function tokenize(text) {
+	return new Set(text.toLowerCase().match(/[a-z][a-z0-9-]+/g)?.filter((token) => token.length > 2) ?? []);
+}
+function scopeMatchesIntent(scope, targetFile, changedFiles) {
+	if (!targetFile && changedFiles.length === 0) return true;
+	if (targetFile && minimatch(targetFile, scope)) return true;
+	return changedFiles.some((file) => minimatch(file, scope));
+}
+//#endregion
+export { buildRelations };

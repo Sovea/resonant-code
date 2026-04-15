@@ -203,7 +203,9 @@ export async function completeCodeTask(options) {
     const packet = session.compileOutput.packet;
     const followedDirectiveIds = options.followedDirectiveIds?.length
       ? unique(options.followedDirectiveIds)
-      : packet.governance.ego.guidance.must_follow.map((directive) => directive.id);
+      : packet.governance.semantic_merge.directive_modes
+          .filter((directive) => directive.execution_mode !== 'suppress')
+          .map((directive) => directive.directive_id);
     const ignoredDirectiveIds = unique(options.ignoredDirectiveIds ?? []);
     runtime.evaluateGuidance({
       ego: packet.governance.ego,

@@ -3,6 +3,7 @@ import { minimatch } from "./utils/glob.mjs";
 import { semanticMerge } from "./merge/semantic-merge.mjs";
 import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from "./load/load-playbook.mjs";
 import { loadRccl } from "./load/load-rccl.mjs";
+import { buildActivationPlan } from "./select/activation-plan.mjs";
 import { verifyRcclDocument } from "./verify/verify-rccl.mjs";
 import { stableHash } from "./utils/hash.mjs";
 import { readFileSync } from "node:fs";
@@ -37,8 +38,11 @@ function buildInterpretationPacket(resolved) {
 		}
 	};
 }
-function buildGovernancePacket(semantic_merge, ego, trace) {
+function buildGovernancePacket(activation, tensions, focus, semantic_merge, ego, trace) {
 	return {
+		activation,
+		tensions,
+		focus,
 		semantic_merge,
 		ego,
 		trace
@@ -82,31 +86,41 @@ async function compile(input) {
 	const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
 	const local = loadLocalPlaybook(normalizedInput.localAugmentPath);
 	const selectedLayerIds = local?.meta.extends.length ? resolveExtendedLayers(local.meta.extends, builtinLayers) : ["builtin/core"];
-	traceSteps.push({
-		stage: "Layer Filter",
-		lines: selectedLayerIds.length ? selectedLayerIds.map((layerId) => `applied ${layerId}`) : ["applied builtin/core"]
-	});
-	const filteredDirectives = applyLocalAugment(selectedLayerIds.flatMap((layerId) => {
+	const directives = selectedLayerIds.flatMap((layerId) => {
 		const filePath = builtinLayers.get(layerId);
 		return filePath ? loadDirectiveFile(filePath, layerId) : [];
-	}), local).filter((directive) => layerMatchesIntent(directive, intent)).filter((directive) => scopeMatchesIntent(directive.scope.path, intent.target_file, intent.changed_files));
+	});
+	const activationPlan = buildActivationPlan(directives, local, selectedLayerIds, intent);
+	const activeDirectives = materializeActivatedDirectives(directives, local, activationPlan);
+	traceSteps.push({
+		stage: "Layer Filter",
+		lines: [
+			...activationPlan.selected_layers.length ? activationPlan.selected_layers.map((layerId) => `applied ${layerId}`) : ["applied builtin/core"],
+			`activated: ${activationPlan.activated.length}`,
+			`skipped: ${activationPlan.skipped.length}`
+		]
+	});
 	const loadedRccl = loadRccl(normalizedInput.rcclPath);
 	const rccl = loadedRccl ? verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
 	traceSteps.push({
 		stage: "RCCL Verify Gate",
 		lines: rccl?.observations.length ? rccl.observations.map((observation) => `${observation.id}: ${observation.verification.status}/${observation.verification.disposition}`) : ["no rccl loaded"]
 	});
-	const semanticMergeResult = semanticMerge(filteredDirectives, rccl?.observations ?? [], intent, contextProfile);
+	const semanticMergeResult = semanticMerge(activeDirectives, rccl?.observations ?? [], intent, contextProfile);
+	const tensions = { records: semanticMergeResult.context_tensions };
+	const focus = buildFocusView(semanticMergeResult, activeDirectives);
 	traceSteps.push({
 		stage: "Semantic Merge",
 		lines: [
 			`activated_directives: ${semanticMergeResult.activated_directives.length}`,
 			`suppressed_directives: ${semanticMergeResult.suppressed_directives.length}`,
+			`relations: ${semanticMergeResult.relations.length}`,
 			`context_tensions: ${semanticMergeResult.context_tensions.length}`,
+			`review_focus: ${focus.review_focus.length}`,
 			`context_influences: ${semanticMergeResult.context_influences.length}`
 		]
 	});
-	const ego = assembleEgo(filteredDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
+	const ego = assembleEgo(activeDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
 	traceSteps.push({
 		stage: "EGO Assembly",
 		lines: [
@@ -121,6 +135,9 @@ async function compile(input) {
 		steps: traceSteps,
 		activated_directives: semanticMergeResult.activated_directives,
 		suppressed_directives: semanticMergeResult.suppressed_directives,
+		activation: activationPlan,
+		tensions,
+		review_focus: focus.review_focus,
 		directive_decisions: semanticMergeResult.directive_modes,
 		observation_links: semanticMergeResult.observation_links,
 		context_influences: semanticMergeResult.context_influences
@@ -138,43 +155,50 @@ async function compile(input) {
 			input: resolved.task
 		},
 		interpretation: buildInterpretationPacket(resolved),
-		governance: buildGovernancePacket(semanticMergeResult, ego, trace),
+		governance: buildGovernancePacket(activationPlan, tensions, focus, semanticMergeResult, ego, trace),
 		cache
 	}, resolved);
 }
-/**
-* Applies local suppressions, overrides, augments, and additions to built-in directives.
-*/
-function applyLocalAugment(directives, local) {
-	if (!local) return directives;
-	const suppressed = new Set(local.suppresses.map((item) => item.id));
-	const overrideById = new Map(local.overrides.map((item) => [item.id, item]));
-	const augmentById = new Map(local.augments.map((item) => [item.id, item]));
-	return [...directives.filter((directive) => !suppressed.has(directive.id)).map((directive) => {
+function materializeActivatedDirectives(builtinDirectives, local, activationPlan) {
+	const directiveById = new Map([...builtinDirectives, ...local?.additions ?? []].map((directive) => [directive.id, directive]));
+	const overrideById = new Map(local?.overrides.map((item) => [item.id, item]) ?? []);
+	const augmentById = new Map(local?.augments.map((item) => [item.id, item]) ?? []);
+	return activationPlan.activated.flatMap((item) => {
+		const directive = directiveById.get(item.directive_id);
+		if (!directive) return [];
 		const override = overrideById.get(directive.id);
 		const augment = augmentById.get(directive.id);
-		return {
+		return [{
 			...directive,
 			prescription: override?.prescription ?? directive.prescription,
 			weight: override?.weight ?? directive.weight,
 			rationale: override?.rationale ?? directive.rationale,
 			exceptions: override?.exceptions ?? directive.exceptions,
 			examples: augment ? [...directive.examples, ...augment.examples] : directive.examples
+		}];
+	});
+}
+function buildFocusView(semanticMergeResult, directives) {
+	const directiveById = new Map(directives.map((directive) => [directive.id, directive]));
+	return { review_focus: semanticMergeResult.focus.review_focus.map((item) => {
+		const directive = item.directive_id ? directiveById.get(item.directive_id) : void 0;
+		return {
+			kind: item.kind,
+			title: buildFocusTitle(item.kind, directive?.description, item.directive_id, item.observation_id),
+			reason: item.reason,
+			directive_id: item.directive_id,
+			observation_id: item.observation_id
 		};
-	}), ...local.additions];
+	}) };
 }
-function layerMatchesIntent(directive, intent) {
-	const sourceLayer = directive.source.layerId;
-	if (sourceLayer === "builtin/core" || directive.layer.startsWith("local")) return true;
-	if (sourceLayer.startsWith("builtin/task-types/")) return sourceLayer.endsWith(`/${intent.operation}`);
-	if (sourceLayer.startsWith("builtin/languages/")) return intent.tech_stack.some((tech) => sourceLayer.endsWith(`/${tech}`));
-	if (sourceLayer.startsWith("builtin/frameworks/")) return intent.tech_stack.some((tech) => sourceLayer.endsWith(`/${tech}`));
-	return true;
-}
-function scopeMatchesIntent(scope, targetFile, changedFiles) {
-	if (!targetFile && changedFiles.length === 0) return true;
-	if (targetFile && minimatch(targetFile, scope)) return true;
-	return changedFiles.some((file) => minimatch(file, scope));
+function buildFocusTitle(kind, directiveDescription, directiveId, observationId) {
+	const directiveLabel = directiveDescription ?? directiveId ?? "directive";
+	switch (kind) {
+		case "tension": return `Review tension around ${directiveLabel}`;
+		case "anti-pattern": return `Check anti-pattern suppression for ${observationId ?? directiveLabel}`;
+		case "high-priority-directive": return `Confirm high-priority guidance for ${directiveLabel}`;
+		case "compatibility-boundary": return `Inspect compatibility boundary for ${directiveLabel}`;
+	}
 }
 /**
 * Assembles the final agent-facing guidance object from filtered directives and observations.
@@ -206,6 +230,8 @@ function assembleEgo(directives, observations, intent, contextProfile, semanticM
 	};
 }
 function compareDirectives(a, b, contextProfile, decisionByDirectiveId) {
+	const layerScore = inferDirectiveLayerRank(b) - inferDirectiveLayerRank(a);
+	if (layerScore !== 0) return layerScore;
 	const prescriptionScore = a.prescription === b.prescription ? 0 : a.prescription === "must" ? -1 : 1;
 	if (prescriptionScore !== 0) return prescriptionScore;
 	const weights = {
@@ -222,6 +248,14 @@ function compareDirectives(a, b, contextProfile, decisionByDirectiveId) {
 	if (alignmentScore !== 0) return alignmentScore;
 	return a.id.localeCompare(b.id);
 }
+function inferDirectiveLayerRank(directive) {
+	if (directive.source.layerId === "builtin/core") return 5;
+	if (directive.source.layerId.startsWith("builtin/languages/")) return 4;
+	if (directive.source.layerId.startsWith("builtin/frameworks/")) return 3;
+	if (directive.source.layerId.startsWith("builtin/domains/")) return 2;
+	if (directive.source.kind === "local-addition" || directive.source.layerId.startsWith("local")) return 1;
+	return 0;
+}
 function scoreDirectiveContextAlignment(directive, contextProfile) {
 	const text = `${directive.description} ${directive.rationale}`.toLowerCase();
 	let score = 0;
@@ -232,6 +266,11 @@ function scoreDirectiveContextAlignment(directive, contextProfile) {
 	if (contextProfile.allowed_tradeoffs.includes("prefer narrow change scope") && /(narrow|local|boundary|focused)/.test(text)) score += 1;
 	if (contextProfile.hard_constraints.includes("preserve compatibility") && /(compatib|public api|interface)/.test(text)) score += 1;
 	return score;
+}
+function scopeMatchesIntent(scope, targetFile, changedFiles) {
+	if (!targetFile && changedFiles.length === 0) return true;
+	if (targetFile && minimatch(targetFile, scope)) return true;
+	return changedFiles.some((file) => minimatch(file, scope));
 }
 /**
 * Derives stable cache keys for layered inputs and the concrete task payload.

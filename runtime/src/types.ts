@@ -196,9 +196,71 @@ export interface InterpretationPacket {
 }
 
 export interface GovernancePacket {
+  activation: ActivationView;
+  tensions: TensionView;
+  focus: FocusView;
   semantic_merge: SemanticMergeResult;
   ego: EffectiveGuidanceObject;
   trace: DecisionTrace;
+}
+
+export interface DirectivePriorityRecord {
+  layer_rank: number;
+  prescription_rank: number;
+  weight_rank: number;
+  context_rank: number;
+}
+
+export interface ActivatedDirective {
+  directive_id: string;
+  layer_id: string;
+  source_file: string;
+  effective_prescription: Prescription;
+  effective_weight: Weight;
+  effective_priority: DirectivePriorityRecord;
+  activation_reason: string;
+  override_applied: boolean;
+  augment_applied: boolean;
+}
+
+export interface SkippedDirective {
+  directive_id: string;
+  layer_id: string;
+  reason: 'suppressed-by-local' | 'layer-mismatch' | 'scope-mismatch';
+  note: string;
+}
+
+export interface ActivationPlan {
+  selected_layers: string[];
+  activated: ActivatedDirective[];
+  skipped: SkippedDirective[];
+}
+
+export interface ActivationView {
+  selected_layers: string[];
+  activated: ActivatedDirective[];
+  skipped: SkippedDirective[];
+}
+
+export interface TensionRecord extends ContextTension {
+  observation_id?: string;
+  category?: RcclObservation['category'];
+}
+
+export interface TensionView {
+  records: TensionRecord[];
+}
+
+export interface ReviewFocusItem {
+  kind: 'tension' | 'anti-pattern' | 'high-priority-directive' | 'compatibility-boundary';
+  title: string;
+  reason: string;
+  directive_id?: string;
+  observation_id?: string;
+}
+
+export interface FocusView {
+  review_focus: ReviewFocusItem[];
 }
 
 export interface GuidanceDirective {
@@ -244,6 +306,9 @@ export interface DecisionTrace {
   steps: TraceStep[];
   activated_directives: string[];
   suppressed_directives: string[];
+  activation: ActivationView;
+  tensions: TensionView;
+  review_focus: ReviewFocusItem[];
   directive_decisions: SemanticMergeDirectiveLink[];
   observation_links: Array<{
     observation_id: string;
@@ -251,6 +316,30 @@ export interface DecisionTrace {
   }>;
   context_influences: ContextInfluenceRecord[];
 }
+
+export type RelationKind = 'reinforce' | 'tension' | 'anti-pattern-suppress' | 'ambient-only' | 'none';
+
+export interface DirectiveObservationRelation {
+  directive_id: string;
+  observation_id: string;
+  relation: RelationKind;
+  confidence: number;
+  basis: Array<'scope' | 'verification' | 'category' | 'lexical' | 'context'>;
+  reason: string;
+}
+
+export interface ReviewFocusSeed {
+  kind: ReviewFocusItem['kind'];
+  directive_id?: string;
+  observation_id?: string;
+  reason: string;
+}
+
+export interface SemanticMergeContextFocus {
+  review_focus: ReviewFocusSeed[];
+}
+
+export interface SemanticMergeTensionRecord extends TensionRecord {}
 
 export interface ContextInfluenceRecord {
   field: 'optimization_target' | 'hard_constraints' | 'allowed_tradeoffs' | 'avoid' | 'project_stage';
@@ -277,9 +366,11 @@ export interface SemanticMergeObservationLink {
 export interface SemanticMergeResult {
   activated_directives: string[];
   suppressed_directives: string[];
-  context_tensions: ContextTension[];
+  context_tensions: SemanticMergeTensionRecord[];
   directive_modes: SemanticMergeDirectiveLink[];
   observation_links: SemanticMergeObservationLink[];
+  relations: DirectiveObservationRelation[];
+  focus: SemanticMergeContextFocus;
   context_influences: ContextInfluenceRecord[];
 }
 
