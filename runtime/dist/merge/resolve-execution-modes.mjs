@@ -103,10 +103,11 @@ function applyContextAdjustments(directive, relations, defaultDecision, contextP
 		...defaultDecision,
 		context_applied: [...defaultDecision.context_applied]
 	};
-	if (contextProfile.optimization_target === "safety" && directive.prescription === "should" && defaultDecision.execution_mode === "ambient" && relations.some((relation) => relation.relation === "tension") && isSafetyRelevantDirective(directive)) {
+	const hasTension = relations.some((relation) => relation.relation === "tension");
+	if (contextProfile.optimization_target === "safety" && directive.prescription === "should" && defaultDecision.execution_mode === "ambient" && hasTension && isCompatibilitySensitiveDirective(directive)) {
 		decision = {
 			execution_mode: "deviation-noted",
-			reason: `${defaultDecision.reason} Safety-focused context promotes this guidance from ambient to deviation-noted when repository reality conflicts with correctness- or compatibility-sensitive guidance.`,
+			reason: `${defaultDecision.reason} Safety-focused context promotes compatibility-sensitive guidance from ambient to deviation-noted when repository reality conflicts with it.`,
 			decision_basis: "context-adjusted",
 			context_applied: [...decision.context_applied, "optimization_target:safety"]
 		};
@@ -114,7 +115,7 @@ function applyContextAdjustments(directive, relations, defaultDecision, contextP
 			field: "optimization_target",
 			value: contextProfile.optimization_target,
 			directive_id: directive.id,
-			effect: "promoted directive from ambient to deviation-noted for safety-sensitive guidance under observed conflict"
+			effect: "promoted compatibility-sensitive should-level guidance from ambient to deviation-noted under observed tension"
 		});
 	} else if (contextProfile.optimization_target === "safety" && directive.prescription === "must" && defaultDecision.execution_mode === "deviation-noted") {
 		decision = {
@@ -134,7 +135,7 @@ function applyContextAdjustments(directive, relations, defaultDecision, contextP
 		"preserve compatibility",
 		"avoid breaking changes",
 		"preserve public api"
-	]) && directive.prescription === "must" && decision.execution_mode === "enforce" && relations.some((relation) => relation.relation === "tension")) {
+	]) && directive.prescription === "must" && decision.execution_mode === "enforce" && hasTension) {
 		decision = {
 			execution_mode: "deviation-noted",
 			reason: `${decision.reason} Explicit compatibility constraints shift execution to deviation-noted because legacy or migration realities must be preserved at touched interfaces.`,
@@ -148,11 +149,11 @@ function applyContextAdjustments(directive, relations, defaultDecision, contextP
 			effect: "changed execution from enforce to deviation-noted to respect compatibility-sensitive repository observations"
 		});
 	}
-	if (hasConstraint(contextProfile.allowed_tradeoffs, ["prefer narrow change scope"]) && directive.prescription === "should" && isBroadDirective(directive)) {
+	if (hasConstraint(contextProfile.allowed_tradeoffs, ["prefer narrow change scope"]) && directive.prescription === "should" && isBroadScopeDirective(directive)) {
 		decision = {
 			...decision,
 			execution_mode: "ambient",
-			reason: `${decision.reason} Narrow-scope tradeoff guidance keeps broad architectural or refactor-oriented guidance ambient for this task.`,
+			reason: `${decision.reason} Narrow-scope tradeoff guidance keeps broad architectural guidance ambient for this task.`,
 			decision_basis: "context-adjusted",
 			context_applied: [...decision.context_applied, "allowed_tradeoffs:prefer narrow change scope"]
 		};
@@ -163,7 +164,7 @@ function applyContextAdjustments(directive, relations, defaultDecision, contextP
 			effect: "kept broad should-level guidance ambient to avoid widening the change scope"
 		});
 	}
-	if (hasConstraint(contextProfile.avoid, ["broad rewrites", "overengineering"]) && directive.prescription === "should" && isBroadDirective(directive)) {
+	if (hasConstraint(contextProfile.avoid, ["broad rewrites", "overengineering"]) && directive.prescription === "should" && isBroadScopeDirective(directive)) {
 		decision = {
 			...decision,
 			execution_mode: "ambient",
@@ -180,6 +181,12 @@ function applyContextAdjustments(directive, relations, defaultDecision, contextP
 	}
 	return decision;
 }
+function isCompatibilitySensitiveDirective(directive) {
+	return directive.type === "constraint" || directive.rccl_immune === true || directive.prescription === "must";
+}
+function isBroadScopeDirective(directive) {
+	return directive.type === "architecture";
+}
 function buildTensionResolution(directiveId, contextProfile, observation) {
 	if (hasConstraint(contextProfile.hard_constraints, [
 		"preserve compatibility",
@@ -192,13 +199,6 @@ function buildTensionResolution(directiveId, contextProfile, observation) {
 }
 function hasConstraint(values, expected) {
 	return expected.some((item) => values.includes(item));
-}
-function isSafetyRelevantDirective(directive) {
-	return /(safe|safety|correct|correctness|compatib|breaking|public api|regression|constraint|migration)/i.test(`${directive.description} ${directive.rationale}`);
-}
-function isBroadDirective(directive) {
-	if (directive.type === "architecture") return true;
-	return /(architecture|restructure|rewrite|broad|cross-cutting|shared abstraction|generalize|framework)/i.test(`${directive.description} ${directive.rationale}`);
 }
 function uniqueFocus(items) {
 	const seen = /* @__PURE__ */ new Set();

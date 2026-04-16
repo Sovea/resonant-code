@@ -125,6 +125,26 @@ export interface ConsolidationResult {
   };
 }
 
+export interface VerificationSummaryObservation {
+  id: string;
+  disposition: VerificationDisposition | null;
+  evidence_status: VerificationStatus | null;
+  induction_status: InductionStatus | null;
+  evidence_verified_count: number | null;
+  evidence_total_count: number;
+  support: RcclSupport;
+}
+
+export interface VerificationSummary {
+  total_observations: number;
+  kept_count: number;
+  reduced_confidence_count: number;
+  demoted_count: number;
+  evidence_status_counts: Record<VerificationStatus | 'pending', number>;
+  induction_status_counts: Record<InductionStatus | 'pending', number>;
+  observations: VerificationSummaryObservation[];
+}
+
 export interface EmitRcclResult {
   written: string;
   stats: {
@@ -132,6 +152,7 @@ export interface EmitRcclResult {
     updated: number;
     preserved: number;
   };
+  verification_summary: VerificationSummary;
 }
 
 export interface IndexedFile {

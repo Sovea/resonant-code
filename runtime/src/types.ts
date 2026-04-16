@@ -337,7 +337,7 @@ export interface DirectiveObservationRelation {
   observation_id: string;
   relation: RelationKind;
   confidence: number;
-  basis: Array<'scope' | 'verification' | 'category' | 'lexical' | 'context'>;
+  basis: Array<'scope' | 'verification' | 'category' | 'context'>;
   reason: string;
 }
 

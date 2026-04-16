@@ -56,12 +56,15 @@ export function buildSlicePrompt(input: {
   lines.push('');
   lines.push('## Hard rules');
   lines.push('1. Every observation must include non-empty evidence with exact file paths, line ranges, and snippets from the provided windows.');
-  lines.push('2. Leave every verification field null.');
-  lines.push('3. semantic_key is required and must stay stable across synonymous phrasings and repeated calibrations.');
-  lines.push('4. pattern should stay human-readable and descriptive, but semantic_key is the primary identity.');
-  lines.push('5. Scope should be no broader than the evidence supports.');
-  lines.push('6. Use support metadata to reflect where the observation came from.');
-  lines.push('7. Prefer 5 to 12 observations and skip weak or redundant signals.');
+  lines.push('2. Evidence snippets are verification anchors, not labels: include the smallest self-contained code fragment that proves the observation, usually at least 2 lines or a distinctive full statement/block.');
+  lines.push('3. Do not use single identifiers, isolated keywords, or paraphrased summaries as snippets unless the provided window itself is only that small.');
+  lines.push('4. Leave every verification field null.');
+  lines.push('5. semantic_key is required and must stay stable across synonymous phrasings and repeated calibrations.');
+  lines.push('6. pattern should stay human-readable and descriptive, but semantic_key is the primary identity.');
+  lines.push('7. Scope should be no broader than the evidence supports.');
+  lines.push('8. Use support metadata to reflect where the observation came from.');
+  lines.push('9. Prefer 5 to 12 observations and skip weak or redundant signals.');
+  lines.push('10. If you cannot supply a verifiable snippet for an observation, omit that observation instead of guessing.');
   lines.push('');
   if (input.contextMeta?.raw) {
     lines.push('## Repository context');

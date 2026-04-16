@@ -32,9 +32,7 @@ function walkDir(dir: string, projectRoot: string): string[] {
 }
 
 function autoScope(files: string[]): string[] {
-  const preferredRoots = ['src/', 'lib/', 'app/', 'packages/', 'plugins/', 'cmd/', 'internal/'];
-  const preferred = files.filter((file) => preferredRoots.some((root) => file.startsWith(root)));
-  return preferred.length > 0 ? preferred : files;
+  return [...files].sort();
 }
 
 function matchScope(file: string, scopeGlob: string): boolean {
@@ -74,20 +72,18 @@ function indexFile(projectRoot: string, file: string): IndexedFile | null {
 }
 
 function inferPackageRoot(file: string): string {
-  const segments = file.split('/');
-  if (segments[0] === 'packages' && segments[1]) return `packages/${segments[1]}`;
-  if (segments[0] === 'plugins' && segments[1]) return `plugins/${segments[1]}`;
-  return segments[0] ?? '.';
+  const [root] = file.split('/');
+  return root || '.';
 }
 
 function inferRoleHints(file: string, content: string): string[] {
   const hints = new Set<string>();
-  if (/index\.[^.]+$/.test(file)) hints.add('entry');
-  if (/config|settings/.test(file)) hints.add('config');
-  if (/cli|command|cmd/.test(file)) hints.add('cli');
-  if (/api|route|handler|controller/.test(file)) hints.add('boundary');
-  if (/adapter|bridge|gateway/.test(file)) hints.add('adapter');
-  if (/interface|type\s+|trait|protocol/.test(content)) hints.add('interface');
-  if (/TODO|FIXME|legacy|deprecated/i.test(content)) hints.add('legacy-signal');
-  return [...hints];
+  if (/index\.[^.]+$/.test(file)) hints.add('observed-entry-file');
+  if (/(^|\/)(config|settings)(\/|\.)/.test(file)) hints.add('observed-config-file');
+  if (/(^|\/)(cli|command|cmd)(\/|\.)/.test(file)) hints.add('observed-cli-file');
+  if (/(api|route|handler|controller)/.test(file)) hints.add('observed-boundary-file');
+  if (/(adapter|bridge|gateway)/.test(file)) hints.add('observed-adapter-file');
+  if (/\b(interface|trait|protocol)\b|\btype\s+[A-Z]/.test(content)) hints.add('observed-interface-heavy');
+  if (/TODO|FIXME|legacy|deprecated/i.test(content)) hints.add('observed-legacy-signal');
+  return [...hints].sort();
 }

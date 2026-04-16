@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import type { CandidateRcclDocument, ConsolidationResult, EmitRcclResult, RcclDocument } from '../types.ts';
+import type { CandidateRcclDocument, ConsolidationResult, EmitRcclResult, RcclDocument, VerificationSummary, VerificationSummaryObservation } from '../types.ts';
 import { parseRccl } from './parse-rccl.ts';
 import { toYaml } from '../utils/yaml.ts';
 
@@ -23,11 +23,55 @@ export function emitRccl(rccl: RcclDocument, projectRoot: string): EmitRcclResul
     git_ref: getGitRef(projectRoot),
     observations: rccl.observations.slice().sort((a, b) => a.id.localeCompare(b.id)),
   };
+  const verificationSummary = summarizeVerification(finalDoc);
 
   writeFileSync(outputPath, serializeRccl(finalDoc), 'utf-8');
   return {
     written: '.resonant-code/rccl.yaml',
     stats: { added, updated, preserved },
+    verification_summary: verificationSummary,
+  };
+}
+
+export function summarizeVerification(rccl: RcclDocument): VerificationSummary {
+  const observations: VerificationSummaryObservation[] = rccl.observations.map((item) => ({
+    id: item.id,
+    disposition: item.verification.disposition,
+    evidence_status: item.verification.evidence_status,
+    induction_status: item.verification.induction_status,
+    evidence_verified_count: item.verification.evidence_verified_count,
+    evidence_total_count: item.evidence.length,
+    support: item.support,
+  }));
+
+  const evidenceStatusCounts: VerificationSummary['evidence_status_counts'] = {
+    pending: 0,
+    verified: 0,
+    partial: 0,
+    failed: 0,
+    unverifiable: 0,
+  };
+  const inductionStatusCounts: VerificationSummary['induction_status_counts'] = {
+    pending: 0,
+    'well-supported': 0,
+    'narrowly-supported': 0,
+    overgeneralized: 0,
+    ambiguous: 0,
+  };
+
+  for (const item of observations) {
+    evidenceStatusCounts[item.evidence_status ?? 'pending'] += 1;
+    inductionStatusCounts[item.induction_status ?? 'pending'] += 1;
+  }
+
+  return {
+    total_observations: observations.length,
+    kept_count: observations.filter((item) => item.disposition === 'keep').length,
+    reduced_confidence_count: observations.filter((item) => item.disposition === 'keep-with-reduced-confidence').length,
+    demoted_count: observations.filter((item) => item.disposition === 'demote-to-ambient').length,
+    evidence_status_counts: evidenceStatusCounts,
+    induction_status_counts: inductionStatusCounts,
+    observations,
   };
 }
 
@@ -40,17 +84,17 @@ export function writeCandidateArtifact(projectRoot: string, candidates: Candidat
 }
 
 export function writeConsolidationArtifact(projectRoot: string, consolidation: ConsolidationResult, finalDocument: RcclDocument): string {
-  const demotions = finalDocument.observations
-    .filter((item) => item.verification.disposition === 'demote-to-ambient' || item.verification.disposition === 'keep-with-reduced-confidence')
+  const verificationSummary = summarizeVerification(finalDocument);
+  const demotions = verificationSummary.observations
+    .filter((item) => item.disposition === 'demote-to-ambient' || item.disposition === 'keep-with-reduced-confidence')
     .map((item) => ({
-      id: item.id,
-      disposition: item.verification.disposition,
-      evidence_status: item.verification.evidence_status,
-      induction_status: item.verification.induction_status,
+      ...item,
+      failure_reason: describeVerificationFailure(item),
     }));
 
   return writeContextArtifact(projectRoot, 'rccl-consolidation', 'json', JSON.stringify({
     ...consolidation.report,
+    verification_summary: verificationSummary,
     verification_demotion_summary: {
       demotion_count: demotions.filter((item) => item.disposition === 'demote-to-ambient').length,
       reduced_confidence_count: demotions.filter((item) => item.disposition === 'keep-with-reduced-confidence').length,
@@ -70,6 +114,29 @@ export function writeConsolidationArtifact(projectRoot: string, consolidation: C
     ids: finalDocument.observations.map((item) => item.id),
   });
 }
+
+function describeVerificationFailure(item: VerificationSummaryObservation): string {
+  if (item.disposition === 'demote-to-ambient') {
+    if (item.evidence_status === 'failed') return 'all evidence snippets failed static verification against current source';
+    if (item.evidence_status === 'unverifiable') return 'evidence could not be verified statically';
+    if (item.induction_status === 'overgeneralized') {
+      return `scope basis ${item.support.scope_basis} is broader than the verified evidence supports`;
+    }
+    return 'verification demoted this observation to ambient';
+  }
+  if (item.disposition === 'keep-with-reduced-confidence') {
+    if (item.evidence_status === 'partial') {
+      return `only ${item.evidence_verified_count ?? 0}/${item.evidence_total_count} evidence snippets verified statically`;
+    }
+    if (item.induction_status === 'narrowly-supported') {
+      return `support basis ${item.support.scope_basis} is valid but only narrowly supported by verified evidence`;
+    }
+    return 'verification reduced confidence for this observation';
+  }
+  return 'verification kept this observation';
+}
+
+export { summarizeVerification };
 
 export function serializeRccl(rccl: RcclDocument): string {
   const normalized = {

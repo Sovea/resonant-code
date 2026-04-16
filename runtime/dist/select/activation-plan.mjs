@@ -7,6 +7,18 @@ const LAYER_RANKS = {
 	domains: 2,
 	local: 1
 };
+function getDirectiveLayerRank(layerId) {
+	if (layerId === "local" || layerId.startsWith("local")) return LAYER_RANKS.local;
+	if (layerId.includes("/domains/")) return LAYER_RANKS.domains;
+	if (layerId.includes("/frameworks/")) return LAYER_RANKS.frameworks;
+	if (layerId.includes("/languages/")) return LAYER_RANKS.languages;
+	return LAYER_RANKS.core;
+}
+function scopeMatchesIntent(scope, targetFile, changedFiles) {
+	if (!targetFile && changedFiles.length === 0) return true;
+	if (targetFile && minimatch(targetFile, scope)) return true;
+	return changedFiles.some((file) => minimatch(file, scope));
+}
 const WEIGHT_RANKS = {
 	low: 0,
 	normal: 1,
@@ -83,7 +95,7 @@ function sortActivated(items) {
 }
 function buildPriorityRecord(layerId, prescription, weight, overrideApplied) {
 	return {
-		layer_rank: inferLayerRank(layerId),
+		layer_rank: getDirectiveLayerRank(layerId),
 		prescription_rank: PRESCRIPTION_RANKS[prescription],
 		weight_rank: WEIGHT_RANKS[weight],
 		context_rank: overrideApplied ? 1 : 0
@@ -97,13 +109,6 @@ function buildActivationReason(directive, intent, overrideApplied, augmentApplie
 	if (directive.source.layerId === "builtin/core") reasons.push("core guidance always eligible");
 	return reasons.join("; ");
 }
-function inferLayerRank(layerId) {
-	if (layerId === "local" || layerId.startsWith("local")) return LAYER_RANKS.local;
-	if (layerId.includes("/domains/")) return LAYER_RANKS.domains;
-	if (layerId.includes("/frameworks/")) return LAYER_RANKS.frameworks;
-	if (layerId.includes("/languages/")) return LAYER_RANKS.languages;
-	return LAYER_RANKS.core;
-}
 function layerMatchesIntent(directive, intent) {
 	const sourceLayer = directive.source.layerId;
 	if (sourceLayer === "builtin/core" || directive.layer.startsWith("local")) return true;
@@ -112,10 +117,5 @@ function layerMatchesIntent(directive, intent) {
 	if (sourceLayer.startsWith("builtin/frameworks/")) return intent.tech_stack.some((tech) => sourceLayer.endsWith(`/${tech}`));
 	return true;
 }
-function scopeMatchesIntent(scope, targetFile, changedFiles) {
-	if (!targetFile && changedFiles.length === 0) return true;
-	if (targetFile && minimatch(targetFile, scope)) return true;
-	return changedFiles.some((file) => minimatch(file, scope));
-}
 //#endregion
-export { buildActivationPlan };
+export { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent };

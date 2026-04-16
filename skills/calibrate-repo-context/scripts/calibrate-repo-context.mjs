@@ -62,6 +62,17 @@ async function runCommit(options = {}) {
       consolidation: consolidationArtifactPath,
     },
   }, null, 2) + '\n');
+
+  if (result.verification_summary.demoted_count > 0 || result.verification_summary.reduced_confidence_count > 0) {
+    process.stderr.write('Verification summary:\n');
+    process.stderr.write(`  kept: ${result.verification_summary.kept_count}\n`);
+    process.stderr.write(`  reduced-confidence: ${result.verification_summary.reduced_confidence_count}\n`);
+    process.stderr.write(`  demoted: ${result.verification_summary.demoted_count}\n`);
+    for (const observation of result.verification_summary.observations) {
+      if (observation.disposition === 'keep') continue;
+      process.stderr.write(`  - ${observation.id}: disposition=${observation.disposition} evidence=${observation.evidence_status ?? 'pending'} induction=${observation.induction_status ?? 'pending'} verified=${observation.evidence_verified_count ?? 0}/${observation.evidence_total_count}\n`);
+    }
+  }
   process.exit(0);
 }
 

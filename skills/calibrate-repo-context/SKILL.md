@@ -88,6 +88,7 @@ The commit phase performs five things:
 5. Write the current verified calibration result authoritatively to `.resonant-code/rccl.yaml`
 
 It also emits commit-time debug artifacts under `.resonant-code/context/` for candidates and consolidation output.
+When observations are demoted or kept with reduced confidence, stderr includes a compact verification summary so you can tune candidate quality instead of guessing.
 
 Exit `0`: committed successfully. Parse stdout JSON:
 
@@ -95,12 +96,20 @@ Exit `0`: committed successfully. Parse stdout JSON:
 {
   "written": ".resonant-code/rccl.yaml",
   "stats": { "added": 5, "updated": 2, "preserved": 3 },
+  "verification_summary": {
+    "total_observations": 7,
+    "kept_count": 5,
+    "reduced_confidence_count": 1,
+    "demoted_count": 1
+  },
   "artifacts": {
     "candidates": "<path-to-candidate-artifact>",
     "consolidation": "<path-to-consolidation-artifact>"
   }
 }
 ```
+
+Use `verification_summary` plus the consolidation artifact to understand why observations were reduced or demoted.
 
 Print a confirmation:
 

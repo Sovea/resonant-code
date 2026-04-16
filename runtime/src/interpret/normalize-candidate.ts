@@ -1,3 +1,4 @@
+import { inferTargetLayer } from '../intent/parse-intent.ts';
 import type { CompileTaskInput, ContextProfile, Operation, ResolveTaskRequest, ResolvedTaskOutput, TaskIntent, TaskKind } from '../types.ts';
 import { DeterministicInterpretationProvider } from './deterministic-extractor.ts';
 import type {
@@ -35,7 +36,7 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     candidates: candidates.map((candidate) => candidate.intent.operation),
     fallbackValue: deterministicCandidate.intent.operation?.value ?? 'modify',
     defaultSource: 'deterministic',
-    defaultConfidence: deterministicCandidate.intent.operation?.confidence ?? 0.8,
+    defaultConfidence: deterministicCandidate.intent.operation?.confidence ?? 0.5,
     conflicts,
   });
 
@@ -93,9 +94,9 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     field: 'context.optimization_target',
     explicitValue: input.task.optimizationTarget,
     candidates: candidates.map((candidate) => candidate.context.optimization_target),
-    fallbackValue: deterministicCandidate.context.optimization_target?.value ?? 'maintainability',
+    fallbackValue: deterministicCandidate.context.optimization_target?.value,
     defaultSource: 'deterministic',
-    defaultConfidence: deterministicCandidate.context.optimization_target?.confidence ?? 0.75,
+    defaultConfidence: deterministicCandidate.context.optimization_target?.confidence ?? 0.55,
     conflicts,
   });
 
@@ -144,12 +145,13 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     avoid: avoidResolution.values,
   };
 
+  const resolvedTargetFile = targetFileResolution.value;
   const intent: TaskIntent = {
     task_kind: taskKindResolution.value,
     operation: operationResolution.value,
-    target_layer: deriveTargetLayer(task.targetFile, task.description),
+    target_layer: inferTargetLayer(resolvedTargetFile),
     tech_stack: unique(techStackResolution.values),
-    target_file: targetFileResolution.value,
+    target_file: resolvedTargetFile,
     changed_files: unique(changedFilesResolution.values),
     tags: unique(tagsResolution.values),
   };
@@ -444,16 +446,6 @@ function registerConflict(
   const uniqueDiscarded = [...new Set(discarded.filter((source) => source !== winner))];
   if (!uniqueDiscarded.length) return;
   conflicts.push({ field, winner, discarded: uniqueDiscarded, rationale });
-}
-
-function deriveTargetLayer(targetFile: string | undefined, description: string): string {
-  const input = `${targetFile ?? ''} ${description.toLowerCase()}`;
-  if (/(test|spec)/.test(input)) return 'test';
-  if (/(api|route|handler|endpoint)/.test(input)) return 'api';
-  if (/(store|state|slice)/.test(input)) return 'store';
-  if (/(component|tsx|view|page)/.test(input)) return 'component';
-  if (/(util|helper|lib)/.test(input)) return 'util';
-  return 'module';
 }
 
 function unique<T>(values: T[]): T[] {

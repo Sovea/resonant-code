@@ -128,6 +128,10 @@ function validateObservation(obs, index, allowVerifiedFields) {
 		if (!evidence.file || typeof evidence.file !== "string") errors.push(`${prefix}.evidence[${i}]: missing or invalid 'file'`);
 		if (!Array.isArray(evidence.line_range) || evidence.line_range.length !== 2) errors.push(`${prefix}.evidence[${i}]: invalid 'line_range'`);
 		if (!evidence.snippet || typeof evidence.snippet !== "string") errors.push(`${prefix}.evidence[${i}]: missing or invalid 'snippet'`);
+		else {
+			const snippetErrors = validateEvidenceSnippet(evidence.snippet, prefix, i);
+			errors.push(...snippetErrors);
+		}
 	}
 	const support = obs.support ?? {};
 	const sourceSlices = obs.source_slice_ids ?? support.source_slices;
@@ -145,6 +149,20 @@ function validateObservation(obs, index, allowVerifiedFields) {
 		}
 	}
 	return errors;
+}
+function validateEvidenceSnippet(snippet, prefix, index) {
+	if (typeof snippet !== "string") return [];
+	const normalized = snippet.replace(/\r\n/g, "\n").trim();
+	if (!normalized) return [`${prefix}.evidence[${index}]: snippet must not be empty`];
+	const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+	const tokenMatches = normalized.match(/[A-Za-z_][A-Za-z0-9_]*|\d+|==|!=|<=|>=|=>|&&|\|\||[()[\]{}.,;:+\-*/%<>!=?]/g) ?? [];
+	const identifierCount = tokenMatches.filter((token) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(token)).length;
+	const punctuationCount = tokenMatches.length - identifierCount;
+	const hasDistinctiveStructure = /[{}();=>]|\b(import|export|return|const|let|var|function|class|interface|type|if|for|while|switch|case|await|async)\b/.test(normalized);
+	if (lines.length >= 2 || hasDistinctiveStructure) return [];
+	if (tokenMatches.length < 4) return [`${prefix}.evidence[${index}]: snippet is too short to verify reliably; include at least a distinctive statement or 2+ lines of code`];
+	if (identifierCount <= 2 && punctuationCount === 0) return [`${prefix}.evidence[${index}]: snippet looks like an identifier or label, not a verifiable code fragment`];
+	return [];
 }
 function normalizeCandidateDocument(input) {
 	return {
@@ -212,24 +230,20 @@ function normalizeEvidence(input) {
 function normalizeSupport(input, evidence, scope) {
 	const evidenceFiles = Array.from(new Set((evidence ?? []).map((item) => normalizePath(String(item.file ?? ""))).filter(Boolean)));
 	const fileCount = input?.file_count == null ? Math.max(1, evidenceFiles.length) : Number(input.file_count);
+	const clusterCount = input?.cluster_count == null ? inferFallbackClusterCount(scope, evidenceFiles) : Number(input.cluster_count);
+	const scopeBasis = input?.scope_basis == null ? inferFallbackScopeBasis(scope, fileCount, evidenceFiles) : normalizeScopeBasis(String(input.scope_basis));
 	return {
 		source_slices: Array.isArray(input?.source_slices) ? Array.from(new Set(input?.source_slices.map(String))).sort() : [],
 		file_count: fileCount,
-		cluster_count: input?.cluster_count == null ? inferClusterCount(scope, evidenceFiles) : Number(input.cluster_count),
-		scope_basis: normalizeScopeBasis(String(input?.scope_basis ?? inferScopeBasis(scope, fileCount, evidenceFiles)))
+		cluster_count: clusterCount,
+		scope_basis: scopeBasis
 	};
 }
-function normalizeVerification(input) {
-	const verification = input ?? {};
-	return {
-		evidence_status: verification.evidence_status ?? null,
-		evidence_verified_count: verification.evidence_verified_count == null ? null : Number(verification.evidence_verified_count),
-		evidence_confidence: verification.evidence_confidence == null ? null : Number(verification.evidence_confidence),
-		induction_status: verification.induction_status ?? null,
-		induction_confidence: verification.induction_confidence == null ? null : Number(verification.induction_confidence),
-		checked_at: typeof verification.checked_at === "string" ? verification.checked_at : null,
-		disposition: verification.disposition ?? null
-	};
+function inferFallbackClusterCount(scope, evidenceFiles) {
+	return inferClusterCount(scope, evidenceFiles);
+}
+function inferFallbackScopeBasis(scope, fileCount, evidenceFiles) {
+	return normalizeScopeBasis(inferScopeBasis(scope, fileCount, evidenceFiles));
 }
 function inferClusterCount(scope, evidenceFiles) {
 	if (scope === "**") return Math.max(2, new Set(evidenceFiles.map(rootFromPath)).size);
@@ -243,6 +257,18 @@ function inferScopeBasis(scope, fileCount, evidenceFiles) {
 	if (fileCount <= 1 && !scope.includes("*")) return "single-file";
 	if (scope.includes("/**")) return "directory-cluster";
 	return "module-cluster";
+}
+function normalizeVerification(input) {
+	const verification = input ?? {};
+	return {
+		evidence_status: verification.evidence_status ?? null,
+		evidence_verified_count: verification.evidence_verified_count == null ? null : Number(verification.evidence_verified_count),
+		evidence_confidence: verification.evidence_confidence == null ? null : Number(verification.evidence_confidence),
+		induction_status: verification.induction_status ?? null,
+		induction_confidence: verification.induction_confidence == null ? null : Number(verification.induction_confidence),
+		checked_at: typeof verification.checked_at === "string" ? verification.checked_at : null,
+		disposition: verification.disposition ?? null
+	};
 }
 function normalizeScopeBasis(value) {
 	if (value === "single-file" || value === "directory-cluster" || value === "module-cluster" || value === "cross-root") return value;

@@ -3,9 +3,8 @@ import { resolveTask } from './interpret/normalize-candidate.ts';
 import { semanticMerge } from './merge/semantic-merge.ts';
 import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from './load/load-playbook.ts';
 import { loadRccl } from './load/load-rccl.ts';
-import { buildActivationPlan } from './select/activation-plan.ts';
+import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from './select/activation-plan.ts';
 import { verifyRcclDocument } from './verify/verify-rccl.ts';
-import { minimatch } from './utils/glob.ts';
 import { stableHash } from './utils/hash.ts';
 import type {
   ChangeDecisionPacket,
@@ -135,8 +134,8 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     ],
   });
 
-  const loadedRccl = loadRccl(normalizedInput.rcclPath);
-  const rccl = loadedRccl ? verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
+  const loadedRccl = await loadRccl(normalizedInput.rcclPath);
+  const rccl = loadedRccl ? await verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
   traceSteps.push({
     stage: 'RCCL Verify Gate',
     lines: rccl?.observations.length
@@ -332,10 +331,10 @@ function assembleEgo(
 function compareDirectives(
   a: Directive,
   b: Directive,
-  contextProfile: ContextProfile,
+  _contextProfile: ContextProfile,
   decisionByDirectiveId: Map<string, SemanticMergeResult['directive_modes'][number]>,
 ): number {
-  const layerScore = inferDirectiveLayerRank(b) - inferDirectiveLayerRank(a);
+  const layerScore = getDirectiveLayerRank(b.source.layerId) - getDirectiveLayerRank(a.source.layerId);
   if (layerScore !== 0) return layerScore;
 
   const prescriptionScore = a.prescription === b.prescription ? 0 : a.prescription === 'must' ? -1 : 1;
@@ -348,49 +347,7 @@ function compareDirectives(
     - (decisionByDirectiveId.get(a.id)?.context_applied.length ?? 0);
   if (contextAppliedScore !== 0) return contextAppliedScore;
 
-  const alignmentScore = scoreDirectiveContextAlignment(b, contextProfile) - scoreDirectiveContextAlignment(a, contextProfile);
-  if (alignmentScore !== 0) return alignmentScore;
-
   return a.id.localeCompare(b.id);
-}
-
-function inferDirectiveLayerRank(directive: Directive): number {
-  if (directive.source.layerId === 'builtin/core') return 5;
-  if (directive.source.layerId.startsWith('builtin/languages/')) return 4;
-  if (directive.source.layerId.startsWith('builtin/frameworks/')) return 3;
-  if (directive.source.layerId.startsWith('builtin/domains/')) return 2;
-  if (directive.source.kind === 'local-addition' || directive.source.layerId.startsWith('local')) return 1;
-  return 0;
-}
-
-function scoreDirectiveContextAlignment(directive: Directive, contextProfile: ContextProfile): number {
-  const text = `${directive.description} ${directive.rationale}`.toLowerCase();
-  let score = 0;
-  if (contextProfile.optimization_target === 'safety' && /(safe|safety|correct|compatib|regression|constraint|migration)/.test(text)) {
-    score += 2;
-  }
-  if (contextProfile.optimization_target === 'reviewability' && /(readable|review|clear|legible|simple)/.test(text)) {
-    score += 2;
-  }
-  if (contextProfile.optimization_target === 'simplicity' && /(simple|minimal|small|narrow|focused)/.test(text)) {
-    score += 2;
-  }
-  if (contextProfile.optimization_target === 'maintainability' && /(maintain|structure|refactor|module|boundary)/.test(text)) {
-    score += 2;
-  }
-  if (contextProfile.allowed_tradeoffs.includes('prefer narrow change scope') && /(narrow|local|boundary|focused)/.test(text)) {
-    score += 1;
-  }
-  if (contextProfile.hard_constraints.includes('preserve compatibility') && /(compatib|public api|interface)/.test(text)) {
-    score += 1;
-  }
-  return score;
-}
-
-function scopeMatchesIntent(scope: string, targetFile: string | undefined, changedFiles: string[]): boolean {
-  if (!targetFile && changedFiles.length === 0) return true;
-  if (targetFile && minimatch(targetFile, scope)) return true;
-  return changedFiles.some((file) => minimatch(file, scope));
 }
 
 /**

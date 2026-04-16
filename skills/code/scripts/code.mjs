@@ -84,12 +84,94 @@ function listFieldSchema() {
 export async function prepareInterpretation(options) {
   const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
   const task = normalizeTaskInput(options, paths.projectRoot);
+  const candidatePath = buildCandidatePath(paths.projectRoot, task);
+  const ambiguityHints = buildAmbiguityHints(task);
+  const recommendation = buildInterpretationRecommendation(task, ambiguityHints, candidatePath);
   return {
     task,
     interpretationPrompt: buildInterpretationPrompt(task),
     taskSchema: JSON.stringify(TASK_CANDIDATE_SCHEMA, null, 2),
-    ambiguityHints: buildAmbiguityHints(task),
+    ambiguityHints,
+    recommendation,
+    candidateArtifact: {
+      suggestedPath: candidatePath,
+      format: 'json',
+      usage: `Write a single candidate object or an array of candidates to ${candidatePath}, then pass --candidate-file ${candidatePath} to prepare.`,
+    },
+    clarificationHints: buildClarificationHints(task, ambiguityHints),
   };
+}
+
+function buildInterpretationRecommendation(task, ambiguityHints, candidatePath) {
+  const shouldUseAiCandidate = ambiguityHints.length > 0;
+  return {
+    shouldUseAiCandidate,
+    reason: shouldUseAiCandidate
+      ? `AI-assisted candidate recommended because ${ambiguityHints.join('; ')}.`
+      : 'AI-assisted candidate is optional because the task already carries concrete operational signals.',
+    nextStep: shouldUseAiCandidate
+      ? `Generate a candidate JSON file at ${candidatePath} before running prepare.`
+      : 'You can run prepare directly, or still provide a candidate file if you want richer task interpretation.',
+  };
+}
+
+function buildClarificationHints(task, ambiguityHints) {
+  const hints = [];
+  if (ambiguityHints.includes('operation is not explicit')) {
+    hints.push('Clarify whether this is create, modify, bugfix, refactor, or review work.');
+  }
+  if (ambiguityHints.includes('no concrete target files are specified')) {
+    hints.push('Name the target file or likely changed files if they are known.');
+  }
+  if (ambiguityHints.includes('tech stack is implicit')) {
+    hints.push('State the relevant language, framework, or subsystem when it is not obvious from the file path.');
+  }
+  if (ambiguityHints.includes('project stage is not specified')) {
+    hints.push('State whether the project area is prototype, growth, stable, or critical if that affects tradeoffs.');
+  }
+  if (!task.optimizationTarget) {
+    hints.push('Specify the optimization target when the tradeoff matters, such as safety, simplicity, or reviewability.');
+  }
+  return hints;
+}
+
+function buildCandidatePath(projectRoot, task) {
+  const digest = createHash('sha1')
+    .update(JSON.stringify({
+      description: task.description,
+      targetFile: task.targetFile ?? '',
+      changedFiles: task.changedFiles,
+      techStack: task.techStack,
+      operation: task.operation ?? '',
+      type: 'candidate',
+    }))
+    .digest('hex')
+    .slice(0, 10);
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return join(projectRoot, '.resonant-code', 'context', 'task-candidates', 'code', `${stamp}-${digest}.json`);
+}
+
+function summarizeInterpretationFlow(mode, candidateFile, diagnostics, candidateCount) {
+  const steps = [];
+  steps.push(candidateFile
+    ? `Using candidate file ${resolve(candidateFile)} as assistive input.`
+    : 'No candidate file provided; Runtime will rely on deterministic interpretation only.');
+  steps.push(`Interpretation mode: ${mode}.`);
+  steps.push(`Candidate count: ${candidateCount}.`);
+  if (diagnostics?.clarification_recommended) {
+    steps.push(`Clarification recommended: ${diagnostics.ambiguity_reasons.join('; ') || 'additional ambiguity detected'}.`);
+  }
+  return steps;
+}
+
+function buildPrepareNextStep(mode, candidateFile, diagnostics, recommendationPath) {
+  if (candidateFile) {
+    return 'Proceed with the compiled packet and use interpretation provenance if you need to explain how fields were resolved.';
+  }
+  if (mode === 'deterministic-only' && diagnostics?.clarification_recommended) {
+    return `If the deterministic interpretation looks too weak, generate a candidate file at ${recommendationPath} and re-run prepare with --candidate-file.`;
+  }
+  return 'Proceed with the compiled packet.';
 }
 
 export async function prepareCodeTask(options) {
@@ -119,6 +201,13 @@ export async function prepareCodeTask(options) {
       resolvedTask,
     };
     const output = await runtime.compile(compileInput);
+    const interpretationSummary = summarizeInterpretationFlow(
+      interpretationMode,
+      options.candidateFile,
+      output.packet.interpretation.diagnostics,
+      resolvedTask.candidates?.length ?? 0,
+    );
+    const suggestedCandidatePath = buildCandidatePath(paths.projectRoot, task);
     const session = {
       version: 3,
       status: 'ok',
@@ -146,9 +235,24 @@ export async function prepareCodeTask(options) {
       ego: output.ego,
       trace: output.trace,
       warnings,
+      interpretation: {
+        mode: interpretationMode,
+        candidateFile: options.candidateFile ? resolve(options.candidateFile) : null,
+        provenance: output.packet.interpretation.input_provenance,
+        diagnostics: output.packet.interpretation.diagnostics,
+        summary: interpretationSummary,
+        nextStep: buildPrepareNextStep(interpretationMode, options.candidateFile, output.packet.interpretation.diagnostics, suggestedCandidatePath),
+      },
     };
   } catch (error) {
     const message = formatError(error);
+    const interpretationMode = options.candidateFile ? 'assistive-ai' : 'deterministic-only';
+    const candidateSnapshot = loadCandidateFile(options.candidateFile);
+    const suggestedCandidatePath = buildCandidatePath(paths.projectRoot, task);
+    const degradedDiagnostics = {
+      clarification_recommended: !options.candidateFile,
+      ambiguity_reasons: buildAmbiguityHints(task),
+    };
     const session = {
       version: 3,
       status: 'degraded',
@@ -156,8 +260,8 @@ export async function prepareCodeTask(options) {
       paths,
       taskInput: task,
       interpretation: {
-        mode: options.candidateFile ? 'assistive-ai' : 'deterministic-only',
-        candidates: loadCandidateFile(options.candidateFile),
+        mode: interpretationMode,
+        candidates: candidateSnapshot,
       },
       compileInput: {
         builtinRoot: paths.builtinRoot,
@@ -166,7 +270,7 @@ export async function prepareCodeTask(options) {
         lockfilePath: paths.lockfilePath,
         projectRoot: paths.projectRoot,
         task,
-        interpretationMode: options.candidateFile ? 'assistive-ai' : 'deterministic-only',
+        interpretationMode,
       },
       compileOutput: null,
       fallbackGuidance: FALLBACK_GUIDANCE,
@@ -183,6 +287,13 @@ export async function prepareCodeTask(options) {
       fallbackGuidance: FALLBACK_GUIDANCE,
       warnings: session.warnings,
       error: message,
+      interpretation: {
+        mode: interpretationMode,
+        candidateFile: options.candidateFile ? resolve(options.candidateFile) : null,
+        diagnostics: degradedDiagnostics,
+        summary: summarizeInterpretationFlow(interpretationMode, options.candidateFile, degradedDiagnostics, candidateSnapshot.length),
+        nextStep: buildPrepareNextStep(interpretationMode, options.candidateFile, degradedDiagnostics, suggestedCandidatePath),
+      },
     };
   }
 }

@@ -1,5 +1,11 @@
-import { minimatch } from '../utils/glob.ts';
+import { scopeMatchesIntent } from '../select/activation-plan.ts';
 import type { Directive, DirectiveObservationRelation, RcclObservation, TaskIntent } from '../types.ts';
+
+const STRONG_STRUCTURAL_CONFIDENCE = 0.8;
+const MODERATE_STRUCTURAL_CONFIDENCE = 0.6;
+const ANTI_PATTERN_VERIFICATION_THRESHOLD = 0.75;
+
+type StructuralMatchTier = 'strong' | 'moderate' | 'none';
 
 export function buildRelations(
   directives: Directive[],
@@ -11,10 +17,12 @@ export function buildRelations(
   );
 
   return directives.flatMap((directive) => scopedObservations.map((observation) => {
-    const similarity = lexicalSimilarity(directive.description, observation.pattern);
     const verificationConfidence = observation.verification.induction_confidence
       ?? observation.verification.evidence_confidence
       ?? 0;
+    const structuralTier = structuralMatchTier(directive, observation);
+    const structuralConfidence = structuralTierToConfidence(structuralTier);
+    const confidence = Math.max(structuralConfidence, verificationConfidence);
     const isDemoted = observation.verification.disposition === 'demote-to-ambient';
     const isWeakBroadScope = observation.support.scope_basis === 'cross-root' && verificationConfidence < 0.7;
 
@@ -32,26 +40,27 @@ export function buildRelations(
     }
 
     if (directive.type === 'anti-pattern' || observation.category === 'anti-pattern') {
+      const suppresses = supportsAntiPatternSuppression(directive, observation, verificationConfidence, structuralTier);
       return {
         directive_id: directive.id,
         observation_id: observation.id,
-        relation: similarity >= 0.2 ? 'anti-pattern-suppress' : 'none',
-        confidence: similarity,
-        basis: similarity >= 0.2 ? ['scope', 'category', 'lexical'] : ['scope', 'category'],
-        reason: similarity >= 0.2
-          ? 'anti-pattern classification indicates suppression-worthy overlap'
-          : 'anti-pattern observation did not materially overlap this directive',
+        relation: suppresses ? 'anti-pattern-suppress' : 'none',
+        confidence,
+        basis: suppresses ? ['scope', 'verification', 'category'] : ['scope', 'category'],
+        reason: suppresses
+          ? 'verified anti-pattern structure indicates suppression-worthy overlap for this directive category'
+          : 'anti-pattern structure did not satisfy the stronger suppression gate',
       };
     }
 
-    if (similarity < 0.2) {
+    if (structuralTier === 'none') {
       return {
         directive_id: directive.id,
         observation_id: observation.id,
         relation: 'none',
-        confidence: similarity,
-        basis: ['scope', 'lexical'],
-        reason: 'no material semantic overlap found using current deterministic lexical baseline',
+        confidence: verificationConfidence,
+        basis: ['scope', 'category'],
+        reason: 'no structural directive-observation overlap was found in the deterministic baseline',
       };
     }
 
@@ -60,32 +69,63 @@ export function buildRelations(
       directive_id: directive.id,
       observation_id: observation.id,
       relation,
-      confidence: Math.max(similarity, verificationConfidence),
-      basis: ['scope', 'verification', 'category', 'lexical'],
+      confidence,
+      basis: ['scope', 'verification', 'category'],
       reason: relation === 'reinforce'
-        ? 'verified observation reinforces this directive in the current repository context'
-        : 'verified observation creates tension with this directive in the current repository context',
+        ? 'verified observation structurally reinforces this directive in the current repository context'
+        : 'verified observation structurally creates tension with this directive in the current repository context',
     };
   }));
 }
 
-function lexicalSimilarity(a: string, b: string): number {
-  const aTokens = tokenize(a);
-  const bTokens = tokenize(b);
-  if (aTokens.size === 0 || bTokens.size === 0) return 0;
-  let overlap = 0;
-  for (const token of bTokens) {
-    if (aTokens.has(token)) overlap += 1;
+function structuralMatchTier(directive: Directive, observation: RcclObservation): StructuralMatchTier {
+  const pair = `${directive.type}:${observation.category}`;
+  switch (pair) {
+    case 'architecture:architecture':
+    case 'constraint:constraint':
+    case 'architecture:migration':
+    case 'architecture:legacy':
+    case 'constraint:legacy':
+    case 'constraint:migration':
+      return 'strong';
+    case 'convention:style':
+    case 'convention:pattern':
+    case 'preference:style':
+    case 'preference:pattern':
+    case 'architecture:pattern':
+    case 'constraint:pattern':
+    case 'preference:constraint':
+    case 'convention:constraint':
+      return 'moderate';
+    default:
+      return 'none';
   }
-  return overlap / Math.max(aTokens.size, bTokens.size);
 }
 
-function tokenize(text: string): Set<string> {
-  return new Set(text.toLowerCase().match(/[a-z][a-z0-9-]+/g)?.filter((token) => token.length > 2) ?? []);
+function structuralTierToConfidence(tier: StructuralMatchTier): number {
+  switch (tier) {
+    case 'strong':
+      return STRONG_STRUCTURAL_CONFIDENCE;
+    case 'moderate':
+      return MODERATE_STRUCTURAL_CONFIDENCE;
+    default:
+      return 0;
+  }
 }
 
-function scopeMatchesIntent(scope: string, targetFile: string | undefined, changedFiles: string[]): boolean {
-  if (!targetFile && changedFiles.length === 0) return true;
-  if (targetFile && minimatch(targetFile, scope)) return true;
-  return changedFiles.some((file) => minimatch(file, scope));
+function supportsAntiPatternSuppression(
+  directive: Directive,
+  observation: RcclObservation,
+  verificationConfidence: number,
+  structuralTier: StructuralMatchTier,
+): boolean {
+  if (directive.type === 'anti-pattern') return true;
+  if (observation.category !== 'anti-pattern') return false;
+  if (verificationConfidence < ANTI_PATTERN_VERIFICATION_THRESHOLD) return false;
+  if (structuralTier === 'none') return false;
+  return directive.type === 'convention'
+    || directive.type === 'preference'
+    || directive.type === 'architecture'
+    || directive.type === 'constraint';
 }
+

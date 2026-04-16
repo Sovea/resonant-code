@@ -17,6 +17,20 @@ const LAYER_RANKS: Record<string, number> = {
   local: 1,
 };
 
+export function getDirectiveLayerRank(layerId: string): number {
+  if (layerId === 'local' || layerId.startsWith('local')) return LAYER_RANKS.local;
+  if (layerId.includes('/domains/')) return LAYER_RANKS.domains;
+  if (layerId.includes('/frameworks/')) return LAYER_RANKS.frameworks;
+  if (layerId.includes('/languages/')) return LAYER_RANKS.languages;
+  return LAYER_RANKS.core;
+}
+
+export function scopeMatchesIntent(scope: string, targetFile: string | undefined, changedFiles: string[]): boolean {
+  if (!targetFile && changedFiles.length === 0) return true;
+  if (targetFile && minimatch(targetFile, scope)) return true;
+  return changedFiles.some((file) => minimatch(file, scope));
+}
+
 const WEIGHT_RANKS = { low: 0, normal: 1, high: 2, critical: 3 } as const;
 const PRESCRIPTION_RANKS = { should: 0, must: 1 } as const;
 
@@ -113,7 +127,7 @@ function buildPriorityRecord(
   overrideApplied: boolean,
 ): DirectivePriorityRecord {
   return {
-    layer_rank: inferLayerRank(layerId),
+    layer_rank: getDirectiveLayerRank(layerId),
     prescription_rank: PRESCRIPTION_RANKS[prescription],
     weight_rank: WEIGHT_RANKS[weight],
     context_rank: overrideApplied ? 1 : 0,
@@ -134,14 +148,6 @@ function buildActivationReason(
   return reasons.join('; ');
 }
 
-function inferLayerRank(layerId: string): number {
-  if (layerId === 'local' || layerId.startsWith('local')) return LAYER_RANKS.local;
-  if (layerId.includes('/domains/')) return LAYER_RANKS.domains;
-  if (layerId.includes('/frameworks/')) return LAYER_RANKS.frameworks;
-  if (layerId.includes('/languages/')) return LAYER_RANKS.languages;
-  return LAYER_RANKS.core;
-}
-
 function layerMatchesIntent(directive: Directive, intent: TaskIntent): boolean {
   const sourceLayer = directive.source.layerId;
   if (sourceLayer === 'builtin/core' || directive.layer.startsWith('local')) return true;
@@ -155,10 +161,4 @@ function layerMatchesIntent(directive: Directive, intent: TaskIntent): boolean {
     return intent.tech_stack.some((tech) => sourceLayer.endsWith(`/${tech}`));
   }
   return true;
-}
-
-function scopeMatchesIntent(scope: string, targetFile: string | undefined, changedFiles: string[]): boolean {
-  if (!targetFile && changedFiles.length === 0) return true;
-  if (targetFile && minimatch(targetFile, scope)) return true;
-  return changedFiles.some((file) => minimatch(file, scope));
 }

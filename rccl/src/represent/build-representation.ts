@@ -41,50 +41,53 @@ function buildModules(indexedFiles: IndexedFile[]): ModuleCluster[] {
 }
 
 function buildBoundaries(indexedFiles: IndexedFile[]): BoundaryZone[] {
-  const files = indexedFiles.filter((file) => file.role_hints.includes('boundary') || file.role_hints.includes('adapter'));
+  const files = indexedFiles.filter((file) =>
+    file.role_hints.includes('observed-boundary-file') || file.role_hints.includes('observed-adapter-file'),
+  );
   if (files.length === 0) return [];
   return [{
-    id: 'boundary:detected',
+    id: 'boundary:observed-file-hints',
     file_paths: files.map((file) => file.path).sort(),
-    reason: 'Files with boundary or adapter role hints',
+    reason: 'Observed file-path hints suggest boundary or adapter responsibilities',
   }];
 }
 
 function buildMigrations(indexedFiles: IndexedFile[]): MigrationZone[] {
-  const files = indexedFiles.filter((file) => file.role_hints.includes('legacy-signal'));
+  const files = indexedFiles.filter((file) => file.role_hints.includes('observed-legacy-signal'));
   if (files.length === 0) return [];
   return [{
-    id: 'migration:legacy-signals',
+    id: 'migration:observed-legacy-signals',
     file_paths: files.map((file) => file.path).sort(),
-    reason: 'Files carrying legacy, deprecated, or TODO/FIXME signals',
+    reason: 'Observed file contents include legacy, deprecated, or TODO/FIXME signals',
   }];
 }
 
 function buildStyleClusters(indexedFiles: IndexedFile[]): StyleCluster[] {
   const highImport = indexedFiles.filter((file) => file.imports_count >= 8);
-  const interfaceHeavy = indexedFiles.filter((file) => file.role_hints.includes('interface'));
+  const interfaceHeavy = indexedFiles.filter((file) => file.role_hints.includes('observed-interface-heavy'));
   const result: StyleCluster[] = [];
   if (highImport.length > 0) {
     result.push({
-      id: 'style:high-import',
+      id: 'style:observed-high-import-density',
       file_paths: highImport.map((file) => file.path).sort(),
-      reason: 'Files with high import density',
+      reason: 'Observed import density is comparatively high in these files',
     });
   }
   if (interfaceHeavy.length > 0) {
     result.push({
-      id: 'style:interface-heavy',
+      id: 'style:observed-interface-heavy',
       file_paths: interfaceHeavy.map((file) => file.path).sort(),
-      reason: 'Files with interface/protocol/type-heavy signals',
+      reason: 'Observed interface, protocol, trait, or exported-type signals cluster in these files',
     });
   }
   return result;
 }
 
 function inferBasePath(filePath: string): string {
-  const segments = filePath.split('/');
-  if (segments.length <= 2) return segments[0] ?? filePath;
-  return segments.slice(0, 2).join('/');
+  const segments = filePath.split('/').filter(Boolean);
+  if (segments.length === 0) return filePath;
+  if (segments.length === 1) return segments[0];
+  return segments.slice(0, Math.min(2, segments.length)).join('/');
 }
 
 function dominant(values: string[]): string {

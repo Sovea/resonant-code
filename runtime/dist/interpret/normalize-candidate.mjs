@@ -1,3 +1,4 @@
+import { inferTargetLayer } from "../intent/parse-intent.mjs";
 import { DeterministicInterpretationProvider } from "./deterministic-extractor.mjs";
 //#region src/interpret/normalize-candidate.ts
 const deterministicProvider = new DeterministicInterpretationProvider();
@@ -20,7 +21,7 @@ function resolveTask(input) {
 		candidates: candidates.map((candidate) => candidate.intent.operation),
 		fallbackValue: deterministicCandidate.intent.operation?.value ?? "modify",
 		defaultSource: "deterministic",
-		defaultConfidence: deterministicCandidate.intent.operation?.confidence ?? .8,
+		defaultConfidence: deterministicCandidate.intent.operation?.confidence ?? .5,
 		conflicts
 	});
 	const targetFileResolution = resolveField({
@@ -72,9 +73,9 @@ function resolveTask(input) {
 		field: "context.optimization_target",
 		explicitValue: input.task.optimizationTarget,
 		candidates: candidates.map((candidate) => candidate.context.optimization_target),
-		fallbackValue: deterministicCandidate.context.optimization_target?.value ?? "maintainability",
+		fallbackValue: deterministicCandidate.context.optimization_target?.value,
 		defaultSource: "deterministic",
-		defaultConfidence: deterministicCandidate.context.optimization_target?.confidence ?? .75,
+		defaultConfidence: deterministicCandidate.context.optimization_target?.confidence ?? .55,
 		conflicts
 	});
 	const hardConstraintsResolution = resolveListField({
@@ -118,12 +119,13 @@ function resolveTask(input) {
 		allowedTradeoffs: allowedTradeoffsResolution.values,
 		avoid: avoidResolution.values
 	};
+	const resolvedTargetFile = targetFileResolution.value;
 	const intent = {
 		task_kind: taskKindResolution.value,
 		operation: operationResolution.value,
-		target_layer: deriveTargetLayer(task.targetFile, task.description),
+		target_layer: inferTargetLayer(resolvedTargetFile),
 		tech_stack: unique(techStackResolution.values),
-		target_file: targetFileResolution.value,
+		target_file: resolvedTargetFile,
 		changed_files: unique(changedFilesResolution.values),
 		tags: unique(tagsResolution.values)
 	};
@@ -343,15 +345,6 @@ function registerConflict(field, winner, discarded, conflicts, rationale) {
 		discarded: uniqueDiscarded,
 		rationale
 	});
-}
-function deriveTargetLayer(targetFile, description) {
-	const input = `${targetFile ?? ""} ${description.toLowerCase()}`;
-	if (/(test|spec)/.test(input)) return "test";
-	if (/(api|route|handler|endpoint)/.test(input)) return "api";
-	if (/(store|state|slice)/.test(input)) return "store";
-	if (/(component|tsx|view|page)/.test(input)) return "component";
-	if (/(util|helper|lib)/.test(input)) return "util";
-	return "module";
 }
 function unique(values) {
 	return [...new Set((values ?? []).filter((value) => value !== void 0 && value !== null))];

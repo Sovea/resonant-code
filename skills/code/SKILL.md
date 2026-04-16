@@ -38,7 +38,9 @@ First, when the task is semantically ambiguous, run:
 node <this-skill-directory>/scripts/code.mjs prepare-interpretation <project-root> --task "<user task>" [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
 ```
 
-This prints a Runtime-owned interpretation prompt, candidate schema, normalized task input, and ambiguity hints. Use host Claude to produce a JSON candidate file only when that extra interpretation help is useful.
+This prints a Runtime-owned interpretation prompt, candidate schema, normalized task input, ambiguity hints, a suggested candidate artifact path, and a structured recommendation for whether AI-assisted interpretation is worth using. Use host Claude to produce a JSON candidate file when that recommendation says it is useful.
+
+`prepare-interpretation` is the preferred first step when the task leaves room for semantic interpretation, because it gives you a standard candidate path plus clarification hints instead of ad hoc host-side guessing.
 
 Then run:
 
@@ -49,6 +51,7 @@ node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<use
 Pass `--changed-file` for each known changed or directly relevant file.
 Pass `--tech` only when there is a strong hint not already obvious from the target file.
 Pass `--candidate-file` only when host Claude produced a structured interpretation candidate.
+If `prepare-interpretation` recommended AI assistance, use its suggested candidate path so the flow stays consistent across `prepare-interpretation` and `prepare`.
 
 The script prints JSON:
 
@@ -58,9 +61,17 @@ The script prints JSON:
   "sessionPath": "<path>",
   "ego": { "...": "compiled guidance object" },
   "trace": { "...": "decision trace" },
-  "warnings": []
+  "warnings": [],
+  "interpretation": {
+    "mode": "assistive-ai",
+    "candidateFile": "<path-or-null>",
+    "summary": ["..."],
+    "nextStep": "..."
+  }
 }
 ```
+
+Read `interpretation.summary` and `interpretation.nextStep` first when you want to understand whether the current prepare run was strong enough or whether you should generate and pass a candidate file.
 
 If `status` is `ok`:
 - Use `ego.guidance.must_follow` as the operational constraints for implementation.
