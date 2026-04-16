@@ -1,4 +1,5 @@
 .claude/
 .resonant-code/
+node_modules/
 runtime/node_modules
 rccl/node_modules
