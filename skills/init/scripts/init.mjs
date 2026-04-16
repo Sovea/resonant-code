@@ -21,7 +21,7 @@ const exists    = (rel) => existsSync(join(projectRoot, rel));
 const existsAny = (rels) => rels.some(exists);
 
 const GITIGNORE_BLOCK_START = '# resonant-code: generated runtime artifacts';
-const GITIGNORE_BLOCK_END = '# /resonant-code';
+const GITIGNORE_BLOCK_END = '# .resonant-code/';
 const GENERATED_GITIGNORE_RULES = [
   '.resonant-code/context/cache/'
 ];

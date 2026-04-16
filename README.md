@@ -1,10 +1,17 @@
 # resonant-code
 
-An AI coding governance/runtime layer that helps agents produce code worth adopting, not just code that looks plausible.
+`resonant-code` is a runtime layer for ai coding.
 
-Coding agents can already generate plausible code. The harder problem is producing changes that fit the current repository, respect engineering constraints, stay proportional to the task, and are easy for a human developer to review and trust. resonant-code is built for that problem.
+The project is aimed at a practical problem: AI can already generate high quality code. The harder problem is producing code changes that fit the current repository, respect engineering constraints, stay proportional to the task, and are easy for a human developer to review and trust.
 
-It is designed for high-standard individual developers and small-team tech leads who want AI coding to feel collaborative rather than opaque: engineering principles should activate by context, tradeoffs should be explainable, and accepted or rejected decisions should improve future behavior.
+resonant-code attempts to improve AI coding by constructing the following parts:
+
+- **playbook guidance** — what the change should adhere to
+- **local augment** — what are the preferences of the developers in projects
+- **repository observations (RCCL)** — what are the truths and situations in the codebase now
+- **runtime compilation** — how those inputs should be applied for a specific task
+
+The outcome is a task-level packet with a structured **EGO** (Effective Guidance Object) for the agent and a **Decision Trace** for inspection and debugging.
 
 ## Installation
 
@@ -16,7 +23,39 @@ It is designed for high-standard individual developers and small-team tech leads
 /plugin install resonant-code@sovea
 ```
 
-## Recommended quickstart workflow
+## What it addresses
+
+Code generation systems already handle syntax and local edits reasonably well. The harder part is making changes that are appropriate for the repository they are entering.
+
+Typical failure modes are:
+
+- changes that are technically valid but disproportionate to the task
+- code that ignores local conventions or repository structure
+- weak handling of legacy or compatibility boundaries
+- reviews that produce generic feedback instead of repository-aware guidance
+- implementation choices that are hard to explain after the diff already exists
+
+resonant-code treats those as runtime and data-model problems, not just prompting problems.
+
+## How it works
+
+The runtime combines four inputs:
+
+| Input | Role |
+|---|---|
+| **Built-in playbook** | Prescriptive engineering guidance |
+| **Local augment** | Project-specific overrides and examples |
+| **RCCL** | Verified observations about repository reality |
+| **Task intent** | The current change request |
+
+It compiles those inputs into a task-level packet whose current shape includes interpretation data, governance output, and cache metadata. The two main outputs are:
+
+- **EGO** (Effective Guidance Object) — structured guidance the agent uses while coding
+- **Decision Trace** — a record of what was activated, suppressed, or left in tension
+
+A practical consequence of this design is that repository observations do not behave like a second pile of rules. They modify how guidance is executed in context, including cases where compatibility or legacy constraints require a `deviation-noted` posture instead of blind enforcement.
+
+## Quickstart
 
 ```sh
 # 1. Initialize local prescriptive guidance
@@ -25,51 +64,41 @@ It is designed for high-standard individual developers and small-team tech leads
 # 2. Analyze the repository and generate verified observational signals
 /resonant-code:calibrate-repo-context
 
-# 3. Run task-time change decision compilation before coding
+# 3. Compile task-time change guidance and code
 /resonant-code:code <task description>
 ```
 
-> Suggested step: Review, extend, and commit `.playbook/local-augment.yaml` so project-specific engineering decisions become durable team assets.
+This flow currently produces these project artifacts:
 
-## Architecture in one line
+- `.resonant-code/playbook/local-augment.yaml` — project-specific prescriptive guidance
+- `.resonant-code/rccl.yaml` — verified repository observation signals
+- `.resonant-code/playbook.lock.yaml` — lockfile feedback from completed guided tasks
+- `.resonant-code/context/` — calibration reports, candidate files, runtime sessions, and related debug artifacts
 
-**Playbook** defines what should happen. **RCCL** captures what is true in the repository now. **Runtime** compiles both against task intent into a task-level change decision packet. **Lockfile feedback** records what happened so the system can improve over time.
+> Suggested step: review, extend, and commit `.resonant-code/playbook/local-augment.yaml` so project-specific guidance becomes a durable repository asset.
 
-## Design philosophy
+## Current implementation
 
-resonant-code treats AI coding as a change-governance problem rather than a prompt-writing problem. Its task-time runtime compiles the following inputs:
+What is implemented today:
 
-| Input | What it represents |
-|---|---|
-| **Built-in playbook** | Prescriptive engineering guidance and default rules |
-| **Local augment** | Project-specific principles, tradeoffs, and overrides |
-| **RCCL** | Verified observational signals about current repository reality |
-| **Task intent** | The goal, scope, and shape of the current change |
+- `init` bootstraps `.resonant-code/playbook/local-augment.yaml` from strong repository signals and updates `.gitignore` for generated runtime cache artifacts.
+- `calibrate-repo-context` prepares repository slices, generates RCCL candidates, verifies evidence statically, and writes authoritative output to `.resonant-code/rccl.yaml`.
+- `code` is a thin runtime consumer with a `prepare-interpretation` -> `prepare` -> `complete` flow.
+- The runtime exports `compile`, `resolveTask`, and `evaluateGuidance` and writes lockfile feedback to `.resonant-code/playbook.lock.yaml`.
+- Interpretation supports both `deterministic-only` and `assistive-ai` modes.
+- Task candidates and runtime sessions are written under `.resonant-code/context/`.
 
-The runtime does not hand raw rules to the agent and hope for the best. It compiles these inputs into a task-level decision artifact with two primary views:
+## Design constraints
 
-- **EGO** (Effective Guidance Object) — the structured agent-facing guidance for this task
-- **Decision Trace** — the developer-facing record of what was applied, suppressed, or marked as a repository tension
+A few constraints are central to the design:
 
-That artifact is the core unit of collaboration for a change: it explains why the agent should take a particular path before code is generated, not just after the diff appears.
+- prescriptive guidance and repository observations stay separate in the data model
+- RCCL observations are statically verified before they influence task-time guidance
+- skills are runtime consumers and should not manually reconstruct policy resolution
+- the generated packet should be structured and inspectable, not just prompt text
+- task outcomes can be written back into a lockfile so guidance quality can be tracked over time
 
-The key architectural constraint is unchanged: prescriptive guidance (playbook) and observational signals (RCCL) stay separated in the data model and never compete on the same scoring axis. RCCL changes how a rule is executed in this repository — `enforce`, `deviation-noted`, `ambient`, or `suppress` — instead of acting like another loose pile of rules.
-
-Most agent tooling injects flat text instructions and relies on the model to resolve conflicts ad hoc. resonant-code treats this as a runtime and data-model problem:
-
-- Guidance is structured, layered, and designed for conflict handling
-- Repository observations are statically verified before they influence behavior
-- Runtime resolves tensions before the agent starts coding
-- The agent receives a deterministic EGO instead of raw policy text
-- Feedback from real task outcomes can flow back into the quality loop
-
-The goal is not another wrapper around an agent. The goal is a reusable collaboration runtime for change decisions.
-
-## Todo / Upcoming Features
-
-- [ ] directive refinement workflow
-- [ ] stronger lockfile-driven quality flywheel
-- [ ] code review skill built on the same runtime
+These constraints are intended to make the system easier to reason about, easier to review, and less dependent on ad hoc prompt behavior.
 
 ## License
 

@@ -68,7 +68,9 @@ This separation is a core governance constraint, not an implementation detail.
 
 ### Layered Playbook Layout
 
-Playbook is organized by physical layers:
+Playbook is organized conceptually by physical layers. In the current implementation, built-in playbook files live under `plugins/resonant-code/playbook/`, and project-local prescriptive guidance is written to `.resonant-code/playbook/local-augment.yaml`.
+
+Target layered layout:
 
 ```text
 .playbook/
@@ -245,9 +247,11 @@ It should record:
 
 The project explicitly wants a first-version quality loop.
 
-Runtime should write execution quality to a lockfile, conceptually:
+Runtime should write execution quality to a lockfile. In the current implementation that file is:
 
-`.playbook.lock.yaml`
+`.resonant-code/playbook.lock.yaml`
+
+The conceptual role remains the same as the earlier `.playbook.lock.yaml` framing.
 
 The lockfile should track:
 
@@ -337,6 +341,17 @@ Current first-pass Runtime covers:
 - deterministic EGO assembly
 - decision trace generation
 - lockfile feedback writing
+- interpretation provenance in the compiled packet
+- runtime exports for `compile`, `resolveTask`, and `evaluateGuidance`
+
+Current skill/runtime behavior that already exists:
+
+- `code` supports `prepare-interpretation`, `prepare`, and `complete`
+- task interpretation can run in `deterministic-only` or `assistive-ai` mode
+- assistive interpretation candidates are written under `.resonant-code/context/task-candidates/code/`
+- runtime sessions are written under `.resonant-code/context/runtime-sessions/code/`
+- calibration emits report, slice-plan, candidate, and consolidation artifacts under `.resonant-code/context/`
+- `init` updates `.gitignore` to ignore `.resonant-code/context/cache/`
 
 Current limitations that should be understood before extending:
 
