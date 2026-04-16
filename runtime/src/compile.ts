@@ -140,7 +140,12 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
   traceSteps.push({
     stage: 'RCCL Verify Gate',
     lines: rccl?.observations.length
-      ? rccl.observations.map((observation) => `${observation.id}: ${observation.verification.status}/${observation.verification.disposition}`)
+      ? rccl.observations.map((observation) => {
+          const evidenceStatus = observation.verification.evidence_status ?? 'pending';
+          const inductionStatus = observation.verification.induction_status ?? 'pending';
+          const disposition = observation.verification.disposition ?? 'pending';
+          return `${observation.id}: evidence=${evidenceStatus} induction=${inductionStatus} disposition=${disposition} support=${observation.support.scope_basis}/${observation.support.file_count}f/${observation.support.cluster_count}c`;
+        })
       : ['no rccl loaded'],
   });
 
@@ -403,7 +408,7 @@ function buildCacheKeys(
   });
   const localSource = input.localAugmentPath ? readFileSync(input.localAugmentPath, 'utf-8') : '';
   const rcclSource = input.rcclPath && rccl
-    ? JSON.stringify(rccl.observations.map((item) => [item.id, item.verification.status, item.verification.disposition]))
+    ? JSON.stringify(rccl.observations.map((item) => [item.id, item.verification.evidence_status, item.verification.disposition]))
     : '';
   const l1Key = stableHash(builtinFingerprints);
   const l2Key = stableHash([l1Key, localSource, rcclSource]);

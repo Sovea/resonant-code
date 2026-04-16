@@ -12,16 +12,22 @@ export function buildRelations(
 
   return directives.flatMap((directive) => scopedObservations.map((observation) => {
     const similarity = lexicalSimilarity(directive.description, observation.pattern);
+    const verificationConfidence = observation.verification.induction_confidence
+      ?? observation.verification.evidence_confidence
+      ?? 0;
     const isDemoted = observation.verification.disposition === 'demote-to-ambient';
+    const isWeakBroadScope = observation.support.scope_basis === 'cross-root' && verificationConfidence < 0.7;
 
-    if (isDemoted) {
+    if (isDemoted || isWeakBroadScope) {
       return {
         directive_id: directive.id,
         observation_id: observation.id,
         relation: 'ambient-only' as const,
-        confidence: observation.verification.verified_confidence ?? 0,
+        confidence: verificationConfidence,
         basis: ['scope', 'verification'],
-        reason: 'observation was demoted by verify gate and can only contribute ambient context',
+        reason: isDemoted
+          ? 'observation was demoted by verify gate and can only contribute ambient context'
+          : 'weak broad-scope observation stays ambient-only until evidence support is stronger',
       };
     }
 
@@ -54,7 +60,7 @@ export function buildRelations(
       directive_id: directive.id,
       observation_id: observation.id,
       relation,
-      confidence: Math.max(similarity, observation.verification.verified_confidence ?? 0),
+      confidence: Math.max(similarity, verificationConfidence),
       basis: ['scope', 'verification', 'category', 'lexical'],
       reason: relation === 'reinforce'
         ? 'verified observation reinforces this directive in the current repository context'

@@ -104,7 +104,12 @@ async function compile(input) {
 	const rccl = loadedRccl ? verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
 	traceSteps.push({
 		stage: "RCCL Verify Gate",
-		lines: rccl?.observations.length ? rccl.observations.map((observation) => `${observation.id}: ${observation.verification.status}/${observation.verification.disposition}`) : ["no rccl loaded"]
+		lines: rccl?.observations.length ? rccl.observations.map((observation) => {
+			const evidenceStatus = observation.verification.evidence_status ?? "pending";
+			const inductionStatus = observation.verification.induction_status ?? "pending";
+			const disposition = observation.verification.disposition ?? "pending";
+			return `${observation.id}: evidence=${evidenceStatus} induction=${inductionStatus} disposition=${disposition} support=${observation.support.scope_basis}/${observation.support.file_count}f/${observation.support.cluster_count}c`;
+		}) : ["no rccl loaded"]
 	});
 	const semanticMergeResult = semanticMerge(activeDirectives, rccl?.observations ?? [], intent, contextProfile);
 	const tensions = { records: semanticMergeResult.context_tensions };
@@ -284,7 +289,7 @@ function buildCacheKeys(input, selectedLayerIds, rccl) {
 	const localSource = input.localAugmentPath ? readFileSync(input.localAugmentPath, "utf-8") : "";
 	const rcclSource = input.rcclPath && rccl ? JSON.stringify(rccl.observations.map((item) => [
 		item.id,
-		item.verification.status,
+		item.verification.evidence_status,
 		item.verification.disposition
 	])) : "";
 	const l1Key = stableHash(builtinFingerprints);

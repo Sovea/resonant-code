@@ -14,6 +14,8 @@ export type DirectiveType = 'constraint' | 'preference' | 'convention' | 'archit
 export type AdherenceQuality = 'good' | 'inconsistent' | 'poor';
 export type VerificationStatus = 'pending' | 'verified' | 'partial' | 'failed' | 'unverifiable';
 export type VerificationDisposition = 'keep' | 'keep-with-reduced-confidence' | 'demote-to-ambient';
+export type InductionStatus = 'well-supported' | 'narrowly-supported' | 'overgeneralized' | 'ambiguous';
+export type ScopeBasis = 'single-file' | 'directory-cluster' | 'module-cluster' | 'cross-root';
 export type ExecutionMode = 'enforce' | 'deviation-noted' | 'ambient' | 'suppress';
 
 export interface DirectiveExampleSide {
@@ -51,12 +53,14 @@ export interface Directive {
 
 export interface RcclObservation {
   id: string;
+  semantic_key: string;
   category: 'style' | 'architecture' | 'pattern' | 'constraint' | 'legacy' | 'anti-pattern' | 'migration';
   scope: string;
   pattern: string;
   confidence: number;
   adherence_quality: AdherenceQuality;
   evidence: RcclEvidence[];
+  support: RcclSupport;
   verification: RcclVerification;
 }
 
@@ -122,10 +126,19 @@ export interface RcclEvidence {
   snippet: string;
 }
 
+export interface RcclSupport {
+  source_slices: string[];
+  file_count: number;
+  cluster_count: number;
+  scope_basis: ScopeBasis;
+}
+
 export interface RcclVerification {
-  status: VerificationStatus | null;
-  verified_count: number | null;
-  verified_confidence: number | null;
+  evidence_status: VerificationStatus | null;
+  evidence_verified_count: number | null;
+  evidence_confidence: number | null;
+  induction_status: InductionStatus | null;
+  induction_confidence: number | null;
   checked_at: string | null;
   disposition: VerificationDisposition | null;
 }

@@ -1,0 +1,14 @@
+{
+  "name": "@resonant-code/rccl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsdown --config ./tsdown.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "tsdown": "^0.21.8",
+    "typescript": "^6.0.2"
+  }
+}

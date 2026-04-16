@@ -29,7 +29,10 @@ node <this-skill-directory>/scripts/calibrate-repo-context.mjs prepare <project-
 
 Where:
 - `<project-root>` is the repository to calibrate, usually `.`
-- `--scope` optionally narrows analysis, default `src/**`
+- `--scope` optionally narrows analysis, default `auto`
+
+The prepare phase now builds a repository index, structural slice plan, and deterministic code windows before writing the prompt artifact.
+It also emits calibration report artifacts under `.resonant-code/context/`.
 
 The script prints JSON:
 
@@ -37,8 +40,15 @@ The script prints JSON:
 {
   "promptPath": "<path-to-generated-prompt-file>",
   "metadata": {
-    "scope": "src/**",
-    "stats": { "total": 120, "sampled": 30, "truncated": 5 }
+    "scope": "auto",
+    "stats": {
+      "total_files": 120,
+      "indexed_files": 120,
+      "selected_slices": 6,
+      "windows": 18
+    },
+    "reportPath": "<path-to-report-json>",
+    "slicePlanPath": "<path-to-slice-plan-json>"
   }
 }
 ```
@@ -53,11 +63,13 @@ Read the prompt text from the returned `promptPath` file. Use that file content 
 Critical constraints:
 - Every observation must include real `evidence`
 - `verification` must be present and all its fields must be `null`
+- `support` must be present and describe evidence provenance conservatively
 - `id` must match `/^obs-[a-z0-9-]+$/`
+- `semantic_key` is required and must be a stable kebab-case semantic identity
 - `confidence` must be between `0` and `1`
 - `adherence_quality` must be `good`, `inconsistent`, or `poor`
 - `category` must be one of `style`, `architecture`, `pattern`, `constraint`, `legacy`, `anti-pattern`, `migration`
-- Prefer stable semantic IDs so repeated calibrations can update prior observations cleanly
+- `pattern` should stay human-readable; identity stability comes from `semantic_key`
 
 ### Step 3 - Validate, verify, and commit
 
@@ -68,17 +80,25 @@ node <this-skill-directory>/scripts/calibrate-repo-context.mjs commit <project-r
 Where:
 - `<path-to-yaml-file>` contains the YAML generated in Step 2
 
-The commit phase performs three things:
-1. Schema validation
-2. Static evidence verification against the repository
-3. Merge and write to `.resonant-code/rccl.yaml`
+The commit phase performs five things:
+1. Parse generated YAML into candidate observations
+2. Deterministically consolidate candidates into final observations
+3. Static evidence verification against the repository
+4. Induction verification for scope/support quality
+5. Write the current verified calibration result authoritatively to `.resonant-code/rccl.yaml`
+
+It also emits commit-time debug artifacts under `.resonant-code/context/` for candidates and consolidation output.
 
 Exit `0`: committed successfully. Parse stdout JSON:
 
 ```json
 {
   "written": ".resonant-code/rccl.yaml",
-  "stats": { "added": 5, "updated": 2, "preserved": 3 }
+  "stats": { "added": 5, "updated": 2, "preserved": 3 },
+  "artifacts": {
+    "candidates": "<path-to-candidate-artifact>",
+    "consolidation": "<path-to-consolidation-artifact>"
+  }
 }
 ```
 

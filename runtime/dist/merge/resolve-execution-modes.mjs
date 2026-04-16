@@ -38,7 +38,7 @@ function resolveExecutionModes(directives, observations, relations, contextProfi
 			execution_mode: "deviation-noted",
 			conflict: `${directive.description} conflicts with observed local pattern: ${observation.pattern}`,
 			resolution: buildTensionResolution(directive.id, contextProfile, observation),
-			rccl_confidence: observation.verification.verified_confidence ?? relation.confidence
+			rccl_confidence: observation.verification.induction_confidence ?? observation.verification.evidence_confidence ?? relation.confidence
 		};
 		reviewFocus.push({
 			kind: "tension",
