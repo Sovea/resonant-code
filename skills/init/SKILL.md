@@ -1,6 +1,6 @@
 ---
 name: init
-description: "Initialize resonant-code by detecting project language, framework, and toolchain from strong signal files. Use when setting up resonant-code for a project."
+description: "Initialize resonant-code by selecting playbook layers from explicit strong repository signals. Use when setting up resonant-code for a project."
 metadata:
   version: "0.1.0"
   author: "Sovea"
@@ -8,72 +8,88 @@ metadata:
 
 # Initialize Resonant Code
 
-Bootstrap `.resonant-code/playbook/local-augment.yaml` for the current project by detecting
-language, framework, and toolchain from strong signal files.
+Bootstrap `.resonant-code/playbook/local-augment.yaml` for the current project by selecting built-in playbook layers from explicit strong repository signals.
 
-The generated file is the project's local playbook. It extends the resonant-code
-built-in ruleset and is the entry point for all project-specific taste and conventions.
-Commit it to the repository so the whole team benefits.
+This skill is not a codebase wiki generator. Its job is only to decide which built-in layers should be loaded into the local playbook and then write the deterministic local-augment file.
+
+The generated file is the project's local playbook. It extends the resonant-code built-in ruleset and is the entry point for all project-specific taste and conventions. Commit it to the repository so the whole team benefits.
 
 ## Instructions
 
-### Step 1 - Run detection script
+### Step 1 - Prepare init layer selection
 
+```sh
+node <this-skill-directory>/scripts/init.mjs prepare <project-root> <this-plugin-directory>/playbook
 ```
-node <this-skill-directory>/scripts/init.mjs <project-root> <this-plugin-directory>/playbook
+
+The script prints JSON:
+
+```json
+{
+  "status": "prepared",
+  "promptPath": "<path-to-generated-prompt-file>",
+  "candidateSchema": "{ ...json schema... }",
+  "candidateArtifact": {
+    "suggestedPath": "<path-to-candidate-json>",
+    "format": "json",
+    "usage": "..."
+  },
+  "projectNameDefault": "<name>",
+  "defaults": {
+    "extends": ["builtin/core", "builtin/task-types/*"]
+  },
+  "availableLayers": {
+    "repoSpecific": ["..."]
+  },
+  "signals": [
+    { "path": "tsconfig.json", "reason": "TypeScript configuration file" }
+  ],
+  "augment": {
+    "path": ".resonant-code/playbook/local-augment.yaml",
+    "exists": false
+  }
+}
 ```
 
-### Step 2 - Handle result
+Read the prompt text from `promptPath`. Use that prompt and the returned schema to produce a single JSON candidate file at `candidateArtifact.suggestedPath`.
 
-The script prints JSON to stdout and uses exit codes to signal status.
+Critical constraints for the host-produced candidate:
+- this is not a codebase wiki task
+- do not summarize the repository or describe architecture broadly
+- only choose repo-specific layers when there is explicit strong signal evidence
+- do not infer from vague dependency presence alone
+- prefer leaving a layer out over weak inference
+- include a `signals` entry with evidence for every selected repo-specific layer
+
+### Step 2 - Commit the selected layers
+
+```sh
+node <this-skill-directory>/scripts/init.mjs commit <project-root> <this-plugin-directory>/playbook --input <path-to-candidate-json> [--force]
+```
+
+The commit phase is deterministic. It validates the candidate JSON, keeps the default baseline layers, filters repo-specific selections against installed built-in layers, writes `.resonant-code/playbook/local-augment.yaml`, and updates `.gitignore` for generated runtime cache artifacts.
 
 **Exit 0 - Created successfully**
 
-Parse the JSON output and print a confirmation in this format:
+Parse stdout JSON and print the included `message` plus the raw details when useful.
 
-```
-Created .resonant-code/playbook/local-augment.yaml
-Updated .gitignore for resonant-code runtime artifacts
-
-Detected:
-  Language:        <detected.language or "-">
-  Frameworks:      <detected.frameworks.join(", ") or "-">
-  Package manager: <detected.packageManager or "-">
-
-Built-in layers loaded:
-  - <each entry in extends.included>
-
-Ignored generated artifacts:
-  - <each entry in gitignore.ignored>
-```
-
-If `extends.unavailable` is non-empty, append:
-
-```
-Detected but no built-in layer available yet:
-  - <each entry in extends.unavailable>
-  These will be supported in a future resonant-code release.
-```
-
-Then suggest the next steps:
-
-```
-Next steps:
-  - Run /resonant-code:calibrate-repo-context to generate RCCL (Repository Context Calibration Layer) from your codebase.
-  - Review .resonant-code/playbook/local-augment.yaml and rename meta.name if needed.
-  - Commit .resonant-code/playbook/local-augment.yaml to share with your team.
-```
+Important output fields:
+- `extends.final` — final ordered extends entries written to local-augment
+- `extends.included` — selected repo-specific layers that exist in this installation
+- `extends.unavailable` — evidence-backed canonical layers not installed yet
+- `signals` — evidence and rationale for each selected repo-specific layer
+- `gitignore.ignored` — generated runtime artifacts now ignored
 
 **Exit 1 - File already exists**
 
 Tell the user `.resonant-code/playbook/local-augment.yaml` already exists and ask whether to overwrite.
-If the user confirms, re-run with `--force`:
+If the user confirms, re-run commit with `--force`:
 
-```
-node <this-skill-directory>/scripts/init.mjs <project-root> --force
+```sh
+node <this-skill-directory>/scripts/init.mjs commit <project-root> <this-plugin-directory>/playbook --input <path-to-candidate-json> --force
 ```
 
-Then print the summary as in exit 0.
+Then print the success summary.
 
 **Any other error**
 

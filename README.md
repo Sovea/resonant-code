@@ -81,7 +81,7 @@ This flow currently produces these project artifacts:
 
 What is implemented today:
 
-- `init` bootstraps `.resonant-code/playbook/local-augment.yaml` from strong repository signals and updates `.gitignore` for generated runtime cache artifacts.
+- `init` prepares a narrow strong-signal layer-selection prompt, lets the host choose only evidence-backed repo-specific playbook layers, then deterministically writes `.resonant-code/playbook/local-augment.yaml` and updates `.gitignore` for generated runtime cache artifacts.
 - `calibrate-repo-context` prepares repository slices, generates RCCL candidates, verifies evidence statically, and writes authoritative output to `.resonant-code/rccl.yaml`.
 - `code` is a thin runtime consumer with a `prepare-interpretation` -> `prepare` -> `complete` flow.
 - The runtime exports `compile`, `resolveTask`, and `evaluateGuidance` and writes lockfile feedback to `.resonant-code/playbook.lock.yaml`.

@@ -27,7 +27,8 @@ meta:
   extends:
     # Which built-in layers this project builds on.
     # resonant-code sets this automatically during /rc playbook init
-    # based on detected languages, frameworks, and toolchain.
+    # from explicit strong repository signals that justify loading a layer.
+    # It does not try to summarize the repository or generate a wiki.
     #
     # Each entry can be:
     #   A specific layer  "builtin/frameworks/react"   — load that layer only
