@@ -159,7 +159,12 @@ function getGitRef(projectRoot) {
 		return execSync("git rev-parse --short HEAD", {
 			cwd: projectRoot,
 			encoding: "utf-8",
-			timeout: 5e3
+			timeout: 5e3,
+			stdio: [
+				"ignore",
+				"pipe",
+				"ignore"
+			]
 		}).trim();
 	} catch {
 		return "unknown";

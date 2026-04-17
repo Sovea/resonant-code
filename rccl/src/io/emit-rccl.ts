@@ -179,7 +179,12 @@ function loadExistingRccl(outputPath: string): RcclDocument | null {
 
 function getGitRef(projectRoot: string): string {
   try {
-    return execSync('git rev-parse --short HEAD', { cwd: projectRoot, encoding: 'utf-8', timeout: 5000 }).trim();
+    return execSync('git rev-parse --short HEAD', {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch {
     return 'unknown';
   }

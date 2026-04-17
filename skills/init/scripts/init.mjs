@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import process from 'node:process';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,6 +59,7 @@ const IGNORED_SIGNAL_DIRECTORIES = new Set([
   'target',
 ]);
 
+const FALSEY_FLAG_VALUES = new Set(['0', 'false', 'no', 'off']);
 const REPO_SPECIFIC_LAYER_PATTERN = /^builtin\/(languages|frameworks|domains)\/[a-z0-9-]+(?:\/[a-z0-9-]+)*$/;
 const CORE_FILE_NAME = 'core.yaml';
 
@@ -317,6 +319,20 @@ function readSingleFlag(flags, name) {
   return flags.get(name);
 }
 
+function readBooleanFlag(flags, name) {
+  const value = flags.get(name);
+  if (value === undefined) return undefined;
+  if (value === true) return true;
+  return !FALSEY_FLAG_VALUES.has(String(value).trim().toLowerCase());
+}
+
+function shouldEmitDebugArtifacts(options = {}) {
+  if (options.debugArtifacts !== undefined) return Boolean(options.debugArtifacts);
+  const value = process.env.RESONANT_CODE_DEBUG_ARTIFACTS;
+  if (!value) return false;
+  return !FALSEY_FLAG_VALUES.has(String(value).trim().toLowerCase());
+}
+
 function normalizeCandidate(candidateInput) {
   if (!candidateInput || typeof candidateInput !== 'object' || Array.isArray(candidateInput)) {
     throw new Error('Init candidate must be a JSON object.');
@@ -493,6 +509,45 @@ function buildSuccessMessage(result) {
   return lines.join('\n');
 }
 
+function readCandidateInput(input) {
+  try {
+    return input === '-'
+      ? JSON.parse(readFileSync(0, 'utf-8'))
+      : JSON.parse(readFileSync(input, 'utf-8'));
+  } catch (error) {
+    const source = input === '-' ? 'stdin' : input;
+    throw new Error(`Failed to read init candidate JSON from ${source}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function buildDebugArtifacts(projectRoot, prompt, projectName, repoSpecificKnownLayers, signalFiles, enabled) {
+  if (!enabled) return { enabled: false };
+  return {
+    enabled: true,
+    promptPath: writeContextArtifact(
+      projectRoot,
+      'init-prompts',
+      'md',
+      prompt,
+      {
+        kind: 'init-prompt',
+        projectName,
+        repoSpecificKnownLayers,
+        signalFiles: signalFiles.map((signal) => signal.path),
+      },
+    ),
+  };
+}
+
+function buildCandidateArtifact(projectRoot, signalFiles) {
+  const candidatePath = buildCandidatePath(projectRoot, signalFiles);
+  return {
+    suggestedPath: candidatePath,
+    format: 'json',
+    usage: `Write a single init candidate JSON object to ${candidatePath}, then run commit with --input ${candidatePath}. You can also pass --input - and provide the same JSON via stdin.`,
+  };
+}
+
 export function prepareInit(options) {
   const projectRoot = resolve(options.projectRoot ?? '.');
   const builtinRoot = resolve(options.builtinRoot);
@@ -505,30 +560,21 @@ export function prepareInit(options) {
   const repoSpecificKnownLayers = [...knownLayers].filter(isRepoSpecificLayer).sort();
   const signalFiles = collectStrongSignalFiles(projectRoot);
   const projectName = detectProjectName(projectRoot);
-
-  const promptPath = writeContextArtifact(
+  const prompt = buildInterpretationPrompt({ projectName, repoSpecificKnownLayers, signalFiles });
+  const debugArtifacts = buildDebugArtifacts(
     projectRoot,
-    'init-prompts',
-    'md',
-    buildInterpretationPrompt({ projectName, repoSpecificKnownLayers, signalFiles }),
-    {
-      kind: 'init-prompt',
-      projectName,
-      repoSpecificKnownLayers,
-      signalFiles: signalFiles.map((signal) => signal.path),
-    },
+    prompt,
+    projectName,
+    repoSpecificKnownLayers,
+    signalFiles,
+    shouldEmitDebugArtifacts(options),
   );
-  const candidatePath = buildCandidatePath(projectRoot, signalFiles);
 
   return {
     status: 'prepared',
-    promptPath,
+    prompt,
     candidateSchema: JSON.stringify(INIT_CANDIDATE_SCHEMA, null, 2),
-    candidateArtifact: {
-      suggestedPath: candidatePath,
-      format: 'json',
-      usage: `Write a single init candidate JSON object to ${candidatePath}, then run commit with --input ${candidatePath}.`,
-    },
+    candidateArtifact: buildCandidateArtifact(projectRoot, signalFiles),
     projectNameDefault: projectName,
     defaults: {
       extends: DETERMINISTIC_DEFAULT_EXTENDS,
@@ -541,21 +587,28 @@ export function prepareInit(options) {
       path: '.resonant-code/playbook/local-augment.yaml',
       exists: existsSync(join(projectRoot, '.resonant-code', 'playbook', 'local-augment.yaml')),
     },
+    debugArtifacts,
   };
 }
 
 export function commitInit(options) {
   const projectRoot = resolve(options.projectRoot ?? '.');
   const builtinRoot = resolve(options.builtinRoot);
-  const candidatePath = options.input ? resolve(options.input) : null;
+  const candidateInput = options.input === '-' ? '-' : options.input ? resolve(options.input) : null;
   const force = Boolean(options.force);
 
   if (!builtinRoot || !existsSync(builtinRoot)) {
     throw new Error(`Built-in playbook root not found: ${builtinRoot}`);
   }
-  if (!candidatePath) {
-    throw new Error('Commit requires --input <path-to-candidate-json>.');
+  if (!candidateInput) {
+    throw new Error('Commit requires --input <path-to-candidate-json> or --input -.');
   }
+
+  const debugArtifacts = { enabled: shouldEmitDebugArtifacts(options) };
+  const input = {
+    source: candidateInput === '-' ? 'stdin' : candidateInput,
+    supportsStdin: true,
+  };
 
   const playbookDir = join(projectRoot, '.resonant-code', 'playbook');
   const augmentFile = join(playbookDir, 'local-augment.yaml');
@@ -564,17 +617,12 @@ export function commitInit(options) {
       status: 'exists',
       augmentPath: '.resonant-code/playbook/local-augment.yaml',
       message: '.resonant-code/playbook/local-augment.yaml already exists. Re-run commit with --force to overwrite it.',
+      input,
+      debugArtifacts,
     };
   }
 
-  let rawCandidate;
-  try {
-    rawCandidate = JSON.parse(readFileSync(candidatePath, 'utf-8'));
-  } catch (error) {
-    throw new Error(`Failed to read init candidate JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  const candidate = normalizeCandidate(rawCandidate);
+  const candidate = normalizeCandidate(readCandidateInput(candidateInput));
   const knownLayers = discoverBuiltinLayers(builtinRoot);
   const included = candidate.selectedLayers.filter((layerId) => knownLayers.has(layerId));
   const unavailable = candidate.selectedLayers.filter((layerId) => !knownLayers.has(layerId));
@@ -600,6 +648,8 @@ export function commitInit(options) {
       path: gitignorePath,
       ignored: GENERATED_GITIGNORE_RULES,
     },
+    input,
+    debugArtifacts,
   };
 
   return {
@@ -624,7 +674,11 @@ function parseCli(argv) {
   if (command === 'prepare') {
     return {
       command,
-      options: { projectRoot, builtinRoot },
+      options: {
+        projectRoot,
+        builtinRoot,
+        debugArtifacts: readBooleanFlag(flags, 'debug-artifacts'),
+      },
     };
   }
 
@@ -636,6 +690,7 @@ function parseCli(argv) {
         builtinRoot,
         input: readSingleFlag(flags, 'input'),
         force: Boolean(readSingleFlag(flags, 'force')),
+        debugArtifacts: readBooleanFlag(flags, 'debug-artifacts'),
       },
     };
   }

@@ -27,7 +27,7 @@ The script prints JSON:
 ```json
 {
   "status": "prepared",
-  "promptPath": "<path-to-generated-prompt-file>",
+  "prompt": "<inline prompt text>",
   "candidateSchema": "{ ...json schema... }",
   "candidateArtifact": {
     "suggestedPath": "<path-to-candidate-json>",
@@ -47,11 +47,23 @@ The script prints JSON:
   "augment": {
     "path": ".resonant-code/playbook/local-augment.yaml",
     "exists": false
+  },
+  "debugArtifacts": {
+    "enabled": false
   }
 }
 ```
 
-Read the prompt text from `promptPath`. Use that prompt and the returned schema to produce a single JSON candidate file at `candidateArtifact.suggestedPath`.
+Use the inline `prompt` text and returned schema to produce a single JSON candidate file at `candidateArtifact.suggestedPath`.
+If you need a saved prompt artifact for debugging, run prepare with `--debug-artifacts` or set `RESONANT_CODE_DEBUG_ARTIFACTS=1`.
+
+The commit step accepts either a file path or stdin via `--input -`.
+
+```sh
+node <this-skill-directory>/scripts/init.mjs commit <project-root> <this-plugin-directory>/playbook --input <path-to-candidate-json|-> [--force] [--debug-artifacts]
+```
+
+When using `--input -`, pass the JSON candidate on stdin.
 
 Critical constraints for the host-produced candidate:
 - this is not a codebase wiki task

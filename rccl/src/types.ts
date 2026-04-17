@@ -246,7 +246,7 @@ export interface VerificationPolicy {
 }
 
 export interface PrepareRcclResult {
-  promptPath: string;
+  prompt: string;
   metadata: {
     scope: string;
     stats: {
@@ -255,7 +255,11 @@ export interface PrepareRcclResult {
       selected_slices: number;
       windows: number;
     };
-    reportPath: string;
-    slicePlanPath: string;
+  };
+  debugArtifacts: {
+    enabled: boolean;
+    promptPath?: string;
+    reportPath?: string;
+    slicePlanPath?: string;
   };
 }

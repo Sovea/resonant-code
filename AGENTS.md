@@ -350,7 +350,7 @@ Current skill/runtime behavior that already exists:
 - task interpretation can run in `deterministic-only` or `assistive-ai` mode
 - assistive interpretation candidates are written under `.resonant-code/context/task-candidates/code/`
 - runtime sessions are written under `.resonant-code/context/runtime-sessions/code/`
-- calibration emits report, slice-plan, candidate, and consolidation artifacts under `.resonant-code/context/`
+- calibration emits report, slice-plan, candidate, and consolidation artifacts under `.resonant-code/context/` only when debug artifacts are explicitly enabled
 - `init` updates `.gitignore` to ignore `.resonant-code/context/cache/`
 
 Current limitations that should be understood before extending:

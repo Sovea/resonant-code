@@ -73,7 +73,7 @@ This flow currently produces these project artifacts:
 - `.resonant-code/playbook/local-augment.yaml` — project-specific prescriptive guidance
 - `.resonant-code/rccl.yaml` — verified repository observation signals
 - `.resonant-code/playbook.lock.yaml` — lockfile feedback from completed guided tasks
-- `.resonant-code/context/` — calibration reports, candidate files, runtime sessions, and related debug artifacts
+- `.resonant-code/context/` — runtime sessions plus optional debug artifacts such as calibration reports and candidate files
 
 > Suggested step: review, extend, and commit `.resonant-code/playbook/local-augment.yaml` so project-specific guidance becomes a durable repository asset.
 

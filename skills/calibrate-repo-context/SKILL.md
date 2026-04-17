@@ -31,14 +31,14 @@ Where:
 - `<project-root>` is the repository to calibrate, usually `.`
 - `--scope` optionally narrows analysis, default `auto`
 
-The prepare phase now builds a repository index, structural slice plan, and deterministic code windows before writing the prompt artifact.
-It also emits calibration report artifacts under `.resonant-code/context/`.
+The prepare phase builds a repository index, structural slice plan, and deterministic code windows, then returns the prompt inline by default.
+It only emits calibration debug artifacts under `.resonant-code/context/` when you pass `--debug-artifacts` or set `RESONANT_CODE_DEBUG_ARTIFACTS=1`.
 
 The script prints JSON:
 
 ```json
 {
-  "promptPath": "<path-to-generated-prompt-file>",
+  "prompt": "<inline prompt text>",
   "metadata": {
     "scope": "auto",
     "stats": {
@@ -46,9 +46,10 @@ The script prints JSON:
       "indexed_files": 120,
       "selected_slices": 6,
       "windows": 18
-    },
-    "reportPath": "<path-to-report-json>",
-    "slicePlanPath": "<path-to-slice-plan-json>"
+    }
+  },
+  "debugArtifacts": {
+    "enabled": false
   }
 }
 ```
@@ -58,7 +59,7 @@ Exit `1`: report stderr and stop.
 
 ### Step 2 - Generate RCCL observations
 
-Read the prompt text from the returned `promptPath` file. Use that file content as your own input and write the generated RCCL YAML to a file. Do not inline the full prompt into a shell-quoted command.
+Use the returned inline `prompt` as your own input and write the generated RCCL YAML to a file. If you explicitly enabled debug artifacts, you may also inspect the saved prompt file.
 
 Critical constraints:
 - Every observation must include real `evidence`
@@ -74,7 +75,7 @@ Critical constraints:
 ### Step 3 - Validate, verify, and commit
 
 ```sh
-node <this-skill-directory>/scripts/calibrate-repo-context.mjs commit <project-root> --input <path-to-yaml-file>
+node <this-skill-directory>/scripts/calibrate-repo-context.mjs commit <project-root> --input <path-to-yaml-file|-> [--debug-artifacts]
 ```
 
 Where:
@@ -87,7 +88,7 @@ The commit phase performs five things:
 4. Induction verification for scope/support quality
 5. Write the current verified calibration result authoritatively to `.resonant-code/rccl.yaml`
 
-It also emits commit-time debug artifacts under `.resonant-code/context/` for candidates and consolidation output.
+It only emits commit-time debug artifacts under `.resonant-code/context/` for candidates and consolidation output when you pass `--debug-artifacts` or set `RESONANT_CODE_DEBUG_ARTIFACTS=1`.
 When observations are demoted or kept with reduced confidence, stderr includes a compact verification summary so you can tune candidate quality instead of guessing.
 
 Exit `0`: committed successfully. Parse stdout JSON:
@@ -102,14 +103,18 @@ Exit `0`: committed successfully. Parse stdout JSON:
     "reduced_confidence_count": 1,
     "demoted_count": 1
   },
-  "artifacts": {
-    "candidates": "<path-to-candidate-artifact>",
-    "consolidation": "<path-to-consolidation-artifact>"
+  "input": {
+    "source": "stdin",
+    "supportsStdin": true
+  },
+  "debugArtifacts": {
+    "enabled": false
   }
 }
 ```
 
-Use `verification_summary` plus the consolidation artifact to understand why observations were reduced or demoted.
+Use `verification_summary` and, when debug artifacts are enabled, the consolidation artifact to understand why observations were reduced or demoted.
+When using `--input -`, pass the YAML candidate on stdin.
 
 Print a confirmation:
 
