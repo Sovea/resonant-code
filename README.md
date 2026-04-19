@@ -15,12 +15,22 @@ The outcome is a task-level packet with a structured **EGO** (Effective Guidance
 
 ## Installation
 
+### Claude Code
+
 ```sh
 # add marketplace
 /plugin marketplace add sovea/cc-marketplace
 
 # install plugin
 /plugin install resonant-code@sovea
+```
+
+### Codex
+
+Chat with Codex and ask it to install the plugin from the marketplace.
+
+```sh
+Fetch and follow instructions from https://raw.githubusercontent.com/Sovea/resonant-code/refs/heads/main/.codex/INSTALL.md to install resonant-code plugin.
 ```
 
 ## What it addresses
