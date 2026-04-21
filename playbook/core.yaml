@@ -95,6 +95,51 @@
              A comment explaining the non-obvious decision prevents future mistakes."
 
 
+- id: core-comments-only-when-they-carry-meaning-01
+  type: convention
+  layer: core
+  scope:
+    path: "**/*"
+  prescription: should
+  weight: high
+
+  description: "Write short comments only when intent, constraints, edge cases, or workarounds are non-obvious. Do not comment obvious implementation details."
+
+  rationale: >
+    Comments are most valuable when they explain something the code alone cannot make
+    obvious to a future reader: why a decision exists, what constraint shapes it, or
+    what surprising edge or workaround must be preserved. Comments that merely narrate
+    the code increase noise, drift quickly, and train readers to ignore the comments
+    that actually matter.
+
+  exceptions:
+    - "More explicit documentation is acceptable when required by the host language,
+       framework, public API expectations, or generated code conventions."
+
+  examples:
+    - avoid:
+        code: |
+          // Sort users by createdAt descending.
+          const sortedUsers = users.sort((a, b) => b.createdAt - a.createdAt);
+      good:
+        code: |
+          // Preserve server order when timestamps tie — pagination cursors depend on it.
+          const sortedUsers = users.sort((a, b) => b.createdAt - a.createdAt);
+      note: "The first comment repeats the implementation. The second captures a
+             non-obvious constraint that protects future changes from breaking behavior."
+
+    - avoid:
+        code: |
+          # increment retry counter
+          retry_count += 1
+      good:
+        code: |
+          # Retry only once — the upstream endpoint can create duplicate jobs on repeat submission.
+          retry_count += 1
+      note: "A short comment is justified when it explains a boundary, workaround,
+             or decision that the next maintainer would not reliably infer from the code."
+
+
 - id: core-preserve-local-consistency-01
   type: convention
   layer: core
@@ -148,17 +193,24 @@
   prescription: should
   weight: critical
 
-  description: "When modifying existing code, make the smallest reasonable change that fully solves the task."
+  description: "When modifying existing code, make the smallest coherent change that fully solves the task."
 
   rationale: >
     Every change beyond the task boundary is an unreviewed change. It expands the blast
     radius, introduces unrelated risk, and makes the diff harder to reason about.
-    Restraint is a form of correctness.
+    The goal is not the smallest possible diff at any cost, but the most contained
+    change that remains structurally honest and does not introduce compatibility
+    machinery the task has not earned.
 
   exceptions:
-    - "Broader change is acceptable when a narrow fix would be misleading, unsafe,
-       or would immediately require follow-up repair in the same area.
-       Scope expansion should be explicit and communicated in the change description."
+    - "Broader change is acceptable when a narrower fix would be misleading, unsafe,
+       structurally dishonest, or would immediately require follow-up repair in the
+       same area. Scope expansion should be explicit and communicated in the change
+       description."
+    - "Introduce shims, adapters, fallback branches, dual-path logic, or temporary
+       compatibility wrappers only when compatibility preservation is an explicit task
+       requirement, migration boundary, or public API constraint. Do not add them only
+       to keep a local diff superficially small."
 
   examples:
     - avoid:
@@ -183,6 +235,23 @@
           // actual change: added isValidEmail() guard to the existing onChange handler
       note: "Library migrations are real tasks that deserve their own scope and review.
              Embedding them inside a different task hides the decision and its trade-offs."
+
+    - avoid:
+        code: |
+          // task: rename `user_name` to `display_name` inside one module
+          // actual change: kept both names alive through an adapter to avoid touching call sites
+          export function getDisplayName(user) {
+            return getUserNameCompat(user);
+          }
+      good:
+        code: |
+          // task: rename `user_name` to `display_name` inside one module
+          export function getDisplayName(user) {
+            return user.display_name;
+          }
+      note: "A compatibility shim is not the smaller reasonable change when the task
+             does not require compatibility at a real boundary. It preserves old shape
+             unnecessarily and leaves extra logic behind."
 
 
 - id: core-clear-boundaries-and-responsibilities-01
