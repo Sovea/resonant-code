@@ -1,15 +1,26 @@
 export { compile, resolveTask } from './compile.ts';
 export { evaluateGuidance } from './feedback.ts';
+export { resolveActivationDecisionsIR, activatedDirectiveIdsIR } from './ir/activation/resolve-activation.ts';
+export { compareActivationPipelines, summarizeActivationShadowComparison } from './ir/activation/shadow-compare.ts';
 export { buildGovernanceIR } from './ir/build-ir.ts';
+export { resolveExecutionDecisionsIR } from './ir/execution/resolve-execution.ts';
+export { compareExecutionDecisions, summarizeExecutionShadowComparison } from './ir/execution/shadow-compare.ts';
 export { buildSemanticRelationsIR } from './ir/relations/build-relations.ts';
 export { adjudicateSemanticRelations } from './ir/relations/adjudicate-relations.ts';
+export { semanticRelationIRToLegacy, semanticRelationsIRToLegacy } from './ir/relations/legacy-mapping.ts';
 export { proposeSemanticRelations } from './ir/relations/propose-relations.ts';
+export { compareRelationPipelines, summarizeRelationShadowComparison } from './ir/relations/shadow-compare.ts';
 export { DeterministicInterpretationProvider } from './interpret/deterministic-extractor.ts';
 export { resolveTaskInput } from './interpret/normalize-candidate.ts';
 export type { TaskInterpretationProvider } from './interpret/provider.ts';
+export type { ActivationShadowComparison } from './ir/activation/shadow-compare.ts';
+export type { ExecutionShadowComparison } from './ir/execution/shadow-compare.ts';
+export type { RelationShadowComparison } from './ir/relations/shadow-compare.ts';
 export type {
+  ActivationDecisionIR,
   DirectiveFeedbackSignalIR,
   DirectiveIR,
+  DirectiveLocalStateIR,
   DirectivePriorityIR,
   DirectiveTraitsIR,
   ExecutionDecisionIR,

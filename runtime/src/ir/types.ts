@@ -66,6 +66,13 @@ export interface DirectiveTraitsIR {
   migrationSensitive: boolean;
 }
 
+export interface DirectiveLocalStateIR {
+  overrideApplied: boolean;
+  augmentApplied: boolean;
+  suppressed: boolean;
+  suppressionReason?: string;
+}
+
 export interface DirectiveIR {
   irVersion: GovernanceIRVersion;
   id: string;
@@ -84,6 +91,7 @@ export interface DirectiveIR {
     examples: DirectiveExample[];
   };
   traits: DirectiveTraitsIR;
+  local: DirectiveLocalStateIR;
 }
 
 export interface EvidenceIR extends RcclEvidence {}
@@ -202,6 +210,19 @@ export interface SemanticRelationIR {
     finalRelation: SemanticRelationIR['relation'];
     reason: string;
   };
+}
+
+export interface ActivationDecisionIR {
+  directiveId: string;
+  layerId: string;
+  sourcePath?: string;
+  status: 'activated' | 'skipped';
+  reason: 'matched' | 'suppressed-by-local' | 'layer-mismatch' | 'scope-mismatch';
+  note: string;
+  effectivePrescription: Prescription;
+  effectiveWeight: Weight;
+  priority: DirectivePriorityIR;
+  localState: DirectiveLocalStateIR;
 }
 
 export interface HostProposalIR {

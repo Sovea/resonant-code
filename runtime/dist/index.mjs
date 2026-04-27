@@ -1,9 +1,15 @@
+import { activatedDirectiveIdsIR, resolveActivationDecisionsIR } from "./ir/activation/resolve-activation.mjs";
+import { compareActivationPipelines, summarizeActivationShadowComparison } from "./ir/activation/shadow-compare.mjs";
 import { DeterministicInterpretationProvider } from "./interpret/deterministic-extractor.mjs";
 import { resolveTask, resolveTaskInput } from "./interpret/normalize-candidate.mjs";
 import { buildGovernanceIR } from "./ir/build-ir.mjs";
+import { resolveExecutionDecisionsIR } from "./ir/execution/resolve-execution.mjs";
+import { compareExecutionDecisions, summarizeExecutionShadowComparison } from "./ir/execution/shadow-compare.mjs";
 import { adjudicateSemanticRelations } from "./ir/relations/adjudicate-relations.mjs";
 import { proposeSemanticRelations } from "./ir/relations/propose-relations.mjs";
 import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
+import { semanticRelationIRToLegacy, semanticRelationsIRToLegacy } from "./ir/relations/legacy-mapping.mjs";
+import { compareRelationPipelines, summarizeRelationShadowComparison } from "./ir/relations/shadow-compare.mjs";
 import { compile } from "./compile.mjs";
 import { evaluateGuidance } from "./feedback.mjs";
-export { DeterministicInterpretationProvider, adjudicateSemanticRelations, buildGovernanceIR, buildSemanticRelationsIR, compile, evaluateGuidance, proposeSemanticRelations, resolveTask, resolveTaskInput };
+export { DeterministicInterpretationProvider, activatedDirectiveIdsIR, adjudicateSemanticRelations, buildGovernanceIR, buildSemanticRelationsIR, compareActivationPipelines, compareExecutionDecisions, compareRelationPipelines, compile, evaluateGuidance, proposeSemanticRelations, resolveActivationDecisionsIR, resolveExecutionDecisionsIR, resolveTask, resolveTaskInput, semanticRelationIRToLegacy, semanticRelationsIRToLegacy, summarizeActivationShadowComparison, summarizeExecutionShadowComparison, summarizeRelationShadowComparison };

@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs';
+import { resolveActivationDecisionsIR, activatedDirectiveIdsIR } from './ir/activation/resolve-activation.ts';
+import { compareActivationPipelines, summarizeActivationShadowComparison } from './ir/activation/shadow-compare.ts';
 import { buildGovernanceIR } from './ir/build-ir.ts';
+import { resolveExecutionDecisionsIR } from './ir/execution/resolve-execution.ts';
+import { compareExecutionDecisions, summarizeExecutionShadowComparison } from './ir/execution/shadow-compare.ts';
 import { buildSemanticRelationsIR } from './ir/relations/build-relations.ts';
+import { compareRelationPipelines, summarizeRelationShadowComparison } from './ir/relations/shadow-compare.ts';
 import { resolveTask } from './interpret/normalize-candidate.ts';
+import { loadCompileSources, type CompileSources } from './load/compile-sources.ts';
 import { semanticMerge } from './merge/semantic-merge.ts';
-import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from './load/load-playbook.ts';
-import { loadRccl } from './load/load-rccl.ts';
 import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from './select/activation-plan.ts';
-import { verifyRcclDocument } from './verify/verify-rccl.ts';
 import { stableHash } from './utils/hash.ts';
 import type {
   ChangeDecisionPacket,
@@ -113,7 +116,8 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     ],
   });
 
-  const governanceIR = await buildGovernanceIR(normalizedInput);
+  const sources = await loadCompileSources(normalizedInput);
+  const governanceIR = await buildGovernanceIR(normalizedInput, sources);
   traceSteps.push({
     stage: 'Governance IR',
     lines: [
@@ -128,22 +132,21 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     ],
   });
 
-  const semanticRelationsIR = buildSemanticRelationsIR(governanceIR);
+  const activationDecisionsIR = resolveActivationDecisionsIR(governanceIR);
+  const irActivatedDirectiveIds = activatedDirectiveIdsIR(activationDecisionsIR);
+  const activatedGovernanceIR = {
+    ...governanceIR,
+    directives: governanceIR.directives.filter((directive) => irActivatedDirectiveIds.has(directive.id)),
+  };
+  const semanticRelationsIR = buildSemanticRelationsIR(activatedGovernanceIR);
   traceSteps.push({
     stage: 'IR Semantic Relations',
     lines: summarizeSemanticRelationsIR(semanticRelationsIR),
   });
 
-  const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
-  const local = loadLocalPlaybook(normalizedInput.localAugmentPath);
-  const selectedLayerIds = local?.meta.extends.length
-    ? resolveExtendedLayers(local.meta.extends, builtinLayers)
-    : ['builtin/core'];
-
-  const directives = selectedLayerIds.flatMap((layerId) => {
-    const filePath = builtinLayers.get(layerId);
-    return filePath ? loadDirectiveFile(filePath, layerId) : [];
-  });
+  const local = sources.local;
+  const selectedLayerIds = sources.selectedLayerIds;
+  const directives = sources.builtinDirectives;
   const activationPlan = buildActivationPlan(directives, local, selectedLayerIds, intent);
   const activeDirectives = materializeActivatedDirectives(directives, local, activationPlan);
 
@@ -158,8 +161,13 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     ],
   });
 
-  const loadedRccl = await loadRccl(normalizedInput.rcclPath);
-  const rccl = loadedRccl ? await verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
+  const activationShadowComparison = compareActivationPipelines(activationPlan, activationDecisionsIR);
+  traceSteps.push({
+    stage: 'Activation Shadow Compare',
+    lines: summarizeActivationShadowComparison(activationShadowComparison),
+  });
+
+  const rccl = sources.rccl;
   traceSteps.push({
     stage: 'RCCL Verify Gate',
     lines: rccl?.observations.length
@@ -186,6 +194,19 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       `review_focus: ${focus.review_focus.length}`,
       `context_influences: ${semanticMergeResult.context_influences.length}`,
     ],
+  });
+
+  const relationShadowComparison = compareRelationPipelines(semanticMergeResult.relations, semanticRelationsIR);
+  traceSteps.push({
+    stage: 'Relation Shadow Compare',
+    lines: summarizeRelationShadowComparison(relationShadowComparison),
+  });
+
+  const executionDecisionsIR = resolveExecutionDecisionsIR(activatedGovernanceIR, semanticRelationsIR);
+  const executionShadowComparison = compareExecutionDecisions(semanticMergeResult.directive_modes, executionDecisionsIR);
+  traceSteps.push({
+    stage: 'Execution Shadow Compare',
+    lines: summarizeExecutionShadowComparison(executionShadowComparison),
   });
 
   const ego = assembleEgo(activeDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
@@ -217,6 +238,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     localAugmentPath: normalizedInput.localAugmentPath,
     rcclPath: normalizedInput.rcclPath,
     task: resolved.task,
+    builtinLayers: sources.builtinLayers,
   }, selectedLayerIds, rccl);
 
   const packet: ChangeDecisionPacket = {
@@ -266,7 +288,7 @@ function formatCounts(counts: Map<string, number>): string {
 
 function materializeActivatedDirectives(
   builtinDirectives: Directive[],
-  local: ReturnType<typeof loadLocalPlaybook>,
+  local: CompileSources['local'],
   activationPlan: DecisionTrace['activation'],
 ): Directive[] {
   const directiveById = new Map([...builtinDirectives, ...(local?.additions ?? [])].map((directive) => [directive.id, directive]));
@@ -409,13 +431,15 @@ function compareDirectives(
  * Derives stable cache keys for layered inputs and the concrete task payload.
  */
 function buildCacheKeys(
-  input: Pick<ResolvedCompileInput, 'builtinRoot' | 'localAugmentPath' | 'rcclPath'> & { task: ResolvedTaskOutput['task'] },
+  input: Pick<ResolvedCompileInput, 'builtinRoot' | 'localAugmentPath' | 'rcclPath'> & {
+    task: ResolvedTaskOutput['task'];
+    builtinLayers: CompileSources['builtinLayers'];
+  },
   selectedLayerIds: string[],
   rccl: RcclDocument | null,
 ): CompileOutput['cache'] {
-  const builtinLayers = discoverBuiltinLayers(input.builtinRoot);
   const builtinFingerprints = selectedLayerIds.map((layerId) => {
-    const filePath = builtinLayers.get(layerId);
+    const filePath = input.builtinLayers.get(layerId);
     return `${layerId}:${filePath ? readFileSync(filePath, 'utf-8').length : 0}`;
   });
   const localSource = input.localAugmentPath ? readFileSync(input.localAugmentPath, 'utf-8') : '';

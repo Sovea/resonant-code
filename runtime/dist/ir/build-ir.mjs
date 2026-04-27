@@ -1,7 +1,5 @@
 import { resolveTask } from "../interpret/normalize-candidate.mjs";
-import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from "../load/load-playbook.mjs";
-import { loadRccl } from "../load/load-rccl.mjs";
-import { verifyRcclDocument } from "../verify/verify-rccl.mjs";
+import { loadCompileSources } from "../load/compile-sources.mjs";
 import { feedbackToIR } from "./adapters/feedback.mjs";
 import { directivesToIR } from "./adapters/playbook.mjs";
 import { observationsToIR } from "./adapters/rccl.mjs";
@@ -11,31 +9,23 @@ import { buildIRFingerprints } from "./fingerprint.mjs";
 function hasResolvedTask(input) {
 	return "resolvedTask" in input;
 }
-async function buildGovernanceIR(input) {
+async function buildGovernanceIR(input, sources) {
 	const resolvedTask = hasResolvedTask(input) ? input.resolvedTask : resolveTask({
 		task: input.task,
 		candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
 		interpretationMode: input.interpretationMode
 	});
-	const builtinLayers = discoverBuiltinLayers(input.builtinRoot);
-	const local = loadLocalPlaybook(input.localAugmentPath);
-	const selectedLayers = local?.meta.extends.length ? resolveExtendedLayers(local.meta.extends, builtinLayers) : ["builtin/core"];
-	const directives = [...selectedLayers.flatMap((layerId) => {
-		const filePath = builtinLayers.get(layerId);
-		return filePath ? loadDirectiveFile(filePath, layerId) : [];
-	}), ...local?.additions ?? []];
-	const loadedRccl = await loadRccl(input.rcclPath);
-	const verifiedRccl = loadedRccl ? await verifyRcclDocument(loadedRccl, input.projectRoot) : null;
+	const loadedSources = sources ?? await loadCompileSources(input);
 	const bundleWithoutFingerprints = {
 		irVersion: "governance-ir/v1",
 		task: taskToIR(resolvedTask),
-		directives: directivesToIR(directives, local),
-		observations: observationsToIR(verifiedRccl?.observations ?? [], input.rcclPath),
+		directives: directivesToIR(loadedSources.allDirectives, loadedSources.local),
+		observations: observationsToIR(loadedSources.rccl?.observations ?? [], input.rcclPath),
 		feedback: feedbackToIR(input.lockfilePath),
 		hostProposals: [],
 		sourceManifest: {
 			builtinRoot: input.builtinRoot,
-			selectedLayers,
+			selectedLayers: loadedSources.selectedLayerIds,
 			localAugmentPath: input.localAugmentPath,
 			rcclPath: input.rcclPath,
 			lockfilePath: input.lockfilePath,

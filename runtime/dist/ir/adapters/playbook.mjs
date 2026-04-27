@@ -13,9 +13,11 @@ const PRESCRIPTION_RANKS = {
 function directivesToIR(directives, local) {
 	const overrideById = new Map(local?.overrides.map((item) => [item.id, item]) ?? []);
 	const augmentById = new Map(local?.augments.map((item) => [item.id, item]) ?? []);
+	const suppressById = new Map(local?.suppresses.map((item) => [item.id, item]) ?? []);
 	return directives.map((directive) => {
 		const override = overrideById.get(directive.id);
 		const augment = augmentById.get(directive.id);
+		const suppression = suppressById.get(directive.id);
 		const prescription = override?.prescription ?? directive.prescription;
 		const weight = override?.weight ?? directive.weight;
 		return {
@@ -42,7 +44,13 @@ function directivesToIR(directives, local) {
 				exceptions: override?.exceptions ?? directive.exceptions ?? [],
 				examples: augment ? [...directive.examples, ...augment.examples] : directive.examples
 			},
-			traits: buildTraits(directive)
+			traits: buildTraits(directive),
+			local: {
+				overrideApplied: Boolean(override),
+				augmentApplied: Boolean(augment),
+				suppressed: Boolean(suppression),
+				suppressionReason: suppression?.reason
+			}
 		};
 	});
 }

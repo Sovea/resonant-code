@@ -1,11 +1,14 @@
+import { activatedDirectiveIdsIR, resolveActivationDecisionsIR } from "./ir/activation/resolve-activation.mjs";
+import { compareActivationPipelines, summarizeActivationShadowComparison } from "./ir/activation/shadow-compare.mjs";
 import { resolveTask } from "./interpret/normalize-candidate.mjs";
-import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from "./load/load-playbook.mjs";
-import { loadRccl } from "./load/load-rccl.mjs";
-import { verifyRcclDocument } from "./verify/verify-rccl.mjs";
+import { loadCompileSources } from "./load/compile-sources.mjs";
 import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from "./select/activation-plan.mjs";
 import { stableHash } from "./utils/hash.mjs";
 import { buildGovernanceIR } from "./ir/build-ir.mjs";
+import { resolveExecutionDecisionsIR } from "./ir/execution/resolve-execution.mjs";
+import { compareExecutionDecisions, summarizeExecutionShadowComparison } from "./ir/execution/shadow-compare.mjs";
 import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
+import { compareRelationPipelines, summarizeRelationShadowComparison } from "./ir/relations/shadow-compare.mjs";
 import { semanticMerge } from "./merge/semantic-merge.mjs";
 import { readFileSync } from "node:fs";
 //#region src/compile.ts
@@ -84,7 +87,8 @@ async function compile(input) {
 			`project_stage: ${contextProfile.project_stage ?? "(none)"}`
 		]
 	});
-	const governanceIR = await buildGovernanceIR(normalizedInput);
+	const sources = await loadCompileSources(normalizedInput);
+	const governanceIR = await buildGovernanceIR(normalizedInput, sources);
 	traceSteps.push({
 		stage: "Governance IR",
 		lines: [
@@ -98,18 +102,20 @@ async function compile(input) {
 			`selected_layers: ${governanceIR.sourceManifest.selectedLayers.join(", ") || "(none)"}`
 		]
 	});
-	const semanticRelationsIR = buildSemanticRelationsIR(governanceIR);
+	const activationDecisionsIR = resolveActivationDecisionsIR(governanceIR);
+	const irActivatedDirectiveIds = activatedDirectiveIdsIR(activationDecisionsIR);
+	const activatedGovernanceIR = {
+		...governanceIR,
+		directives: governanceIR.directives.filter((directive) => irActivatedDirectiveIds.has(directive.id))
+	};
+	const semanticRelationsIR = buildSemanticRelationsIR(activatedGovernanceIR);
 	traceSteps.push({
 		stage: "IR Semantic Relations",
 		lines: summarizeSemanticRelationsIR(semanticRelationsIR)
 	});
-	const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
-	const local = loadLocalPlaybook(normalizedInput.localAugmentPath);
-	const selectedLayerIds = local?.meta.extends.length ? resolveExtendedLayers(local.meta.extends, builtinLayers) : ["builtin/core"];
-	const directives = selectedLayerIds.flatMap((layerId) => {
-		const filePath = builtinLayers.get(layerId);
-		return filePath ? loadDirectiveFile(filePath, layerId) : [];
-	});
+	const local = sources.local;
+	const selectedLayerIds = sources.selectedLayerIds;
+	const directives = sources.builtinDirectives;
 	const activationPlan = buildActivationPlan(directives, local, selectedLayerIds, intent);
 	const activeDirectives = materializeActivatedDirectives(directives, local, activationPlan);
 	traceSteps.push({
@@ -120,8 +126,12 @@ async function compile(input) {
 			`skipped: ${activationPlan.skipped.length}`
 		]
 	});
-	const loadedRccl = await loadRccl(normalizedInput.rcclPath);
-	const rccl = loadedRccl ? await verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
+	const activationShadowComparison = compareActivationPipelines(activationPlan, activationDecisionsIR);
+	traceSteps.push({
+		stage: "Activation Shadow Compare",
+		lines: summarizeActivationShadowComparison(activationShadowComparison)
+	});
+	const rccl = sources.rccl;
 	traceSteps.push({
 		stage: "RCCL Verify Gate",
 		lines: rccl?.observations.length ? rccl.observations.map((observation) => {
@@ -144,6 +154,17 @@ async function compile(input) {
 			`review_focus: ${focus.review_focus.length}`,
 			`context_influences: ${semanticMergeResult.context_influences.length}`
 		]
+	});
+	const relationShadowComparison = compareRelationPipelines(semanticMergeResult.relations, semanticRelationsIR);
+	traceSteps.push({
+		stage: "Relation Shadow Compare",
+		lines: summarizeRelationShadowComparison(relationShadowComparison)
+	});
+	const executionDecisionsIR = resolveExecutionDecisionsIR(activatedGovernanceIR, semanticRelationsIR);
+	const executionShadowComparison = compareExecutionDecisions(semanticMergeResult.directive_modes, executionDecisionsIR);
+	traceSteps.push({
+		stage: "Execution Shadow Compare",
+		lines: summarizeExecutionShadowComparison(executionShadowComparison)
 	});
 	const ego = assembleEgo(activeDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
 	traceSteps.push({
@@ -171,7 +192,8 @@ async function compile(input) {
 		builtinRoot: normalizedInput.builtinRoot,
 		localAugmentPath: normalizedInput.localAugmentPath,
 		rcclPath: normalizedInput.rcclPath,
-		task: resolved.task
+		task: resolved.task,
+		builtinLayers: sources.builtinLayers
 	}, selectedLayerIds, rccl);
 	return compileResolvedOutput({
 		version: 2,
@@ -300,9 +322,8 @@ function compareDirectives(a, b, _contextProfile, decisionByDirectiveId) {
 * Derives stable cache keys for layered inputs and the concrete task payload.
 */
 function buildCacheKeys(input, selectedLayerIds, rccl) {
-	const builtinLayers = discoverBuiltinLayers(input.builtinRoot);
 	const builtinFingerprints = selectedLayerIds.map((layerId) => {
-		const filePath = builtinLayers.get(layerId);
+		const filePath = input.builtinLayers.get(layerId);
 		return `${layerId}:${filePath ? readFileSync(filePath, "utf-8").length : 0}`;
 	});
 	const localSource = input.localAugmentPath ? readFileSync(input.localAugmentPath, "utf-8") : "";

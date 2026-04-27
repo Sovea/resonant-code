@@ -1,8 +1,7 @@
 import { resolveTask } from '../interpret/normalize-candidate.ts';
-import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from '../load/load-playbook.ts';
-import { loadRccl } from '../load/load-rccl.ts';
-import { verifyRcclDocument } from '../verify/verify-rccl.ts';
+import { loadCompileSources } from '../load/compile-sources.ts';
 import type { CompileInput, ResolvedCompileInput } from '../types.ts';
+import type { CompileSources } from '../load/compile-sources.ts';
 import { feedbackToIR } from './adapters/feedback.ts';
 import { directivesToIR } from './adapters/playbook.ts';
 import { observationsToIR } from './adapters/rccl.ts';
@@ -14,7 +13,7 @@ function hasResolvedTask(input: CompileInput): input is ResolvedCompileInput {
   return 'resolvedTask' in input;
 }
 
-export async function buildGovernanceIR(input: CompileInput): Promise<GovernanceIRBundle> {
+export async function buildGovernanceIR(input: CompileInput, sources?: CompileSources): Promise<GovernanceIRBundle> {
   const resolvedTask = hasResolvedTask(input)
     ? input.resolvedTask
     : resolveTask({
@@ -23,29 +22,18 @@ export async function buildGovernanceIR(input: CompileInput): Promise<Governance
         interpretationMode: input.interpretationMode,
       });
 
-  const builtinLayers = discoverBuiltinLayers(input.builtinRoot);
-  const local = loadLocalPlaybook(input.localAugmentPath);
-  const selectedLayers = local?.meta.extends.length
-    ? resolveExtendedLayers(local.meta.extends, builtinLayers)
-    : ['builtin/core'];
-  const builtinDirectives = selectedLayers.flatMap((layerId) => {
-    const filePath = builtinLayers.get(layerId);
-    return filePath ? loadDirectiveFile(filePath, layerId) : [];
-  });
-  const directives = [...builtinDirectives, ...(local?.additions ?? [])];
-  const loadedRccl = await loadRccl(input.rcclPath);
-  const verifiedRccl = loadedRccl ? await verifyRcclDocument(loadedRccl, input.projectRoot) : null;
+  const loadedSources = sources ?? await loadCompileSources(input);
 
   const bundleWithoutFingerprints: Omit<GovernanceIRBundle, 'fingerprints'> = {
     irVersion: 'governance-ir/v1',
     task: taskToIR(resolvedTask),
-    directives: directivesToIR(directives, local),
-    observations: observationsToIR(verifiedRccl?.observations ?? [], input.rcclPath),
+    directives: directivesToIR(loadedSources.allDirectives, loadedSources.local),
+    observations: observationsToIR(loadedSources.rccl?.observations ?? [], input.rcclPath),
     feedback: feedbackToIR(input.lockfilePath),
     hostProposals: [],
     sourceManifest: {
       builtinRoot: input.builtinRoot,
-      selectedLayers,
+      selectedLayers: loadedSources.selectedLayerIds,
       localAugmentPath: input.localAugmentPath,
       rcclPath: input.rcclPath,
       lockfilePath: input.lockfilePath,
