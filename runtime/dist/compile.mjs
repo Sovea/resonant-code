@@ -1,10 +1,13 @@
+import { projectIRActivationToPublic } from "./ir/activation/public-adapter.mjs";
+import { activatedDirectiveIdsIR, resolveActivationDecisionsIR } from "./ir/activation/resolve-activation.mjs";
 import { resolveTask } from "./interpret/normalize-candidate.mjs";
-import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from "./select/activation-plan.mjs";
-import { semanticMerge } from "./merge/semantic-merge.mjs";
-import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from "./load/load-playbook.mjs";
-import { loadRccl } from "./load/load-rccl.mjs";
-import { verifyRcclDocument } from "./verify/verify-rccl.mjs";
+import { loadCompileSources } from "./load/compile-sources.mjs";
 import { stableHash } from "./utils/hash.mjs";
+import { buildGovernanceIR } from "./ir/build-ir.mjs";
+import { projectIREgoToPublic } from "./ir/ego/public-adapter.mjs";
+import { resolveExecutionDecisionsIR } from "./ir/execution/resolve-execution.mjs";
+import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
+import { projectIRSemanticMergeToPublic } from "./ir/semantic-merge/public-adapter.mjs";
 import { readFileSync } from "node:fs";
 //#region src/compile.ts
 function hasResolvedTask(input) {
@@ -82,25 +85,43 @@ async function compile(input) {
 			`project_stage: ${contextProfile.project_stage ?? "(none)"}`
 		]
 	});
-	const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
-	const local = loadLocalPlaybook(normalizedInput.localAugmentPath);
-	const selectedLayerIds = local?.meta.extends.length ? resolveExtendedLayers(local.meta.extends, builtinLayers) : ["builtin/core"];
-	const directives = selectedLayerIds.flatMap((layerId) => {
-		const filePath = builtinLayers.get(layerId);
-		return filePath ? loadDirectiveFile(filePath, layerId) : [];
+	const sources = await loadCompileSources(normalizedInput);
+	const governanceIR = await buildGovernanceIR(normalizedInput, sources);
+	traceSteps.push({
+		stage: "Governance IR",
+		lines: [
+			`ir_version: ${governanceIR.irVersion}`,
+			`bundle_fingerprint: ${governanceIR.fingerprints.bundle}`,
+			`task_fingerprint: ${governanceIR.fingerprints.task}`,
+			`directives_fingerprint: ${governanceIR.fingerprints.directives}`,
+			`observations_fingerprint: ${governanceIR.fingerprints.observations}`,
+			`feedback_fingerprint: ${governanceIR.fingerprints.feedback}`,
+			`host_proposals_fingerprint: ${governanceIR.fingerprints.hostProposals}`,
+			`selected_layers: ${governanceIR.sourceManifest.selectedLayers.join(", ") || "(none)"}`
+		]
 	});
-	const activationPlan = buildActivationPlan(directives, local, selectedLayerIds, intent);
-	const activeDirectives = materializeActivatedDirectives(directives, local, activationPlan);
+	const activationDecisionsIR = resolveActivationDecisionsIR(governanceIR);
+	const irActivatedDirectiveIds = activatedDirectiveIdsIR(activationDecisionsIR);
+	const activatedGovernanceIR = {
+		...governanceIR,
+		directives: governanceIR.directives.filter((directive) => irActivatedDirectiveIds.has(directive.id))
+	};
+	const semanticRelationsIR = buildSemanticRelationsIR(activatedGovernanceIR);
+	traceSteps.push({
+		stage: "IR Semantic Relations",
+		lines: summarizeSemanticRelationsIR(semanticRelationsIR)
+	});
+	const { activationView, activeDirectives } = projectIRActivationToPublic(governanceIR, activationDecisionsIR);
+	const selectedLayerIds = sources.selectedLayerIds;
 	traceSteps.push({
 		stage: "Layer Filter",
 		lines: [
-			...activationPlan.selected_layers.length ? activationPlan.selected_layers.map((layerId) => `applied ${layerId}`) : ["applied builtin/core"],
-			`activated: ${activationPlan.activated.length}`,
-			`skipped: ${activationPlan.skipped.length}`
+			...activationView.selected_layers.length ? activationView.selected_layers.map((layerId) => `applied ${layerId}`) : ["applied builtin/core"],
+			`activated: ${activationView.activated.length}`,
+			`skipped: ${activationView.skipped.length}`
 		]
 	});
-	const loadedRccl = await loadRccl(normalizedInput.rcclPath);
-	const rccl = loadedRccl ? await verifyRcclDocument(loadedRccl, normalizedInput.projectRoot) : null;
+	const rccl = sources.rccl;
 	traceSteps.push({
 		stage: "RCCL Verify Gate",
 		lines: rccl?.observations.length ? rccl.observations.map((observation) => {
@@ -110,7 +131,8 @@ async function compile(input) {
 			return `${observation.id}: evidence=${evidenceStatus} induction=${inductionStatus} disposition=${disposition} support=${observation.support.scope_basis}/${observation.support.file_count}f/${observation.support.cluster_count}c`;
 		}) : ["no rccl loaded"]
 	});
-	const semanticMergeResult = semanticMerge(activeDirectives, rccl?.observations ?? [], intent, contextProfile);
+	const executionDecisionsIR = resolveExecutionDecisionsIR(activatedGovernanceIR, semanticRelationsIR);
+	const semanticMergeResult = projectIRSemanticMergeToPublic(activeDirectives, rccl?.observations ?? [], semanticRelationsIR, executionDecisionsIR, contextProfile);
 	const tensions = { records: semanticMergeResult.context_tensions };
 	const focus = buildFocusView(semanticMergeResult, activeDirectives);
 	traceSteps.push({
@@ -124,7 +146,7 @@ async function compile(input) {
 			`context_influences: ${semanticMergeResult.context_influences.length}`
 		]
 	});
-	const ego = assembleEgo(activeDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
+	const ego = projectIREgoToPublic(activatedGovernanceIR, semanticMergeResult, intent);
 	traceSteps.push({
 		stage: "EGO Assembly",
 		lines: [
@@ -139,7 +161,7 @@ async function compile(input) {
 		steps: traceSteps,
 		activated_directives: semanticMergeResult.activated_directives,
 		suppressed_directives: semanticMergeResult.suppressed_directives,
-		activation: activationPlan,
+		activation: activationView,
 		tensions,
 		review_focus: focus.review_focus,
 		directive_decisions: semanticMergeResult.directive_modes,
@@ -150,7 +172,8 @@ async function compile(input) {
 		builtinRoot: normalizedInput.builtinRoot,
 		localAugmentPath: normalizedInput.localAugmentPath,
 		rcclPath: normalizedInput.rcclPath,
-		task: resolved.task
+		task: resolved.task,
+		builtinLayers: sources.builtinLayers
 	}, selectedLayerIds, rccl);
 	return compileResolvedOutput({
 		version: 2,
@@ -159,28 +182,34 @@ async function compile(input) {
 			input: resolved.task
 		},
 		interpretation: buildInterpretationPacket(resolved),
-		governance: buildGovernancePacket(activationPlan, tensions, focus, semanticMergeResult, ego, trace),
+		governance: buildGovernancePacket(activationView, tensions, focus, semanticMergeResult, ego, trace),
 		cache
 	}, resolved);
 }
-function materializeActivatedDirectives(builtinDirectives, local, activationPlan) {
-	const directiveById = new Map([...builtinDirectives, ...local?.additions ?? []].map((directive) => [directive.id, directive]));
-	const overrideById = new Map(local?.overrides.map((item) => [item.id, item]) ?? []);
-	const augmentById = new Map(local?.augments.map((item) => [item.id, item]) ?? []);
-	return activationPlan.activated.flatMap((item) => {
-		const directive = directiveById.get(item.directive_id);
-		if (!directive) return [];
-		const override = overrideById.get(directive.id);
-		const augment = augmentById.get(directive.id);
-		return [{
-			...directive,
-			prescription: override?.prescription ?? directive.prescription,
-			weight: override?.weight ?? directive.weight,
-			rationale: override?.rationale ?? directive.rationale,
-			exceptions: override?.exceptions ?? directive.exceptions,
-			examples: augment ? [...directive.examples, ...augment.examples] : directive.examples
-		}];
-	});
+function summarizeSemanticRelationsIR(relations) {
+	const statusCounts = countBy(relations, (relation) => relation.adjudication.status);
+	const finalRelationCounts = countBy(relations, (relation) => relation.adjudication.finalRelation);
+	const proposedRelationCounts = countBy(relations, (relation) => relation.relation);
+	return [
+		`proposed: ${relations.length}`,
+		`accepted: ${statusCounts.get("accepted") ?? 0}`,
+		`downgraded: ${statusCounts.get("downgraded") ?? 0}`,
+		`rejected: ${statusCounts.get("rejected") ?? 0}`,
+		`proposed_relations: ${formatCounts(proposedRelationCounts)}`,
+		`final_relations: ${formatCounts(finalRelationCounts)}`
+	];
+}
+function countBy(items, key) {
+	const counts = /* @__PURE__ */ new Map();
+	for (const item of items) {
+		const value = key(item);
+		counts.set(value, (counts.get(value) ?? 0) + 1);
+	}
+	return counts;
+}
+function formatCounts(counts) {
+	if (counts.size === 0) return "(none)";
+	return [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, count]) => `${key}=${count}`).join(", ");
 }
 function buildFocusView(semanticMergeResult, directives) {
 	const directiveById = new Map(directives.map((directive) => [directive.id, directive]));
@@ -205,59 +234,12 @@ function buildFocusTitle(kind, directiveDescription, directiveId, observationId)
 	}
 }
 /**
-* Assembles the final agent-facing guidance object from filtered directives and observations.
-*/
-function assembleEgo(directives, observations, intent, contextProfile, semanticMergeResult) {
-	const modeByDirectiveId = new Map(semanticMergeResult.directive_modes.map((item) => [item.directive_id, item.execution_mode]));
-	const decisionByDirectiveId = new Map(semanticMergeResult.directive_modes.map((item) => [item.directive_id, item]));
-	return {
-		taskIntent: intent,
-		guidance: {
-			must_follow: directives.filter((directive) => directive.type !== "anti-pattern").sort((a, b) => compareDirectives(a, b, contextProfile, decisionByDirectiveId)).map((directive) => ({
-				id: directive.id,
-				statement: directive.description,
-				rationale: directive.rationale,
-				prescription: directive.prescription,
-				exceptions: directive.exceptions ?? [],
-				examples: directive.examples,
-				execution_mode: modeByDirectiveId.get(directive.id) ?? "ambient"
-			})),
-			avoid: observations.filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files)).filter((observation) => observation.category === "anti-pattern").filter((observation) => observation.verification.disposition !== "demote-to-ambient").map((observation) => ({
-				statement: observation.pattern,
-				trigger: `anti-pattern:${observation.id}`
-			})),
-			context_tensions: semanticMergeResult.context_tensions,
-			ambient: observations.filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files)).filter((observation) => observation.category !== "anti-pattern").map((observation) => {
-				return `${observation.verification.disposition === "demote-to-ambient" ? "demoted" : "observed"}: ${observation.pattern}`;
-			})
-		}
-	};
-}
-function compareDirectives(a, b, _contextProfile, decisionByDirectiveId) {
-	const layerScore = getDirectiveLayerRank(b.source.layerId) - getDirectiveLayerRank(a.source.layerId);
-	if (layerScore !== 0) return layerScore;
-	const prescriptionScore = a.prescription === b.prescription ? 0 : a.prescription === "must" ? -1 : 1;
-	if (prescriptionScore !== 0) return prescriptionScore;
-	const weights = {
-		low: 0,
-		normal: 1,
-		high: 2,
-		critical: 3
-	};
-	const weightScore = weights[b.weight] - weights[a.weight];
-	if (weightScore !== 0) return weightScore;
-	const contextAppliedScore = (decisionByDirectiveId.get(b.id)?.context_applied.length ?? 0) - (decisionByDirectiveId.get(a.id)?.context_applied.length ?? 0);
-	if (contextAppliedScore !== 0) return contextAppliedScore;
-	return a.id.localeCompare(b.id);
-}
-/**
 * Derives stable cache keys for layered inputs and the concrete task payload.
 */
 function buildCacheKeys(input, selectedLayerIds, rccl) {
-	const builtinLayers = discoverBuiltinLayers(input.builtinRoot);
 	const builtinFingerprints = selectedLayerIds.map((layerId) => {
-		const filePath = builtinLayers.get(layerId);
-		return `${layerId}:${filePath ? readFileSync(filePath, "utf-8").length : 0}`;
+		const filePath = input.builtinLayers.get(layerId);
+		return `${layerId}:${filePath ? stableHash([readFileSync(filePath, "utf-8")]) : stableHash(["missing"])}`;
 	});
 	const localSource = input.localAugmentPath ? readFileSync(input.localAugmentPath, "utf-8") : "";
 	const rcclSource = input.rcclPath && rccl ? JSON.stringify(rccl.observations.map((item) => [

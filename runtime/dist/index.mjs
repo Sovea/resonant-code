@@ -1,5 +1,12 @@
+import { activatedDirectiveIdsIR, resolveActivationDecisionsIR } from "./ir/activation/resolve-activation.mjs";
 import { DeterministicInterpretationProvider } from "./interpret/deterministic-extractor.mjs";
 import { resolveTask, resolveTaskInput } from "./interpret/normalize-candidate.mjs";
+import { buildGovernanceIR } from "./ir/build-ir.mjs";
+import { resolveExecutionDecisionsIR } from "./ir/execution/resolve-execution.mjs";
+import { adjudicateSemanticRelations } from "./ir/relations/adjudicate-relations.mjs";
+import { proposeSemanticRelations } from "./ir/relations/propose-relations.mjs";
+import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
+import { semanticRelationIRToPublic, semanticRelationsIRToPublic } from "./ir/relations/public-mapping.mjs";
 import { compile } from "./compile.mjs";
 import { evaluateGuidance } from "./feedback.mjs";
-export { DeterministicInterpretationProvider, compile, evaluateGuidance, resolveTask, resolveTaskInput };
+export { DeterministicInterpretationProvider, activatedDirectiveIdsIR, adjudicateSemanticRelations, buildGovernanceIR, buildSemanticRelationsIR, compile, evaluateGuidance, proposeSemanticRelations, resolveActivationDecisionsIR, resolveExecutionDecisionsIR, resolveTask, resolveTaskInput, semanticRelationIRToPublic, semanticRelationsIRToPublic };
