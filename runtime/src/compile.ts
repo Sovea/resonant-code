@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { buildGovernanceIR } from './ir/build-ir.ts';
+import { buildSemanticRelationsIR } from './ir/relations/build-relations.ts';
 import { resolveTask } from './interpret/normalize-candidate.ts';
 import { semanticMerge } from './merge/semantic-merge.ts';
 import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from './load/load-playbook.ts';
@@ -27,6 +29,7 @@ import type {
   TensionView,
   TraceStep,
 } from './types.ts';
+import type { SemanticRelationIR } from './ir/types.ts';
 
 function hasResolvedTask(input: CompileInput): input is ResolvedCompileInput {
   return 'resolvedTask' in input;
@@ -108,6 +111,27 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       `avoid: ${contextProfile.avoid.join(', ') || '(none)'}`,
       `project_stage: ${contextProfile.project_stage ?? '(none)'}`,
     ],
+  });
+
+  const governanceIR = await buildGovernanceIR(normalizedInput);
+  traceSteps.push({
+    stage: 'Governance IR',
+    lines: [
+      `ir_version: ${governanceIR.irVersion}`,
+      `bundle_fingerprint: ${governanceIR.fingerprints.bundle}`,
+      `task_fingerprint: ${governanceIR.fingerprints.task}`,
+      `directives_fingerprint: ${governanceIR.fingerprints.directives}`,
+      `observations_fingerprint: ${governanceIR.fingerprints.observations}`,
+      `feedback_fingerprint: ${governanceIR.fingerprints.feedback}`,
+      `host_proposals_fingerprint: ${governanceIR.fingerprints.hostProposals}`,
+      `selected_layers: ${governanceIR.sourceManifest.selectedLayers.join(', ') || '(none)'}`,
+    ],
+  });
+
+  const semanticRelationsIR = buildSemanticRelationsIR(governanceIR);
+  traceSteps.push({
+    stage: 'IR Semantic Relations',
+    lines: summarizeSemanticRelationsIR(semanticRelationsIR),
   });
 
   const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
@@ -207,6 +231,37 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
   };
 
   return compileResolvedOutput(packet, resolved);
+}
+
+function summarizeSemanticRelationsIR(relations: SemanticRelationIR[]): string[] {
+  const statusCounts = countBy(relations, (relation) => relation.adjudication.status);
+  const finalRelationCounts = countBy(relations, (relation) => relation.adjudication.finalRelation);
+  const proposedRelationCounts = countBy(relations, (relation) => relation.relation);
+  return [
+    `proposed: ${relations.length}`,
+    `accepted: ${statusCounts.get('accepted') ?? 0}`,
+    `downgraded: ${statusCounts.get('downgraded') ?? 0}`,
+    `rejected: ${statusCounts.get('rejected') ?? 0}`,
+    `proposed_relations: ${formatCounts(proposedRelationCounts)}`,
+    `final_relations: ${formatCounts(finalRelationCounts)}`,
+  ];
+}
+
+function countBy<T>(items: T[], key: (item: T) => string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const value = key(item);
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function formatCounts(counts: Map<string, number>): string {
+  if (counts.size === 0) return '(none)';
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, count]) => `${key}=${count}`)
+    .join(', ');
 }
 
 function materializeActivatedDirectives(

@@ -1,10 +1,12 @@
 import { resolveTask } from "./interpret/normalize-candidate.mjs";
-import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from "./select/activation-plan.mjs";
-import { semanticMerge } from "./merge/semantic-merge.mjs";
 import { discoverBuiltinLayers, loadDirectiveFile, loadLocalPlaybook, resolveExtendedLayers } from "./load/load-playbook.mjs";
 import { loadRccl } from "./load/load-rccl.mjs";
 import { verifyRcclDocument } from "./verify/verify-rccl.mjs";
+import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from "./select/activation-plan.mjs";
 import { stableHash } from "./utils/hash.mjs";
+import { buildGovernanceIR } from "./ir/build-ir.mjs";
+import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
+import { semanticMerge } from "./merge/semantic-merge.mjs";
 import { readFileSync } from "node:fs";
 //#region src/compile.ts
 function hasResolvedTask(input) {
@@ -81,6 +83,25 @@ async function compile(input) {
 			`avoid: ${contextProfile.avoid.join(", ") || "(none)"}`,
 			`project_stage: ${contextProfile.project_stage ?? "(none)"}`
 		]
+	});
+	const governanceIR = await buildGovernanceIR(normalizedInput);
+	traceSteps.push({
+		stage: "Governance IR",
+		lines: [
+			`ir_version: ${governanceIR.irVersion}`,
+			`bundle_fingerprint: ${governanceIR.fingerprints.bundle}`,
+			`task_fingerprint: ${governanceIR.fingerprints.task}`,
+			`directives_fingerprint: ${governanceIR.fingerprints.directives}`,
+			`observations_fingerprint: ${governanceIR.fingerprints.observations}`,
+			`feedback_fingerprint: ${governanceIR.fingerprints.feedback}`,
+			`host_proposals_fingerprint: ${governanceIR.fingerprints.hostProposals}`,
+			`selected_layers: ${governanceIR.sourceManifest.selectedLayers.join(", ") || "(none)"}`
+		]
+	});
+	const semanticRelationsIR = buildSemanticRelationsIR(governanceIR);
+	traceSteps.push({
+		stage: "IR Semantic Relations",
+		lines: summarizeSemanticRelationsIR(semanticRelationsIR)
 	});
 	const builtinLayers = discoverBuiltinLayers(normalizedInput.builtinRoot);
 	const local = loadLocalPlaybook(normalizedInput.localAugmentPath);
@@ -162,6 +183,31 @@ async function compile(input) {
 		governance: buildGovernancePacket(activationPlan, tensions, focus, semanticMergeResult, ego, trace),
 		cache
 	}, resolved);
+}
+function summarizeSemanticRelationsIR(relations) {
+	const statusCounts = countBy(relations, (relation) => relation.adjudication.status);
+	const finalRelationCounts = countBy(relations, (relation) => relation.adjudication.finalRelation);
+	const proposedRelationCounts = countBy(relations, (relation) => relation.relation);
+	return [
+		`proposed: ${relations.length}`,
+		`accepted: ${statusCounts.get("accepted") ?? 0}`,
+		`downgraded: ${statusCounts.get("downgraded") ?? 0}`,
+		`rejected: ${statusCounts.get("rejected") ?? 0}`,
+		`proposed_relations: ${formatCounts(proposedRelationCounts)}`,
+		`final_relations: ${formatCounts(finalRelationCounts)}`
+	];
+}
+function countBy(items, key) {
+	const counts = /* @__PURE__ */ new Map();
+	for (const item of items) {
+		const value = key(item);
+		counts.set(value, (counts.get(value) ?? 0) + 1);
+	}
+	return counts;
+}
+function formatCounts(counts) {
+	if (counts.size === 0) return "(none)";
+	return [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, count]) => `${key}=${count}`).join(", ");
 }
 function materializeActivatedDirectives(builtinDirectives, local, activationPlan) {
 	const directiveById = new Map([...builtinDirectives, ...local?.additions ?? []].map((directive) => [directive.id, directive]));
