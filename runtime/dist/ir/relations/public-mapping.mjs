@@ -1,18 +1,18 @@
-//#region src/ir/relations/legacy-mapping.ts
-function semanticRelationIRToLegacy(relation) {
+//#region src/ir/relations/public-mapping.ts
+function semanticRelationIRToPublic(relation) {
 	return {
 		directive_id: relation.directiveId,
 		observation_id: relation.observationId,
-		relation: legacyRelationKind(relation.adjudication.finalRelation),
+		relation: publicRelationKind(relation.adjudication.finalRelation),
 		confidence: relation.confidence,
-		basis: legacyBasis(relation),
+		basis: publicBasis(relation),
 		reason: relation.adjudication.reason
 	};
 }
-function semanticRelationsIRToLegacy(relations) {
-	return relations.map(semanticRelationIRToLegacy);
+function semanticRelationsIRToPublic(relations) {
+	return relations.map(semanticRelationIRToPublic);
 }
-function legacyRelationKind(relation) {
+function publicRelationKind(relation) {
 	switch (relation) {
 		case "reinforce":
 		case "tension":
@@ -21,7 +21,7 @@ function legacyRelationKind(relation) {
 		case "unrelated": return "none";
 	}
 }
-function legacyBasis(relation) {
+function publicBasis(relation) {
 	const basis = [];
 	if (relation.basis.scope) basis.push("scope");
 	if (relation.basis.evidence) basis.push("verification");
@@ -30,4 +30,4 @@ function legacyBasis(relation) {
 	return basis.length ? basis : ["context"];
 }
 //#endregion
-export { semanticRelationIRToLegacy, semanticRelationsIRToLegacy };
+export { semanticRelationIRToPublic, semanticRelationsIRToPublic };

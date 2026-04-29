@@ -178,7 +178,7 @@ export interface CompileInputBase {
   lockfilePath?: string;
 }
 
-export interface LegacyCompileInput extends CompileInputBase {
+export interface RawCompileInput extends CompileInputBase {
   task: CompileTaskInput;
   parsedTaskCandidate?: ParsedTaskCandidate;
   interpretationMode?: InputProvenance['interpretation_mode'];
@@ -195,7 +195,7 @@ export interface ResolvedCompileInput extends CompileInputBase {
   resolvedTask: ResolvedTaskOutput;
 }
 
-export type CompileInput = LegacyCompileInput | ResolvedCompileInput;
+export type CompileInput = RawCompileInput | ResolvedCompileInput;
 
 export interface InterpretationPacket {
   candidates?: ParsedTaskCandidate[];
@@ -241,12 +241,6 @@ export interface SkippedDirective {
   layer_id: string;
   reason: 'suppressed-by-local' | 'layer-mismatch' | 'scope-mismatch';
   note: string;
-}
-
-export interface ActivationPlan {
-  selected_layers: string[];
-  activated: ActivatedDirective[];
-  skipped: SkippedDirective[];
 }
 
 export interface ActivationView {

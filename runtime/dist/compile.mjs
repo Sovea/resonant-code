@@ -1,15 +1,13 @@
+import { projectIRActivationToPublic } from "./ir/activation/public-adapter.mjs";
 import { activatedDirectiveIdsIR, resolveActivationDecisionsIR } from "./ir/activation/resolve-activation.mjs";
-import { compareActivationPipelines, summarizeActivationShadowComparison } from "./ir/activation/shadow-compare.mjs";
 import { resolveTask } from "./interpret/normalize-candidate.mjs";
 import { loadCompileSources } from "./load/compile-sources.mjs";
-import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from "./select/activation-plan.mjs";
 import { stableHash } from "./utils/hash.mjs";
 import { buildGovernanceIR } from "./ir/build-ir.mjs";
+import { projectIREgoToPublic } from "./ir/ego/public-adapter.mjs";
 import { resolveExecutionDecisionsIR } from "./ir/execution/resolve-execution.mjs";
-import { compareExecutionDecisions, summarizeExecutionShadowComparison } from "./ir/execution/shadow-compare.mjs";
 import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
-import { compareRelationPipelines, summarizeRelationShadowComparison } from "./ir/relations/shadow-compare.mjs";
-import { semanticMerge } from "./merge/semantic-merge.mjs";
+import { projectIRSemanticMergeToPublic } from "./ir/semantic-merge/public-adapter.mjs";
 import { readFileSync } from "node:fs";
 //#region src/compile.ts
 function hasResolvedTask(input) {
@@ -113,23 +111,15 @@ async function compile(input) {
 		stage: "IR Semantic Relations",
 		lines: summarizeSemanticRelationsIR(semanticRelationsIR)
 	});
-	const local = sources.local;
+	const { activationView, activeDirectives } = projectIRActivationToPublic(governanceIR, activationDecisionsIR);
 	const selectedLayerIds = sources.selectedLayerIds;
-	const directives = sources.builtinDirectives;
-	const activationPlan = buildActivationPlan(directives, local, selectedLayerIds, intent);
-	const activeDirectives = materializeActivatedDirectives(directives, local, activationPlan);
 	traceSteps.push({
 		stage: "Layer Filter",
 		lines: [
-			...activationPlan.selected_layers.length ? activationPlan.selected_layers.map((layerId) => `applied ${layerId}`) : ["applied builtin/core"],
-			`activated: ${activationPlan.activated.length}`,
-			`skipped: ${activationPlan.skipped.length}`
+			...activationView.selected_layers.length ? activationView.selected_layers.map((layerId) => `applied ${layerId}`) : ["applied builtin/core"],
+			`activated: ${activationView.activated.length}`,
+			`skipped: ${activationView.skipped.length}`
 		]
-	});
-	const activationShadowComparison = compareActivationPipelines(activationPlan, activationDecisionsIR);
-	traceSteps.push({
-		stage: "Activation Shadow Compare",
-		lines: summarizeActivationShadowComparison(activationShadowComparison)
 	});
 	const rccl = sources.rccl;
 	traceSteps.push({
@@ -141,7 +131,8 @@ async function compile(input) {
 			return `${observation.id}: evidence=${evidenceStatus} induction=${inductionStatus} disposition=${disposition} support=${observation.support.scope_basis}/${observation.support.file_count}f/${observation.support.cluster_count}c`;
 		}) : ["no rccl loaded"]
 	});
-	const semanticMergeResult = semanticMerge(activeDirectives, rccl?.observations ?? [], intent, contextProfile);
+	const executionDecisionsIR = resolveExecutionDecisionsIR(activatedGovernanceIR, semanticRelationsIR);
+	const semanticMergeResult = projectIRSemanticMergeToPublic(activeDirectives, rccl?.observations ?? [], semanticRelationsIR, executionDecisionsIR, contextProfile);
 	const tensions = { records: semanticMergeResult.context_tensions };
 	const focus = buildFocusView(semanticMergeResult, activeDirectives);
 	traceSteps.push({
@@ -155,18 +146,7 @@ async function compile(input) {
 			`context_influences: ${semanticMergeResult.context_influences.length}`
 		]
 	});
-	const relationShadowComparison = compareRelationPipelines(semanticMergeResult.relations, semanticRelationsIR);
-	traceSteps.push({
-		stage: "Relation Shadow Compare",
-		lines: summarizeRelationShadowComparison(relationShadowComparison)
-	});
-	const executionDecisionsIR = resolveExecutionDecisionsIR(activatedGovernanceIR, semanticRelationsIR);
-	const executionShadowComparison = compareExecutionDecisions(semanticMergeResult.directive_modes, executionDecisionsIR);
-	traceSteps.push({
-		stage: "Execution Shadow Compare",
-		lines: summarizeExecutionShadowComparison(executionShadowComparison)
-	});
-	const ego = assembleEgo(activeDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
+	const ego = projectIREgoToPublic(activatedGovernanceIR, semanticMergeResult, intent);
 	traceSteps.push({
 		stage: "EGO Assembly",
 		lines: [
@@ -181,7 +161,7 @@ async function compile(input) {
 		steps: traceSteps,
 		activated_directives: semanticMergeResult.activated_directives,
 		suppressed_directives: semanticMergeResult.suppressed_directives,
-		activation: activationPlan,
+		activation: activationView,
 		tensions,
 		review_focus: focus.review_focus,
 		directive_decisions: semanticMergeResult.directive_modes,
@@ -202,7 +182,7 @@ async function compile(input) {
 			input: resolved.task
 		},
 		interpretation: buildInterpretationPacket(resolved),
-		governance: buildGovernancePacket(activationPlan, tensions, focus, semanticMergeResult, ego, trace),
+		governance: buildGovernancePacket(activationView, tensions, focus, semanticMergeResult, ego, trace),
 		cache
 	}, resolved);
 }
@@ -231,25 +211,6 @@ function formatCounts(counts) {
 	if (counts.size === 0) return "(none)";
 	return [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, count]) => `${key}=${count}`).join(", ");
 }
-function materializeActivatedDirectives(builtinDirectives, local, activationPlan) {
-	const directiveById = new Map([...builtinDirectives, ...local?.additions ?? []].map((directive) => [directive.id, directive]));
-	const overrideById = new Map(local?.overrides.map((item) => [item.id, item]) ?? []);
-	const augmentById = new Map(local?.augments.map((item) => [item.id, item]) ?? []);
-	return activationPlan.activated.flatMap((item) => {
-		const directive = directiveById.get(item.directive_id);
-		if (!directive) return [];
-		const override = overrideById.get(directive.id);
-		const augment = augmentById.get(directive.id);
-		return [{
-			...directive,
-			prescription: override?.prescription ?? directive.prescription,
-			weight: override?.weight ?? directive.weight,
-			rationale: override?.rationale ?? directive.rationale,
-			exceptions: override?.exceptions ?? directive.exceptions,
-			examples: augment ? [...directive.examples, ...augment.examples] : directive.examples
-		}];
-	});
-}
 function buildFocusView(semanticMergeResult, directives) {
 	const directiveById = new Map(directives.map((directive) => [directive.id, directive]));
 	return { review_focus: semanticMergeResult.focus.review_focus.map((item) => {
@@ -273,58 +234,12 @@ function buildFocusTitle(kind, directiveDescription, directiveId, observationId)
 	}
 }
 /**
-* Assembles the final agent-facing guidance object from filtered directives and observations.
-*/
-function assembleEgo(directives, observations, intent, contextProfile, semanticMergeResult) {
-	const modeByDirectiveId = new Map(semanticMergeResult.directive_modes.map((item) => [item.directive_id, item.execution_mode]));
-	const decisionByDirectiveId = new Map(semanticMergeResult.directive_modes.map((item) => [item.directive_id, item]));
-	return {
-		taskIntent: intent,
-		guidance: {
-			must_follow: directives.filter((directive) => directive.type !== "anti-pattern").sort((a, b) => compareDirectives(a, b, contextProfile, decisionByDirectiveId)).map((directive) => ({
-				id: directive.id,
-				statement: directive.description,
-				rationale: directive.rationale,
-				prescription: directive.prescription,
-				exceptions: directive.exceptions ?? [],
-				examples: directive.examples,
-				execution_mode: modeByDirectiveId.get(directive.id) ?? "ambient"
-			})),
-			avoid: observations.filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files)).filter((observation) => observation.category === "anti-pattern").filter((observation) => observation.verification.disposition !== "demote-to-ambient").map((observation) => ({
-				statement: observation.pattern,
-				trigger: `anti-pattern:${observation.id}`
-			})),
-			context_tensions: semanticMergeResult.context_tensions,
-			ambient: observations.filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files)).filter((observation) => observation.category !== "anti-pattern").map((observation) => {
-				return `${observation.verification.disposition === "demote-to-ambient" ? "demoted" : "observed"}: ${observation.pattern}`;
-			})
-		}
-	};
-}
-function compareDirectives(a, b, _contextProfile, decisionByDirectiveId) {
-	const layerScore = getDirectiveLayerRank(b.source.layerId) - getDirectiveLayerRank(a.source.layerId);
-	if (layerScore !== 0) return layerScore;
-	const prescriptionScore = a.prescription === b.prescription ? 0 : a.prescription === "must" ? -1 : 1;
-	if (prescriptionScore !== 0) return prescriptionScore;
-	const weights = {
-		low: 0,
-		normal: 1,
-		high: 2,
-		critical: 3
-	};
-	const weightScore = weights[b.weight] - weights[a.weight];
-	if (weightScore !== 0) return weightScore;
-	const contextAppliedScore = (decisionByDirectiveId.get(b.id)?.context_applied.length ?? 0) - (decisionByDirectiveId.get(a.id)?.context_applied.length ?? 0);
-	if (contextAppliedScore !== 0) return contextAppliedScore;
-	return a.id.localeCompare(b.id);
-}
-/**
 * Derives stable cache keys for layered inputs and the concrete task payload.
 */
 function buildCacheKeys(input, selectedLayerIds, rccl) {
 	const builtinFingerprints = selectedLayerIds.map((layerId) => {
 		const filePath = input.builtinLayers.get(layerId);
-		return `${layerId}:${filePath ? readFileSync(filePath, "utf-8").length : 0}`;
+		return `${layerId}:${filePath ? stableHash([readFileSync(filePath, "utf-8")]) : stableHash(["missing"])}`;
 	});
 	const localSource = input.localAugmentPath ? readFileSync(input.localAugmentPath, "utf-8") : "";
 	const rcclSource = input.rcclPath && rccl ? JSON.stringify(rccl.observations.map((item) => [

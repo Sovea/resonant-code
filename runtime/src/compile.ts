@@ -1,21 +1,18 @@
 import { readFileSync } from 'node:fs';
+import { projectIRActivationToPublic } from './ir/activation/public-adapter.ts';
 import { resolveActivationDecisionsIR, activatedDirectiveIdsIR } from './ir/activation/resolve-activation.ts';
-import { compareActivationPipelines, summarizeActivationShadowComparison } from './ir/activation/shadow-compare.ts';
 import { buildGovernanceIR } from './ir/build-ir.ts';
+import { projectIREgoToPublic } from './ir/ego/public-adapter.ts';
 import { resolveExecutionDecisionsIR } from './ir/execution/resolve-execution.ts';
-import { compareExecutionDecisions, summarizeExecutionShadowComparison } from './ir/execution/shadow-compare.ts';
 import { buildSemanticRelationsIR } from './ir/relations/build-relations.ts';
-import { compareRelationPipelines, summarizeRelationShadowComparison } from './ir/relations/shadow-compare.ts';
+import { projectIRSemanticMergeToPublic } from './ir/semantic-merge/public-adapter.ts';
 import { resolveTask } from './interpret/normalize-candidate.ts';
 import { loadCompileSources, type CompileSources } from './load/compile-sources.ts';
-import { semanticMerge } from './merge/semantic-merge.ts';
-import { buildActivationPlan, getDirectiveLayerRank, scopeMatchesIntent } from './select/activation-plan.ts';
 import { stableHash } from './utils/hash.ts';
 import type {
   ChangeDecisionPacket,
   CompileInput,
   CompileOutput,
-  ContextProfile,
   DecisionTrace,
   Directive,
   EffectiveGuidanceObject,
@@ -23,12 +20,10 @@ import type {
   GovernancePacket,
   InterpretationPacket,
   RcclDocument,
-  RcclObservation,
   ResolvedCompileInput,
   ResolvedTaskOutput,
   ReviewFocusItem,
   SemanticMergeResult,
-  TaskIntent,
   TensionView,
   TraceStep,
 } from './types.ts';
@@ -144,29 +139,19 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     lines: summarizeSemanticRelationsIR(semanticRelationsIR),
   });
 
-  const local = sources.local;
+  const { activationView, activeDirectives } = projectIRActivationToPublic(governanceIR, activationDecisionsIR);
   const selectedLayerIds = sources.selectedLayerIds;
-  const directives = sources.builtinDirectives;
-  const activationPlan = buildActivationPlan(directives, local, selectedLayerIds, intent);
-  const activeDirectives = materializeActivatedDirectives(directives, local, activationPlan);
 
   traceSteps.push({
     stage: 'Layer Filter',
     lines: [
-      ...(activationPlan.selected_layers.length
-        ? activationPlan.selected_layers.map((layerId) => `applied ${layerId}`)
+      ...(activationView.selected_layers.length
+        ? activationView.selected_layers.map((layerId) => `applied ${layerId}`)
         : ['applied builtin/core']),
-      `activated: ${activationPlan.activated.length}`,
-      `skipped: ${activationPlan.skipped.length}`,
+      `activated: ${activationView.activated.length}`,
+      `skipped: ${activationView.skipped.length}`,
     ],
   });
-
-  const activationShadowComparison = compareActivationPipelines(activationPlan, activationDecisionsIR);
-  traceSteps.push({
-    stage: 'Activation Shadow Compare',
-    lines: summarizeActivationShadowComparison(activationShadowComparison),
-  });
-
   const rccl = sources.rccl;
   traceSteps.push({
     stage: 'RCCL Verify Gate',
@@ -180,10 +165,16 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       : ['no rccl loaded'],
   });
 
-  const semanticMergeResult = semanticMerge(activeDirectives, rccl?.observations ?? [], intent, contextProfile);
+  const executionDecisionsIR = resolveExecutionDecisionsIR(activatedGovernanceIR, semanticRelationsIR);
+  const semanticMergeResult = projectIRSemanticMergeToPublic(
+    activeDirectives,
+    rccl?.observations ?? [],
+    semanticRelationsIR,
+    executionDecisionsIR,
+    contextProfile,
+  );
   const tensions: TensionView = { records: semanticMergeResult.context_tensions };
   const focus = buildFocusView(semanticMergeResult, activeDirectives);
-
   traceSteps.push({
     stage: 'Semantic Merge',
     lines: [
@@ -196,20 +187,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     ],
   });
 
-  const relationShadowComparison = compareRelationPipelines(semanticMergeResult.relations, semanticRelationsIR);
-  traceSteps.push({
-    stage: 'Relation Shadow Compare',
-    lines: summarizeRelationShadowComparison(relationShadowComparison),
-  });
-
-  const executionDecisionsIR = resolveExecutionDecisionsIR(activatedGovernanceIR, semanticRelationsIR);
-  const executionShadowComparison = compareExecutionDecisions(semanticMergeResult.directive_modes, executionDecisionsIR);
-  traceSteps.push({
-    stage: 'Execution Shadow Compare',
-    lines: summarizeExecutionShadowComparison(executionShadowComparison),
-  });
-
-  const ego = assembleEgo(activeDirectives, rccl?.observations ?? [], intent, contextProfile, semanticMergeResult);
+  const ego = projectIREgoToPublic(activatedGovernanceIR, semanticMergeResult, intent);
   traceSteps.push({
     stage: 'EGO Assembly',
     lines: [
@@ -225,7 +203,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     steps: traceSteps,
     activated_directives: semanticMergeResult.activated_directives,
     suppressed_directives: semanticMergeResult.suppressed_directives,
-    activation: activationPlan,
+    activation: activationView,
     tensions,
     review_focus: focus.review_focus,
     directive_decisions: semanticMergeResult.directive_modes,
@@ -248,7 +226,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       input: resolved.task,
     },
     interpretation: buildInterpretationPacket(resolved),
-    governance: buildGovernancePacket(activationPlan, tensions, focus, semanticMergeResult, ego, trace),
+    governance: buildGovernancePacket(activationView, tensions, focus, semanticMergeResult, ego, trace),
     cache,
   };
 
@@ -286,31 +264,6 @@ function formatCounts(counts: Map<string, number>): string {
     .join(', ');
 }
 
-function materializeActivatedDirectives(
-  builtinDirectives: Directive[],
-  local: CompileSources['local'],
-  activationPlan: DecisionTrace['activation'],
-): Directive[] {
-  const directiveById = new Map([...builtinDirectives, ...(local?.additions ?? [])].map((directive) => [directive.id, directive]));
-  const overrideById = new Map(local?.overrides.map((item) => [item.id, item]) ?? []);
-  const augmentById = new Map(local?.augments.map((item) => [item.id, item]) ?? []);
-
-  return activationPlan.activated.flatMap((item) => {
-    const directive = directiveById.get(item.directive_id);
-    if (!directive) return [];
-    const override = overrideById.get(directive.id);
-    const augment = augmentById.get(directive.id);
-    return [{
-      ...directive,
-      prescription: override?.prescription ?? directive.prescription,
-      weight: override?.weight ?? directive.weight,
-      rationale: override?.rationale ?? directive.rationale,
-      exceptions: override?.exceptions ?? directive.exceptions,
-      examples: augment ? [...directive.examples, ...augment.examples] : directive.examples,
-    }];
-  });
-}
-
 function buildFocusView(semanticMergeResult: SemanticMergeResult, directives: Directive[]): FocusView {
   const directiveById = new Map(directives.map((directive) => [directive.id, directive]));
   const review_focus: ReviewFocusItem[] = semanticMergeResult.focus.review_focus.map((item) => {
@@ -346,88 +299,6 @@ function buildFocusTitle(
 }
 
 /**
- * Assembles the final agent-facing guidance object from filtered directives and observations.
- */
-function assembleEgo(
-  directives: Directive[],
-  observations: RcclObservation[],
-  intent: TaskIntent,
-  contextProfile: ContextProfile,
-  semanticMergeResult: SemanticMergeResult,
-): EffectiveGuidanceObject {
-  const modeByDirectiveId = new Map(
-    semanticMergeResult.directive_modes.map((item) => [item.directive_id, item.execution_mode]),
-  );
-  const decisionByDirectiveId = new Map(
-    semanticMergeResult.directive_modes.map((item) => [item.directive_id, item]),
-  );
-
-  const must_follow = directives
-    .filter((directive) => directive.type !== 'anti-pattern')
-    .sort((a, b) => compareDirectives(a, b, contextProfile, decisionByDirectiveId))
-    .map((directive) => ({
-      id: directive.id,
-      statement: directive.description,
-      rationale: directive.rationale,
-      prescription: directive.prescription,
-      exceptions: directive.exceptions ?? [],
-      examples: directive.examples,
-      execution_mode: modeByDirectiveId.get(directive.id) ?? 'ambient',
-    }));
-
-  const avoid = observations
-    .filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files))
-    .filter((observation) => observation.category === 'anti-pattern')
-    .filter((observation) => observation.verification.disposition !== 'demote-to-ambient')
-    .map((observation) => ({
-      statement: observation.pattern,
-      trigger: `anti-pattern:${observation.id}`,
-    }));
-
-  const context_tensions = semanticMergeResult.context_tensions;
-
-  const ambient = observations
-    .filter((observation) => scopeMatchesIntent(observation.scope, intent.target_file, intent.changed_files))
-    .filter((observation) => observation.category !== 'anti-pattern')
-    .map((observation) => {
-      const status = observation.verification.disposition === 'demote-to-ambient' ? 'demoted' : 'observed';
-      return `${status}: ${observation.pattern}`;
-    });
-
-  return {
-    taskIntent: intent,
-    guidance: {
-      must_follow,
-      avoid,
-      context_tensions,
-      ambient,
-    },
-  };
-}
-
-function compareDirectives(
-  a: Directive,
-  b: Directive,
-  _contextProfile: ContextProfile,
-  decisionByDirectiveId: Map<string, SemanticMergeResult['directive_modes'][number]>,
-): number {
-  const layerScore = getDirectiveLayerRank(b.source.layerId) - getDirectiveLayerRank(a.source.layerId);
-  if (layerScore !== 0) return layerScore;
-
-  const prescriptionScore = a.prescription === b.prescription ? 0 : a.prescription === 'must' ? -1 : 1;
-  if (prescriptionScore !== 0) return prescriptionScore;
-  const weights = { low: 0, normal: 1, high: 2, critical: 3 };
-  const weightScore = weights[b.weight] - weights[a.weight];
-  if (weightScore !== 0) return weightScore;
-
-  const contextAppliedScore = (decisionByDirectiveId.get(b.id)?.context_applied.length ?? 0)
-    - (decisionByDirectiveId.get(a.id)?.context_applied.length ?? 0);
-  if (contextAppliedScore !== 0) return contextAppliedScore;
-
-  return a.id.localeCompare(b.id);
-}
-
-/**
  * Derives stable cache keys for layered inputs and the concrete task payload.
  */
 function buildCacheKeys(
@@ -440,7 +311,7 @@ function buildCacheKeys(
 ): CompileOutput['cache'] {
   const builtinFingerprints = selectedLayerIds.map((layerId) => {
     const filePath = input.builtinLayers.get(layerId);
-    return `${layerId}:${filePath ? readFileSync(filePath, 'utf-8').length : 0}`;
+    return `${layerId}:${filePath ? stableHash([readFileSync(filePath, 'utf-8')]) : stableHash(['missing'])}`;
   });
   const localSource = input.localAugmentPath ? readFileSync(input.localAugmentPath, 'utf-8') : '';
   const rcclSource = input.rcclPath && rccl

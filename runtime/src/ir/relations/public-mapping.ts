@@ -1,22 +1,22 @@
 import type { DirectiveObservationRelation, RelationKind } from '../../types.ts';
 import type { SemanticRelationIR } from '../types.ts';
 
-export function semanticRelationIRToLegacy(relation: SemanticRelationIR): DirectiveObservationRelation {
+export function semanticRelationIRToPublic(relation: SemanticRelationIR): DirectiveObservationRelation {
   return {
     directive_id: relation.directiveId,
     observation_id: relation.observationId,
-    relation: legacyRelationKind(relation.adjudication.finalRelation),
+    relation: publicRelationKind(relation.adjudication.finalRelation),
     confidence: relation.confidence,
-    basis: legacyBasis(relation),
+    basis: publicBasis(relation),
     reason: relation.adjudication.reason,
   };
 }
 
-export function semanticRelationsIRToLegacy(relations: SemanticRelationIR[]): DirectiveObservationRelation[] {
-  return relations.map(semanticRelationIRToLegacy);
+export function semanticRelationsIRToPublic(relations: SemanticRelationIR[]): DirectiveObservationRelation[] {
+  return relations.map(semanticRelationIRToPublic);
 }
 
-function legacyRelationKind(relation: SemanticRelationIR['adjudication']['finalRelation']): RelationKind {
+function publicRelationKind(relation: SemanticRelationIR['adjudication']['finalRelation']): RelationKind {
   switch (relation) {
     case 'reinforce':
     case 'tension':
@@ -29,7 +29,7 @@ function legacyRelationKind(relation: SemanticRelationIR['adjudication']['finalR
   }
 }
 
-function legacyBasis(relation: SemanticRelationIR): DirectiveObservationRelation['basis'] {
+function publicBasis(relation: SemanticRelationIR): DirectiveObservationRelation['basis'] {
   const basis: DirectiveObservationRelation['basis'] = [];
   if (relation.basis.scope) basis.push('scope');
   if (relation.basis.evidence) basis.push('verification');
