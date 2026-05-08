@@ -2,6 +2,9 @@ import { parseYaml } from "../utils/yaml.mjs";
 //#region src/io/parse-rccl.ts
 const RCCL_VERSION = "1.0";
 const ID_PATTERN = /^obs-[a-z0-9-]+$/;
+function isRcclVersion(value) {
+	return value === RCCL_VERSION || value === 1;
+}
 const VALID_CATEGORIES = new Set([
 	"style",
 	"architecture",
@@ -117,7 +120,7 @@ function validateCandidateRcclDocument(doc) {
 }
 function validateDocumentEnvelope(doc) {
 	const errors = [];
-	if (doc.version !== RCCL_VERSION) errors.push(`'version' must be "${RCCL_VERSION}", got "${doc.version}"`);
+	if (!isRcclVersion(doc.version)) errors.push(`'version' must be "${RCCL_VERSION}", got "${doc.version}"`);
 	if (!Array.isArray(doc.observations) || doc.observations.length === 0) errors.push("'observations' must be a non-empty array");
 	return errors;
 }

@@ -102,6 +102,58 @@ export interface ParsedCandidateRcclResult {
   errors?: string[];
 }
 
+export type RcclWorkflowStageName = 'discover' | 'critique' | 'synthesize';
+export type RcclWorkflowCritiqueDisposition = 'keep' | 'revise' | 'drop';
+
+export interface RcclWorkflowDiscoverySeed {
+  seed_id: string;
+  semantic_key: string;
+  category: RcclCategory;
+  scope_hint: string;
+  pattern: string;
+  decision_impact: string;
+  evidence: RcclEvidence[];
+  source_slice_ids: string[];
+  uncertainty?: string | null;
+}
+
+export interface RcclWorkflowDiscoveryDocument {
+  version: RcclSchemaVersion;
+  stage: 'discover';
+  generated_at: string | null;
+  scope: string;
+  seeds: RcclWorkflowDiscoverySeed[];
+}
+
+export interface RcclWorkflowCritiqueReview {
+  seed_id: string;
+  disposition: RcclWorkflowCritiqueDisposition;
+  reasons: string[];
+  issues?: string[];
+  counter_evidence?: RcclEvidence[];
+  recommended_scope_hint?: string | null;
+}
+
+export interface RcclWorkflowCritiqueDocument {
+  version: RcclSchemaVersion;
+  stage: 'critique';
+  generated_at: string | null;
+  scope: string;
+  reviews: RcclWorkflowCritiqueReview[];
+}
+
+export interface ParsedRcclWorkflowDiscoveryResult {
+  valid: boolean;
+  data?: RcclWorkflowDiscoveryDocument;
+  errors?: string[];
+}
+
+export interface ParsedRcclWorkflowCritiqueResult {
+  valid: boolean;
+  data?: RcclWorkflowCritiqueDocument;
+  errors?: string[];
+}
+
 export interface ConsolidatedObservation {
   id: string;
   semantic_key: string;
@@ -264,16 +316,34 @@ export interface VerificationPolicy {
   migration_min_evidence: number;
 }
 
+export interface RcclCalibrationStats {
+  total_files: number;
+  indexed_files: number;
+  selected_slices: number;
+  windows: number;
+}
+
 export interface PrepareRcclResult {
   prompt: string;
   metadata: {
     scope: string;
-    stats: {
-      total_files: number;
-      indexed_files: number;
-      selected_slices: number;
-      windows: number;
-    };
+    stats: RcclCalibrationStats;
+  };
+  debugArtifacts: {
+    enabled: boolean;
+    promptPath?: string;
+    reportPath?: string;
+    slicePlanPath?: string;
+  };
+}
+
+export interface PrepareRcclWorkflowStageResult {
+  stage: RcclWorkflowStageName;
+  prompt: string;
+  suggestedArtifactPath: string;
+  metadata: {
+    scope: string;
+    stats: RcclCalibrationStats;
   };
   debugArtifacts: {
     enabled: boolean;

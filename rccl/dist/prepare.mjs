@@ -2,6 +2,9 @@ import { buildRepoIndex } from "./indexing/build-repo-index.mjs";
 import { buildRepresentation } from "./represent/build-representation.mjs";
 import { planSlices } from "./slicing/plan-slices.mjs";
 import { buildSlicePrompt } from "./prompt/build-slice-prompt.mjs";
+import { buildDiscoveryPrompt } from "./prompt/build-discovery-prompt.mjs";
+import { buildCritiquePrompt } from "./prompt/build-critique-prompt.mjs";
+import { buildSynthesisPrompt } from "./prompt/build-synthesis-prompt.mjs";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import process from "node:process";
 import { createHash } from "node:crypto";
@@ -14,14 +17,49 @@ const FALSEY_FLAG_VALUES = new Set([
 	"off"
 ]);
 function prepareRccl(projectRootInput, options = {}) {
+	const context = buildPreparationContext(projectRootInput, options.scope);
+	const prompt = buildSlicePrompt({
+		scope: context.scope,
+		slices: context.slices,
+		contextMeta: context.contextMeta,
+		stats: context.stats
+	});
+	const debugArtifacts = buildDebugArtifacts(context, prompt, "calibration-prompts", options.debugArtifacts);
+	return {
+		prompt,
+		metadata: {
+			scope: context.scope,
+			stats: context.stats
+		},
+		debugArtifacts
+	};
+}
+function prepareRcclWorkflowStage(projectRootInput, options) {
+	const context = buildPreparationContext(projectRootInput, options.scope);
+	const prompt = buildWorkflowPrompt(context, options);
+	const debugArtifacts = buildDebugArtifacts(context, prompt, "rccl-workflow-prompts", options.debugArtifacts, { stage: options.stage });
+	return {
+		stage: options.stage,
+		prompt,
+		suggestedArtifactPath: suggestedWorkflowArtifactPath(context.projectRoot, options.stage, context.scope),
+		metadata: {
+			scope: context.scope,
+			stats: context.stats
+		},
+		debugArtifacts
+	};
+}
+function buildPreparationContext(projectRootInput, scopeInput) {
 	const projectRoot = resolve(projectRootInput);
-	const scope = options.scope || "auto";
+	const scope = scopeInput || "auto";
 	const indexedFiles = buildRepoIndex(projectRoot, scope);
 	const representation = buildRepresentation(indexedFiles);
 	const slices = planSlices(projectRoot, indexedFiles, representation);
 	const windows = slices.flatMap((slice) => slice.windows);
-	const prompt = buildSlicePrompt({
+	return {
+		projectRoot,
 		scope,
+		representation,
 		slices,
 		contextMeta: loadContextMeta(projectRoot),
 		stats: {
@@ -30,52 +68,74 @@ function prepareRccl(projectRootInput, options = {}) {
 			selected_slices: slices.length,
 			windows: windows.length
 		}
+	};
+}
+function buildWorkflowPrompt(context, options) {
+	if (options.stage === "discover") return buildDiscoveryPrompt({
+		scope: context.scope,
+		slices: context.slices,
+		contextMeta: context.contextMeta,
+		stats: context.stats
 	});
-	const debugArtifacts = shouldEmitDebugArtifacts(options.debugArtifacts) ? {
+	if (options.stage === "critique") {
+		if (!options.discovery) throw new Error("prepare-stage critique requires a parsed discovery artifact");
+		return buildCritiquePrompt({
+			scope: context.scope,
+			discovery: options.discovery,
+			slices: context.slices,
+			contextMeta: context.contextMeta,
+			stats: context.stats
+		});
+	}
+	if (!options.discovery) throw new Error("prepare-stage synthesize requires a parsed discovery artifact");
+	if (!options.critique) throw new Error("prepare-stage synthesize requires a parsed critique artifact");
+	return buildSynthesisPrompt({
+		scope: context.scope,
+		discovery: options.discovery,
+		critique: options.critique,
+		slices: context.slices,
+		contextMeta: context.contextMeta,
+		stats: context.stats
+	});
+}
+function buildDebugArtifacts(context, prompt, promptFolder, debugArtifacts, seed = {}) {
+	return shouldEmitDebugArtifacts(debugArtifacts) ? {
 		enabled: true,
-		promptPath: writeArtifact(projectRoot, "calibration-prompts", "md", prompt, {
-			scope,
-			promptLength: prompt.length
+		promptPath: writeArtifact(context.projectRoot, promptFolder, "md", prompt, {
+			scope: context.scope,
+			promptLength: prompt.length,
+			...seed
 		}),
-		slicePlanPath: writeArtifact(projectRoot, "rccl-slice-plans", "json", JSON.stringify({
-			scope,
-			representation,
-			slices
+		slicePlanPath: writeArtifact(context.projectRoot, "rccl-slice-plans", "json", JSON.stringify({
+			scope: context.scope,
+			representation: context.representation,
+			slices: context.slices
 		}, null, 2), {
-			scope,
-			slices: slices.length
+			scope: context.scope,
+			slices: context.slices.length,
+			...seed
 		}),
-		reportPath: writeArtifact(projectRoot, "rccl-reports", "json", JSON.stringify({
-			scope,
-			stats: {
-				total_files: indexedFiles.length,
-				indexed_files: indexedFiles.length,
-				selected_slices: slices.length,
-				windows: windows.length
-			},
-			roots: representation.roots,
-			modules: representation.modules.slice(0, 5),
-			boundaries: representation.boundaries,
-			migrations: representation.migrations,
-			style_clusters: representation.style_clusters
+		reportPath: writeArtifact(context.projectRoot, "rccl-reports", "json", JSON.stringify({
+			scope: context.scope,
+			stage: seed.stage,
+			stats: context.stats,
+			roots: context.representation.roots,
+			modules: context.representation.modules.slice(0, 5),
+			boundaries: context.representation.boundaries,
+			migrations: context.representation.migrations,
+			style_clusters: context.representation.style_clusters
 		}, null, 2), {
-			scope,
-			report: "summary"
+			scope: context.scope,
+			report: "summary",
+			...seed
 		})
 	} : { enabled: false };
-	return {
-		prompt,
-		metadata: {
-			scope,
-			stats: {
-				total_files: indexedFiles.length,
-				indexed_files: indexedFiles.length,
-				selected_slices: slices.length,
-				windows: windows.length
-			}
-		},
-		debugArtifacts
-	};
+}
+function suggestedWorkflowArtifactPath(projectRoot, stage, scope) {
+	return join(projectRoot, ".resonant-code", "context", "rccl-workflow", `${stage}-${createHash("sha1").update(JSON.stringify({
+		stage,
+		scope
+	})).digest("hex").slice(0, 10)}.yaml`);
 }
 function shouldEmitDebugArtifacts(explicit) {
 	if (explicit !== void 0) return explicit;
@@ -98,4 +158,4 @@ function loadContextMeta(projectRoot) {
 	}
 }
 //#endregion
-export { prepareRccl };
+export { prepareRccl, prepareRcclWorkflowStage };

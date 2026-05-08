@@ -1,6 +1,6 @@
 ---
 name: calibrate-repo-context
-description: "Generate RCCL (Repository Context Calibration Layer) by sampling local code, extracting observation signals, and writing back statically verified calibration data."
+description: "Generate RCCL (Repository Context Calibration Layer) through a staged agent workflow, then write back statically verified calibration data."
 metadata:
   version: "0.2.0"
   author: "Sovea"
@@ -13,80 +13,144 @@ Generate `.resonant-code/rccl.yaml` for the current repository.
 RCCL is not a repo wiki or full codebase summary. It is a compact set of observational
 signals that materially affect code generation, modification, and review quality.
 
-This skill now has a verify gate:
-- The LLM generates candidate observations with evidence.
-- The runtime statically verifies that evidence against the repository.
-- Verification results are written back into each observation's `verification` block.
-- Failed or unverifiable observations are demoted instead of being trusted blindly.
+This skill uses a multi-stage host-agent workflow:
+
+1. Discover candidate signals from sampled repository slices.
+2. Critique those signals for weak evidence, overgeneralization, duplication, and counterexamples.
+3. Synthesize reviewed signals into candidate RCCL YAML.
+4. Commit through deterministic parsing, consolidation, evidence verification, induction verification, and final emission.
+
+The agent performs semantic judgment in the staged artifacts. The script owns schemas, artifact validation, and the final trust boundary.
 
 ## Instructions
 
-### Step 1 - Prepare context samples
+### Step 1 - Prepare discovery stage
 
 ```sh
-node <this-skill-directory>/scripts/calibrate-repo-context.mjs prepare <project-root> [--scope <glob>]
+node <this-skill-directory>/scripts/calibrate-repo-context.mjs prepare-stage <project-root> --stage discover [--scope <glob>]
 ```
 
 Where:
 - `<project-root>` is the repository to calibrate, usually `.`
 - `--scope` optionally narrows analysis, default `auto`
 
-The prepare phase builds a repository index, structural slice plan, and deterministic code windows, then returns the prompt inline by default.
-It only emits calibration debug artifacts under `.resonant-code/context/` when you pass `--debug-artifacts` or set `RESONANT_CODE_DEBUG_ARTIFACTS=1`.
+The script prints JSON with an inline `prompt`, `suggestedArtifactPath`, metadata, and optional debug artifact paths.
+Use the prompt as your own input and write the discovery YAML to `suggestedArtifactPath` or another file.
 
-The script prints JSON:
+Discovery artifacts must use:
 
-```json
-{
-  "prompt": "<inline prompt text>",
-  "metadata": {
-    "scope": "auto",
-    "stats": {
-      "total_files": 120,
-      "indexed_files": 120,
-      "selected_slices": 6,
-      "windows": 18
-    }
-  },
-  "debugArtifacts": {
-    "enabled": false
-  }
-}
+```yaml
+version: "1.0"
+stage: discover
+generated_at: <auto-filled-or-null>
+scope: "<scope>"
+seeds:
+  - seed_id: "obs-<kebab-case-name>"
+    semantic_key: "<stable-kebab-case-semantic-identity>"
+    category: <category>
+    scope_hint: "<glob>"
+    pattern: "<observed-pattern>"
+    decision_impact: "<why-this-affects-code-decisions>"
+    evidence:
+      - file: "<relative-path>"
+        line_range: [<start>, <end>]
+        snippet: "<code>"
+    source_slice_ids: ["<slice-id>"]
+    uncertainty: "<optional-limit-or-null>"
 ```
 
-Exit `0`: preparation succeeded.
-Exit `1`: report stderr and stop.
+### Step 2 - Prepare critique stage
 
-### Step 2 - Generate RCCL observations
+```sh
+node <this-skill-directory>/scripts/calibrate-repo-context.mjs prepare-stage <project-root> --stage critique --discovery <path-to-discovery-yaml> [--scope <glob>]
+```
 
-Use the returned inline `prompt` as your own input and write the generated RCCL YAML to a file. If you explicitly enabled debug artifacts, you may also inspect the saved prompt file.
+The script validates the discovery artifact before returning a critique prompt.
+Use the prompt as your own input and write the critique YAML to the returned `suggestedArtifactPath` or another file.
 
-Critical constraints:
-- Every observation must include real `evidence`
-- `verification` must be present and all its fields must be `null`
-- `support` must be present and describe evidence provenance conservatively
-- `id` must match `/^obs-[a-z0-9-]+$/`
-- `semantic_key` is required and must be a stable kebab-case semantic identity
-- `confidence` must be between `0` and `1`
-- `adherence_quality` must be `good`, `inconsistent`, or `poor`
-- `category` must be one of `style`, `architecture`, `pattern`, `constraint`, `legacy`, `anti-pattern`, `migration`
-- `pattern` should stay human-readable; identity stability comes from `semantic_key`
+Critique artifacts must use:
 
-### Step 3 - Validate, verify, and commit
+```yaml
+version: "1.0"
+stage: critique
+generated_at: <auto-filled-or-null>
+scope: "<scope>"
+reviews:
+  - seed_id: "obs-<seed-id-from-discovery>"
+    disposition: <keep|revise|drop>
+    reasons:
+      - "<reason>"
+    issues:
+      - "<optional-issue>"
+    counter_evidence:
+      - file: "<relative-path>"
+        line_range: [<start>, <end>]
+        snippet: "<code>"
+    recommended_scope_hint: "<optional-narrower-scope-or-null>"
+```
+
+Review every discovery seed exactly once.
+Use `drop` for weak, redundant, summary-like, or non-decision-impacting seeds.
+Use `revise` when the signal is useful but needs narrower scope, clearer wording, or better evidence.
+
+### Step 3 - Prepare synthesis stage
+
+```sh
+node <this-skill-directory>/scripts/calibrate-repo-context.mjs prepare-stage <project-root> --stage synthesize --discovery <path-to-discovery-yaml> --critique <path-to-critique-yaml> [--scope <glob>]
+```
+
+The script validates both staged artifacts before returning a synthesis prompt.
+Use the prompt as your own input and write candidate RCCL YAML to a file.
+
+Candidate RCCL must use:
+
+```yaml
+version: "1.0"
+generated_at: <auto-filled-or-null>
+git_ref: <auto-filled-or-null>
+observations:
+  - provisional_id: "obs-<kebab-case-name>"
+    semantic_key: "<stable-kebab-case-semantic-identity>"
+    category: <category>
+    scope_hint: "<glob>"
+    pattern: "<human-readable-description>"
+    confidence: <0.0-1.0>
+    adherence_quality: <good|inconsistent|poor>
+    evidence:
+      - file: "<relative-path>"
+        line_range: [<start>, <end>]
+        snippet: "<code>"
+    source_slice_ids: ["<slice-id>"]
+    support_hint:
+      file_count: <number-or-null>
+      cluster_count: <number-or-null>
+      scope_basis: <single-file|directory-cluster|module-cluster|cross-root|null>
+```
+
+Critical candidate constraints:
+- Every observation must include real `evidence` copied from provided windows.
+- Use `provisional_id`, not final `id`.
+- Use `scope_hint`, not final `scope`.
+- Use `source_slice_ids` and optional `support_hint`, not final `support`.
+- Do not include `verification` or `lifecycle`.
+- `semantic_key` is required and must be stable kebab-case semantic identity.
+- `confidence` must be between `0` and `1`.
+- `adherence_quality` must be `good`, `inconsistent`, or `poor`.
+- `category` must be one of `style`, `architecture`, `pattern`, `constraint`, `legacy`, `anti-pattern`, `migration`.
+- Prefer fewer, stronger observations; omit weak or unverifiable signals.
+
+### Step 4 - Validate, verify, and commit
 
 ```sh
 node <this-skill-directory>/scripts/calibrate-repo-context.mjs commit <project-root> --input <path-to-yaml-file|-> [--debug-artifacts]
 ```
 
-Where:
-- `<path-to-yaml-file>` contains the YAML generated in Step 2
-
 The commit phase performs five things:
-1. Parse generated YAML into candidate observations
-2. Deterministically consolidate candidates into final observations
-3. Static evidence verification against the repository
-4. Induction verification for scope/support quality
-5. Write the current verified calibration result authoritatively to `.resonant-code/rccl.yaml`
+1. Parse generated YAML into candidate observations.
+2. Deterministically consolidate candidates into final observations.
+3. Static evidence verification against the repository.
+4. Induction verification for scope/support quality.
+5. Write the current verified calibration result authoritatively to `.resonant-code/rccl.yaml`.
 
 It only emits commit-time debug artifacts under `.resonant-code/context/` for candidates and consolidation output when you pass `--debug-artifacts` or set `RESONANT_CODE_DEBUG_ARTIFACTS=1`.
 When observations are demoted or kept with reduced confidence, stderr includes a compact verification summary so you can tune candidate quality instead of guessing.
@@ -113,9 +177,6 @@ Exit `0`: committed successfully. Parse stdout JSON:
 }
 ```
 
-Use `verification_summary` and, when debug artifacts are enabled, the consolidation artifact to understand why observations were reduced or demoted.
-When using `--input -`, pass the YAML candidate on stdin.
-
 Print a confirmation:
 
 ```text
@@ -127,3 +188,13 @@ Preserved: <stats.preserved> observations
 ```
 
 Exit `1`: validation failed. Report structured errors from stderr and do not write the file manually.
+
+## Legacy one-shot mode
+
+For quick compatibility checks, the old one-shot prepare command remains available:
+
+```sh
+node <this-skill-directory>/scripts/calibrate-repo-context.mjs prepare <project-root> [--scope <glob>]
+```
+
+Prefer the staged workflow for real calibration because it separates semantic discovery, critique, and synthesis before the deterministic commit boundary.

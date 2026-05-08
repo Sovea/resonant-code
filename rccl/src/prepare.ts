@@ -6,66 +6,159 @@ import { buildRepoIndex } from './indexing/build-repo-index.ts';
 import { buildRepresentation } from './represent/build-representation.ts';
 import { planSlices } from './slicing/plan-slices.ts';
 import { buildSlicePrompt } from './prompt/build-slice-prompt.ts';
-import type { PrepareRcclResult } from './types.ts';
+import { buildDiscoveryPrompt } from './prompt/build-discovery-prompt.ts';
+import { buildCritiquePrompt } from './prompt/build-critique-prompt.ts';
+import { buildSynthesisPrompt } from './prompt/build-synthesis-prompt.ts';
+import type {
+  CalibrationSlice,
+  PrepareRcclResult,
+  PrepareRcclWorkflowStageResult,
+  RcclCalibrationStats,
+  RcclWorkflowCritiqueDocument,
+  RcclWorkflowDiscoveryDocument,
+  RcclWorkflowStageName,
+  RepoRepresentation,
+} from './types.ts';
 
 const FALSEY_FLAG_VALUES = new Set(['0', 'false', 'no', 'off']);
 
+interface PreparationContext {
+  projectRoot: string;
+  scope: string;
+  representation: RepoRepresentation;
+  slices: CalibrationSlice[];
+  contextMeta: { raw: string } | null;
+  stats: RcclCalibrationStats;
+}
+
 export function prepareRccl(projectRootInput: string, options: { scope?: string; debugArtifacts?: boolean } = {}): PrepareRcclResult {
+  const context = buildPreparationContext(projectRootInput, options.scope);
+  const prompt = buildSlicePrompt({
+    scope: context.scope,
+    slices: context.slices,
+    contextMeta: context.contextMeta,
+    stats: context.stats,
+  });
+
+  const debugArtifacts = buildDebugArtifacts(context, prompt, 'calibration-prompts', options.debugArtifacts);
+
+  return {
+    prompt,
+    metadata: {
+      scope: context.scope,
+      stats: context.stats,
+    },
+    debugArtifacts,
+  };
+}
+
+export function prepareRcclWorkflowStage(projectRootInput: string, options: {
+  stage: RcclWorkflowStageName;
+  scope?: string;
+  discovery?: RcclWorkflowDiscoveryDocument;
+  critique?: RcclWorkflowCritiqueDocument;
+  debugArtifacts?: boolean;
+}): PrepareRcclWorkflowStageResult {
+  const context = buildPreparationContext(projectRootInput, options.scope);
+  const prompt = buildWorkflowPrompt(context, options);
+  const debugArtifacts = buildDebugArtifacts(context, prompt, 'rccl-workflow-prompts', options.debugArtifacts, { stage: options.stage });
+
+  return {
+    stage: options.stage,
+    prompt,
+    suggestedArtifactPath: suggestedWorkflowArtifactPath(context.projectRoot, options.stage, context.scope),
+    metadata: {
+      scope: context.scope,
+      stats: context.stats,
+    },
+    debugArtifacts,
+  };
+}
+
+function buildPreparationContext(projectRootInput: string, scopeInput?: string): PreparationContext {
   const projectRoot = resolve(projectRootInput);
-  const scope = options.scope || 'auto';
+  const scope = scopeInput || 'auto';
   const indexedFiles = buildRepoIndex(projectRoot, scope);
   const representation = buildRepresentation(indexedFiles);
   const slices = planSlices(projectRoot, indexedFiles, representation);
   const windows = slices.flatMap((slice) => slice.windows);
   const contextMeta = loadContextMeta(projectRoot);
-  const prompt = buildSlicePrompt({
-    scope,
-    slices,
-    contextMeta,
-    stats: {
-      total_files: indexedFiles.length,
-      indexed_files: indexedFiles.length,
-      selected_slices: slices.length,
-      windows: windows.length,
-    },
-  });
+  const stats = {
+    total_files: indexedFiles.length,
+    indexed_files: indexedFiles.length,
+    selected_slices: slices.length,
+    windows: windows.length,
+  };
+  return { projectRoot, scope, representation, slices, contextMeta, stats };
+}
 
-  const debugArtifactsEnabled = shouldEmitDebugArtifacts(options.debugArtifacts);
-  const debugArtifacts = debugArtifactsEnabled
+function buildWorkflowPrompt(context: PreparationContext, options: {
+  stage: RcclWorkflowStageName;
+  discovery?: RcclWorkflowDiscoveryDocument;
+  critique?: RcclWorkflowCritiqueDocument;
+}): string {
+  if (options.stage === 'discover') {
+    return buildDiscoveryPrompt({
+      scope: context.scope,
+      slices: context.slices,
+      contextMeta: context.contextMeta,
+      stats: context.stats,
+    });
+  }
+
+  if (options.stage === 'critique') {
+    if (!options.discovery) throw new Error('prepare-stage critique requires a parsed discovery artifact');
+    return buildCritiquePrompt({
+      scope: context.scope,
+      discovery: options.discovery,
+      slices: context.slices,
+      contextMeta: context.contextMeta,
+      stats: context.stats,
+    });
+  }
+
+  if (!options.discovery) throw new Error('prepare-stage synthesize requires a parsed discovery artifact');
+  if (!options.critique) throw new Error('prepare-stage synthesize requires a parsed critique artifact');
+  return buildSynthesisPrompt({
+    scope: context.scope,
+    discovery: options.discovery,
+    critique: options.critique,
+    slices: context.slices,
+    contextMeta: context.contextMeta,
+    stats: context.stats,
+  });
+}
+
+function buildDebugArtifacts(
+  context: PreparationContext,
+  prompt: string,
+  promptFolder: string,
+  debugArtifacts?: boolean,
+  seed: Record<string, unknown> = {},
+): PrepareRcclResult['debugArtifacts'] {
+  const debugArtifactsEnabled = shouldEmitDebugArtifacts(debugArtifacts);
+  return debugArtifactsEnabled
     ? {
       enabled: true,
-      promptPath: writeArtifact(projectRoot, 'calibration-prompts', 'md', prompt, { scope, promptLength: prompt.length }),
-      slicePlanPath: writeArtifact(projectRoot, 'rccl-slice-plans', 'json', JSON.stringify({ scope, representation, slices }, null, 2), { scope, slices: slices.length }),
-      reportPath: writeArtifact(projectRoot, 'rccl-reports', 'json', JSON.stringify({
-        scope,
-        stats: {
-          total_files: indexedFiles.length,
-          indexed_files: indexedFiles.length,
-          selected_slices: slices.length,
-          windows: windows.length,
-        },
-        roots: representation.roots,
-        modules: representation.modules.slice(0, 5),
-        boundaries: representation.boundaries,
-        migrations: representation.migrations,
-        style_clusters: representation.style_clusters,
-      }, null, 2), { scope, report: 'summary' }),
+      promptPath: writeArtifact(context.projectRoot, promptFolder, 'md', prompt, { scope: context.scope, promptLength: prompt.length, ...seed }),
+      slicePlanPath: writeArtifact(context.projectRoot, 'rccl-slice-plans', 'json', JSON.stringify({ scope: context.scope, representation: context.representation, slices: context.slices }, null, 2), { scope: context.scope, slices: context.slices.length, ...seed }),
+      reportPath: writeArtifact(context.projectRoot, 'rccl-reports', 'json', JSON.stringify({
+        scope: context.scope,
+        stage: seed.stage,
+        stats: context.stats,
+        roots: context.representation.roots,
+        modules: context.representation.modules.slice(0, 5),
+        boundaries: context.representation.boundaries,
+        migrations: context.representation.migrations,
+        style_clusters: context.representation.style_clusters,
+      }, null, 2), { scope: context.scope, report: 'summary', ...seed }),
     }
     : { enabled: false };
+}
 
-  return {
-    prompt,
-    metadata: {
-      scope,
-      stats: {
-        total_files: indexedFiles.length,
-        indexed_files: indexedFiles.length,
-        selected_slices: slices.length,
-        windows: windows.length,
-      },
-    },
-    debugArtifacts,
-  };
+function suggestedWorkflowArtifactPath(projectRoot: string, stage: RcclWorkflowStageName, scope: string): string {
+  const digest = createHash('sha1').update(JSON.stringify({ stage, scope })).digest('hex').slice(0, 10);
+  return join(projectRoot, '.resonant-code', 'context', 'rccl-workflow', `${stage}-${digest}.yaml`);
 }
 
 function shouldEmitDebugArtifacts(explicit?: boolean): boolean {

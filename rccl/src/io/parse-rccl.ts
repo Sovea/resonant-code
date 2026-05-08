@@ -15,6 +15,10 @@ import { parseYaml } from '../utils/yaml.ts';
 
 const RCCL_VERSION: RcclSchemaVersion = '1.0';
 const ID_PATTERN = /^obs-[a-z0-9-]+$/;
+
+function isRcclVersion(value: unknown): boolean {
+  return value === RCCL_VERSION || value === 1;
+}
 const VALID_CATEGORIES = new Set(['style', 'architecture', 'pattern', 'constraint', 'legacy', 'anti-pattern', 'migration']);
 const VALID_ADHERENCE = new Set(['good', 'inconsistent', 'poor']);
 const VALID_SCOPE_BASES = new Set(['single-file', 'directory-cluster', 'module-cluster', 'cross-root']);
@@ -91,7 +95,7 @@ function validateCandidateRcclDocument(doc: Record<string, unknown>): string[] {
 
 function validateDocumentEnvelope(doc: Record<string, unknown>): string[] {
   const errors: string[] = [];
-  if (doc.version !== RCCL_VERSION) errors.push(`'version' must be "${RCCL_VERSION}", got "${doc.version}"`);
+  if (!isRcclVersion(doc.version)) errors.push(`'version' must be "${RCCL_VERSION}", got "${doc.version}"`);
   if (!Array.isArray(doc.observations) || doc.observations.length === 0) {
     errors.push("'observations' must be a non-empty array");
   }

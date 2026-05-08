@@ -1,5 +1,6 @@
-export { prepareRccl } from './prepare.ts';
+export { prepareRccl, prepareRcclWorkflowStage } from './prepare.ts';
 export { parseRccl, parseRcclCandidates, normalizeObservation, normalizeDocument } from './io/parse-rccl.ts';
+export { parseRcclDiscoveryArtifact, parseRcclCritiqueArtifact } from './io/parse-rccl-workflow.ts';
 export { emitRccl, serializeRccl, writeCandidateArtifact, writeConsolidationArtifact } from './io/emit-rccl.ts';
 export { consolidateObservations, materializeRcclObservations } from './consolidate/consolidate-observations.ts';
 export { deriveSupport, deriveScope } from './consolidate/derive-support.ts';
@@ -22,6 +23,13 @@ export type {
   CandidateSupportHint,
   CandidateObservation,
   CandidateRcclDocument,
+  RcclWorkflowStageName,
+  RcclWorkflowDiscoverySeed,
+  RcclWorkflowDiscoveryDocument,
+  RcclWorkflowCritiqueReview,
+  RcclWorkflowCritiqueDocument,
+  ParsedRcclWorkflowDiscoveryResult,
+  ParsedRcclWorkflowCritiqueResult,
   ConsolidatedObservation,
   ConsolidationGroupReport,
   ConsolidationResult,
@@ -33,6 +41,7 @@ export type {
   CalibrationSlice,
   CalibrationWindow,
   PrepareRcclResult,
+  PrepareRcclWorkflowStageResult,
   SamplingPolicy,
   VerificationPolicy,
 } from './types.ts';

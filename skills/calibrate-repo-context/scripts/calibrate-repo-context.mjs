@@ -44,6 +44,31 @@ async function runPrepare(options = {}) {
   process.exit(0);
 }
 
+async function runPrepareStage(options = {}) {
+  if (!options.stage) {
+    process.stderr.write('? Missing --stage argument for prepare-stage.\n');
+    process.exit(1);
+  }
+  if (!['discover', 'critique', 'synthesize'].includes(options.stage)) {
+    process.stderr.write('? --stage must be one of discover, critique, synthesize.\n');
+    process.exit(1);
+  }
+
+  const rccl = await loadRccl();
+  const discovery = options.discovery ? readAndParseDiscovery(rccl, options.discovery) : undefined;
+  const critique = options.critique ? readAndParseCritique(rccl, options.critique) : undefined;
+
+  const result = rccl.prepareRcclWorkflowStage(projectRoot, {
+    stage: options.stage,
+    scope: options.scope,
+    discovery,
+    critique,
+    debugArtifacts: shouldEmitDebugArtifacts(options.debugArtifacts),
+  });
+  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  process.exit(0);
+}
+
 async function runCommit(options = {}) {
   if (!options.input) {
     process.stderr.write('? Missing --input argument for commit phase.\n');
@@ -107,11 +132,48 @@ async function runCommit(options = {}) {
   process.exit(0);
 }
 
+function readAndParseDiscovery(rccl, filePath) {
+  let yamlText;
+  try {
+    yamlText = readInputText(filePath);
+  } catch (err) {
+    process.stderr.write(`? Failed to read discovery artifact: ${err.message}\n`);
+    process.exit(1);
+  }
+  const parsed = rccl.parseRcclDiscoveryArtifact(yamlText);
+  if (!parsed.valid) {
+    process.stderr.write('? Validation failed for RCCL discovery artifact:\n');
+    for (const err of parsed.errors ?? []) process.stderr.write(`  - ${err}\n`);
+    process.exit(1);
+  }
+  return parsed.data;
+}
+
+function readAndParseCritique(rccl, filePath) {
+  let yamlText;
+  try {
+    yamlText = readInputText(filePath);
+  } catch (err) {
+    process.stderr.write(`? Failed to read critique artifact: ${err.message}\n`);
+    process.exit(1);
+  }
+  const parsed = rccl.parseRcclCritiqueArtifact(yamlText);
+  if (!parsed.valid) {
+    process.stderr.write('? Validation failed for RCCL critique artifact:\n');
+    for (const err of parsed.errors ?? []) process.stderr.write(`  - ${err}\n`);
+    process.exit(1);
+  }
+  return parsed.data;
+}
+
 function parseArgs(argsArray) {
   const opts = {};
   for (let i = 0; i < argsArray.length; i += 1) {
     if (argsArray[i] === '--scope') opts.scope = argsArray[++i];
     else if (argsArray[i] === '--input') opts.input = argsArray[++i];
+    else if (argsArray[i] === '--stage') opts.stage = argsArray[++i];
+    else if (argsArray[i] === '--discovery') opts.discovery = argsArray[++i];
+    else if (argsArray[i] === '--critique') opts.critique = argsArray[++i];
     else if (argsArray[i] === '--debug-artifacts') {
       const next = argsArray[i + 1];
       if (!next || next.startsWith('--')) opts.debugArtifacts = true;
@@ -124,9 +186,23 @@ function parseArgs(argsArray) {
   return opts;
 }
 
+function printUsage() {
+  process.stderr.write('Usage: calibrate-repo-context.mjs <prepare|prepare-stage|commit> <project-root> [opts...]\n');
+  process.stderr.write('  prepare <project-root> [--scope <glob>] [--debug-artifacts[=<bool>]]\n');
+  process.stderr.write('  prepare-stage <project-root> --stage discover [--scope <glob>] [--debug-artifacts[=<bool>]]\n');
+  process.stderr.write('  prepare-stage <project-root> --stage critique --discovery <path> [--scope <glob>] [--debug-artifacts[=<bool>]]\n');
+  process.stderr.write('  prepare-stage <project-root> --stage synthesize --discovery <path> --critique <path> [--scope <glob>] [--debug-artifacts[=<bool>]]\n');
+  process.stderr.write('  commit <project-root> --input <path-to-yaml|-> [--debug-artifacts[=<bool>]]\n');
+}
+
 const opts = parseArgs(args);
 if (command === 'prepare') {
   runPrepare(opts).catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+} else if (command === 'prepare-stage') {
+  runPrepareStage(opts).catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
   });
@@ -136,8 +212,6 @@ if (command === 'prepare') {
     process.exit(1);
   });
 } else {
-  process.stderr.write('Usage: calibrate-repo-context.mjs <prepare|commit> <project-root> [opts...]\n');
-  process.stderr.write('  prepare <project-root> [--scope <glob>] [--debug-artifacts[=<bool>]]\n');
-  process.stderr.write('  commit <project-root> --input <path-to-yaml|-> [--debug-artifacts[=<bool>]]\n');
+  printUsage();
   process.exit(1);
 }
