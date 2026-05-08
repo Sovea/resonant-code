@@ -5,7 +5,9 @@ import type {
   ParsedRcclResult,
   RcclDocument,
   RcclEvidence,
+  RcclLifecycle,
   RcclObservation,
+  RcclSchemaVersion,
   RcclSupport,
   RcclVerification,
 } from '../types.ts';
@@ -19,59 +21,46 @@ const REQUIRED_VERIFICATION_FIELDS = ['evidence_status', 'evidence_verified_coun
 
 export function parseRccl(yamlText: string, options: { allowVerifiedFields?: boolean } = {}): ParsedRcclResult {
   const allowVerifiedFields = options.allowVerifiedFields === true;
-  const parsed = parseRcclCandidates(yamlText, options);
-  if (!parsed.valid || !parsed.data) return { valid: false, errors: parsed.errors };
+  const parsed = parseRawRcclDocument(yamlText);
+  if (!parsed.valid || !parsed.doc) return { valid: false, errors: parsed.errors };
 
-  const observations = parsed.data.observations.map((candidate, index) =>
-    normalizeObservation({
-      id: normalizeObservationId(candidate.provisional_id, candidate.semantic_key, candidate.category, index),
-      semantic_key: candidate.semantic_key,
-      category: candidate.category,
-      scope: normalizeScope(candidate.scope_hint),
-      pattern: candidate.pattern,
-      confidence: candidate.confidence,
-      adherence_quality: candidate.adherence_quality,
-      evidence: candidate.evidence,
-      support: {
-        source_slices: candidate.source_slice_ids,
-        file_count: candidate.support_hint?.file_count,
-        cluster_count: candidate.support_hint?.cluster_count,
-        scope_basis: candidate.support_hint?.scope_basis,
-      },
-      verification: emptyVerification(),
-    }),
-  );
+  const errors = validateRcclDocument(parsed.doc, allowVerifiedFields);
+  if (errors.length > 0) return { valid: false, errors };
 
-  return {
-    valid: true,
-    data: {
-      version: parsed.data.version,
-      generated_at: parsed.data.generated_at,
-      git_ref: parsed.data.git_ref,
-      observations,
-    },
-  };
+  return { valid: true, data: normalizeDocument(parsed.doc) };
 }
 
 export function parseRcclCandidates(yamlText: string, options: { allowVerifiedFields?: boolean } = {}): ParsedCandidateRcclResult {
   const allowVerifiedFields = options.allowVerifiedFields === true;
+  const parsed = parseRawRcclDocument(yamlText);
+  if (!parsed.valid || !parsed.doc) return { valid: false, errors: parsed.errors };
+
+  const errors = validateRcclDocument(parsed.doc, allowVerifiedFields);
+  if (errors.length > 0) return { valid: false, errors };
+  return { valid: true, data: normalizeCandidateDocument(parsed.doc) };
+}
+
+function parseRawRcclDocument(yamlText: string): { valid: true; doc: Record<string, unknown> } | { valid: false; errors: string[]; doc?: never } {
   let cleaned = yamlText.trim();
   if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:yaml|yml)?\s*\n?/, '').replace(/\n?```\s*$/, '');
 
-  let doc: any;
+  let doc: unknown;
   try {
     doc = parseYaml(cleaned);
   } catch (err) {
     return { valid: false, errors: [`YAML parse error: ${err instanceof Error ? err.message : String(err)}`] };
   }
 
-  if (!doc || typeof doc !== 'object') return { valid: false, errors: ['Document must be a YAML object'] };
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return { valid: false, errors: ['Document must be a YAML object'] };
+  return { valid: true, doc: doc as Record<string, unknown> };
+}
 
+function validateRcclDocument(doc: Record<string, unknown>, allowVerifiedFields: boolean): string[] {
   const errors: string[] = [];
-  if (doc.version !== '1.0' && doc.version !== 1) errors.push(`'version' must be "1.0", got "${doc.version}"`);
+  if (!isSupportedRcclVersion(doc.version)) errors.push(`'version' must be "1.0" or "2.0", got "${doc.version}"`);
   if (!Array.isArray(doc.observations) || doc.observations.length === 0) {
     errors.push("'observations' must be a non-empty array");
-    return { valid: false, errors };
+    return errors;
   }
 
   const ids = new Set<string>();
@@ -84,9 +73,7 @@ export function parseRcclCandidates(yamlText: string, options: { allowVerifiedFi
     }
     errors.push(...validateObservation(obs, i, allowVerifiedFields));
   }
-
-  if (errors.length > 0) return { valid: false, errors };
-  return { valid: true, data: normalizeCandidateDocument(doc as Record<string, unknown>) };
+  return errors;
 }
 
 function validateObservation(obs: Record<string, unknown>, index: number, allowVerifiedFields: boolean): string[] {
@@ -150,6 +137,32 @@ function validateObservation(obs: Record<string, unknown>, index: number, allowV
     }
   }
 
+  errors.push(...validateLifecycle(obs.lifecycle as Record<string, unknown> | undefined, prefix));
+
+  return errors;
+}
+
+function validateLifecycle(lifecycle: Record<string, unknown> | undefined, prefix: string): string[] {
+  if (lifecycle == null) return [];
+  const errors: string[] = [];
+  if (lifecycle.status != null && lifecycle.status !== 'active' && lifecycle.status !== 'stale' && lifecycle.status !== 'superseded') {
+    errors.push(`${prefix}.lifecycle.status: invalid value`);
+  }
+  if (lifecycle.content_fingerprint != null && typeof lifecycle.content_fingerprint !== 'string') {
+    errors.push(`${prefix}.lifecycle.content_fingerprint: must be a string`);
+  }
+  if (lifecycle.supersedes != null) {
+    if (!Array.isArray(lifecycle.supersedes)) {
+      errors.push(`${prefix}.lifecycle.supersedes: must be an array`);
+    } else {
+      for (const id of lifecycle.supersedes) {
+        if (typeof id !== 'string' || !ID_PATTERN.test(id)) errors.push(`${prefix}.lifecycle.supersedes: contains invalid observation id`);
+      }
+    }
+  }
+  if (lifecycle.superseded_by != null && (typeof lifecycle.superseded_by !== 'string' || !ID_PATTERN.test(lifecycle.superseded_by))) {
+    errors.push(`${prefix}.lifecycle.superseded_by: must be a valid observation id`);
+  }
   return errors;
 }
 
@@ -176,7 +189,7 @@ function validateEvidenceSnippet(snippet: unknown, prefix: string, index: number
 
 function normalizeCandidateDocument(input: Record<string, unknown>): CandidateRcclDocument {
   return {
-    version: '1.0',
+    version: normalizeRcclVersion(input.version),
     generated_at: typeof input.generated_at === 'string' ? input.generated_at : null,
     git_ref: typeof input.git_ref === 'string' ? input.git_ref : null,
     observations: Array.isArray(input.observations) ? input.observations.map(normalizeCandidateObservation) : [],
@@ -214,7 +227,7 @@ function normalizeCandidateObservation(input: unknown): CandidateObservation {
 
 function normalizeDocument(input: Record<string, unknown>): RcclDocument {
   return {
-    version: '1.0',
+    version: normalizeRcclVersion(input.version),
     generated_at: typeof input.generated_at === 'string' ? input.generated_at : null,
     git_ref: typeof input.git_ref === 'string' ? input.git_ref : null,
     observations: Array.isArray(input.observations) ? input.observations.map(normalizeObservation) : [],
@@ -236,6 +249,7 @@ export function normalizeObservation(input: unknown): RcclObservation {
     evidence: Array.isArray(item.evidence) ? item.evidence.map(normalizeEvidence) : [],
     support,
     verification,
+    lifecycle: normalizeLifecycle(item.lifecycle as Record<string, unknown> | undefined),
   };
 }
 
@@ -300,6 +314,30 @@ function normalizeVerification(input: Record<string, unknown> | undefined): Rccl
     checked_at: typeof verification.checked_at === 'string' ? verification.checked_at : null,
     disposition: (verification.disposition ?? null) as RcclVerification['disposition'],
   };
+}
+
+function normalizeLifecycle(input: Record<string, unknown> | undefined): RcclLifecycle | undefined {
+  if (!input) return undefined;
+  const status = input.status === 'stale' || input.status === 'superseded' ? input.status : 'active';
+  return {
+    first_seen_git_ref: typeof input.first_seen_git_ref === 'string' ? input.first_seen_git_ref : null,
+    last_seen_git_ref: typeof input.last_seen_git_ref === 'string' ? input.last_seen_git_ref : null,
+    last_verified_at: typeof input.last_verified_at === 'string' ? input.last_verified_at : null,
+    content_fingerprint: typeof input.content_fingerprint === 'string' ? input.content_fingerprint : '',
+    status,
+    supersedes: Array.isArray(input.supersedes) ? input.supersedes.map(String).sort() : undefined,
+    superseded_by: typeof input.superseded_by === 'string' ? input.superseded_by : undefined,
+    stale_since_git_ref: typeof input.stale_since_git_ref === 'string' ? input.stale_since_git_ref : null,
+    superseded_at_git_ref: typeof input.superseded_at_git_ref === 'string' ? input.superseded_at_git_ref : null,
+  };
+}
+
+function isSupportedRcclVersion(value: unknown): boolean {
+  return value === '1.0' || value === 1 || value === '2.0' || value === 2;
+}
+
+function normalizeRcclVersion(value: unknown): RcclSchemaVersion {
+  return value === '2.0' || value === 2 ? '2.0' : '1.0';
 }
 
 function normalizeScopeBasis(value: string): RcclSupport['scope_basis'] {

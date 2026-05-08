@@ -10,6 +10,7 @@ export function observationsToIR(observations: RcclObservation[], rcclPath?: str
       kind: 'rccl',
       id: observation.id,
       path: rcclPath,
+      fingerprint: observation.lifecycle?.content_fingerprint,
     },
     category: observation.category,
     scope: { path: observation.scope },
@@ -33,6 +34,15 @@ export function observationsToIR(observations: RcclObservation[], rcclPath?: str
       inductionConfidence: observation.verification.induction_confidence ?? 0,
       checkedAt: observation.verification.checked_at,
       disposition: observation.verification.disposition ?? 'demote-to-ambient',
+    },
+    lifecycle: {
+      firstSeenGitRef: observation.lifecycle?.first_seen_git_ref ?? null,
+      lastSeenGitRef: observation.lifecycle?.last_seen_git_ref ?? null,
+      lastVerifiedAt: observation.lifecycle?.last_verified_at ?? null,
+      contentFingerprint: observation.lifecycle?.content_fingerprint ?? null,
+      status: observation.lifecycle?.status ?? 'unknown',
+      supersedes: observation.lifecycle?.supersedes ?? [],
+      supersededBy: observation.lifecycle?.superseded_by ?? null,
     },
     traits: buildTraits(observation),
   }));

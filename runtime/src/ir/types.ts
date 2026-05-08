@@ -7,6 +7,7 @@ import type {
   Operation,
   Prescription,
   RcclEvidence,
+  RcclLifecycleStatus,
   RcclObservation,
   ScopeBasis,
   TaskKind,
@@ -22,6 +23,7 @@ export interface SourceRefIR {
   id: string;
   path?: string;
   version?: string;
+  fingerprint?: string;
 }
 
 export interface SourceManifestIR {
@@ -31,6 +33,7 @@ export interface SourceManifestIR {
   rcclPath?: string;
   lockfilePath?: string;
   projectRoot: string;
+  sources: SourceRefIR[];
 }
 
 export interface IRFingerprintSet {
@@ -131,6 +134,15 @@ export interface ObservationIR {
     checkedAt: string | null;
     disposition: VerificationDisposition;
   };
+  lifecycle: {
+    firstSeenGitRef: string | null;
+    lastSeenGitRef: string | null;
+    lastVerifiedAt: string | null;
+    contentFingerprint: string | null;
+    status: RcclLifecycleStatus | 'unknown';
+    supersedes: string[];
+    supersededBy: string | null;
+  };
   traits: ObservationTraitsIR;
 }
 
@@ -173,10 +185,34 @@ export interface DirectiveFeedbackSignalIR {
   lastSeen: string;
 }
 
+export interface ObservationFeedbackSignalIR {
+  observationId: string;
+  seenCount: number;
+  relationCount: number;
+  activeSeenCount: number;
+  staleSeenCount: number;
+  supersededSeenCount: number;
+  lastDisposition: VerificationDisposition | 'pending';
+  lastLifecycleStatus: RcclLifecycleStatus | 'unknown';
+  lastContentFingerprint: string | null;
+  lastSeen: string;
+}
+
+export interface TensionFeedbackSignalIR {
+  tensionKey: string;
+  seenCount: number;
+  directiveId: string;
+  observationId: string;
+  lastExecutionMode: ExecutionMode;
+  lastSeen: string;
+}
+
 export interface FeedbackIR {
   irVersion: GovernanceIRVersion;
   source: SourceRefIR;
   directiveSignals: DirectiveFeedbackSignalIR[];
+  observationSignals: ObservationFeedbackSignalIR[];
+  tensionSignals: TensionFeedbackSignalIR[];
   globalSummary: {
     totalTasks: number;
     byTaskType: Record<string, number>;

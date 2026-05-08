@@ -3,6 +3,7 @@ import { loadCompileSources } from "../load/compile-sources.mjs";
 import { feedbackToIR } from "./adapters/feedback.mjs";
 import { directivesToIR } from "./adapters/playbook.mjs";
 import { observationsToIR } from "./adapters/rccl.mjs";
+import { stableHash } from "../utils/hash.mjs";
 import { taskToIR } from "./adapters/task.mjs";
 import { buildIRFingerprints } from "./fingerprint.mjs";
 //#region src/ir/build-ir.ts
@@ -29,7 +30,32 @@ async function buildGovernanceIR(input, sources) {
 			localAugmentPath: input.localAugmentPath,
 			rcclPath: input.rcclPath,
 			lockfilePath: input.lockfilePath,
-			projectRoot: input.projectRoot
+			projectRoot: input.projectRoot,
+			sources: [
+				{
+					kind: "builtin-playbook",
+					id: "builtin-root",
+					path: input.builtinRoot,
+					fingerprint: stableHash(loadedSources.selectedLayerIds)
+				},
+				...input.localAugmentPath ? [{
+					kind: "local-playbook",
+					id: "local-augment",
+					path: input.localAugmentPath
+				}] : [],
+				...loadedSources.rccl ? [{
+					kind: "rccl",
+					id: loadedSources.rccl.git_ref ?? "rccl",
+					path: input.rcclPath,
+					version: loadedSources.rccl.version,
+					fingerprint: stableHash(loadedSources.rccl.observations.map((observation) => observation.lifecycle?.content_fingerprint ?? observation.id))
+				}] : [],
+				...input.lockfilePath ? [{
+					kind: "lockfile",
+					id: "playbook.lock",
+					path: input.lockfilePath
+				}] : []
+			]
 		}
 	};
 	return {

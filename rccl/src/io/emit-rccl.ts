@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import type { CandidateRcclDocument, ConsolidationResult, EmitRcclResult, RcclDocument, VerificationSummary, VerificationSummaryObservation } from '../types.ts';
+import type { CandidateRcclDocument, ConsolidationResult, EmitRcclResult, RcclDocument, RcclObservation, VerificationSummary, VerificationSummaryObservation } from '../types.ts';
 import { parseRccl } from './parse-rccl.ts';
 import { toYaml } from '../utils/yaml.ts';
 
@@ -12,23 +12,29 @@ export function emitRccl(rccl: RcclDocument, projectRoot: string): EmitRcclResul
   if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
 
   const existing = loadExistingRccl(outputPath);
-  const existingIds = new Set(existing?.observations.map((observation) => observation.id) ?? []);
-  const added = rccl.observations.filter((observation) => !existingIds.has(observation.id)).length;
-  const updated = rccl.observations.filter((observation) => existingIds.has(observation.id)).length;
-  const preserved = 0;
+  const now = new Date().toISOString();
+  const gitRef = getGitRef(projectRoot);
+  const existingById = new Map(existing?.observations.map((observation) => [observation.id, observation]) ?? []);
+  const activeObservations = rccl.observations.map((observation) => materializeActiveLifecycle(observation, existingById.get(observation.id), gitRef, now));
+  const finalObservations = materializeHistoricalObservations(activeObservations, existingById, gitRef)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const stats = summarizeLifecycleStats(finalObservations, activeObservations, existingById);
 
   const finalDoc: RcclDocument = {
-    version: '1.0',
-    generated_at: new Date().toISOString(),
-    git_ref: getGitRef(projectRoot),
-    observations: rccl.observations.slice().sort((a, b) => a.id.localeCompare(b.id)),
+    version: '2.0',
+    generated_at: now,
+    git_ref: gitRef,
+    observations: finalObservations,
   };
   const verificationSummary = summarizeVerification(finalDoc);
 
-  writeFileSync(outputPath, serializeRccl(finalDoc), 'utf-8');
+  const serialized = serializeRccl(finalDoc);
+  writeFileSync(outputPath, serialized, 'utf-8');
+  const historyWritten = writeRcclHistorySnapshot(projectRoot, finalDoc, serialized);
   return {
     written: '.resonant-code/rccl.yaml',
-    stats: { added, updated, preserved },
+    history_written: historyWritten,
+    stats,
     verification_summary: verificationSummary,
   };
 }
@@ -136,8 +142,6 @@ function describeVerificationFailure(item: VerificationSummaryObservation): stri
   return 'verification kept this observation';
 }
 
-export { summarizeVerification };
-
 export function serializeRccl(rccl: RcclDocument): string {
   const normalized = {
     version: rccl.version,
@@ -162,9 +166,167 @@ export function serializeRccl(rccl: RcclDocument): string {
         checked_at: observation.verification.checked_at,
         disposition: observation.verification.disposition,
       },
+      lifecycle: observation.lifecycle == null ? undefined : {
+        first_seen_git_ref: observation.lifecycle.first_seen_git_ref,
+        last_seen_git_ref: observation.lifecycle.last_seen_git_ref,
+        last_verified_at: observation.lifecycle.last_verified_at,
+        content_fingerprint: observation.lifecycle.content_fingerprint,
+        status: observation.lifecycle.status,
+        supersedes: observation.lifecycle.supersedes,
+        superseded_by: observation.lifecycle.superseded_by,
+        stale_since_git_ref: observation.lifecycle.stale_since_git_ref,
+        superseded_at_git_ref: observation.lifecycle.superseded_at_git_ref,
+      },
     })),
   };
   return toYaml(normalized as never);
+}
+
+function materializeActiveLifecycle(
+  observation: RcclObservation,
+  previous: RcclObservation | undefined,
+  gitRef: string,
+  checkedAt: string,
+): RcclObservation {
+  const contentFingerprint = fingerprintObservation(observation);
+  return {
+    ...observation,
+    lifecycle: {
+      first_seen_git_ref: previous?.lifecycle?.first_seen_git_ref ?? gitRef,
+      last_seen_git_ref: gitRef,
+      last_verified_at: observation.verification.checked_at ?? checkedAt,
+      content_fingerprint: contentFingerprint,
+      status: 'active',
+      supersedes: observation.lifecycle?.supersedes ?? previous?.lifecycle?.supersedes,
+      superseded_by: undefined,
+      stale_since_git_ref: undefined,
+      superseded_at_git_ref: undefined,
+    },
+  };
+}
+
+function materializeHistoricalObservations(
+  activeObservations: RcclObservation[],
+  existingById: Map<string, RcclObservation>,
+  gitRef: string,
+): RcclObservation[] {
+  const currentIds = new Set(activeObservations.map((observation) => observation.id));
+  const supersededById = new Map<string, string>();
+  for (const observation of activeObservations) {
+    for (const supersededId of observation.lifecycle?.supersedes ?? []) {
+      if (!currentIds.has(supersededId)) supersededById.set(supersededId, observation.id);
+    }
+  }
+
+  const historicalObservations = Array.from(existingById.values()).flatMap((previous) => {
+    if (currentIds.has(previous.id)) return [];
+    const supersededBy = supersededById.get(previous.id);
+    if (supersededBy) return [materializeSupersededLifecycle(previous, supersededBy, gitRef)];
+    if (previous.lifecycle?.status === 'superseded') return [previous];
+    return [materializeStaleLifecycle(previous, gitRef)];
+  });
+
+  return [...activeObservations, ...historicalObservations];
+}
+
+function materializeStaleLifecycle(observation: RcclObservation, gitRef: string): RcclObservation {
+  return {
+    ...observation,
+    lifecycle: {
+      first_seen_git_ref: observation.lifecycle?.first_seen_git_ref ?? gitRef,
+      last_seen_git_ref: observation.lifecycle?.last_seen_git_ref ?? gitRef,
+      last_verified_at: observation.lifecycle?.last_verified_at ?? observation.verification.checked_at,
+      content_fingerprint: observation.lifecycle?.content_fingerprint || fingerprintObservation(observation),
+      status: 'stale',
+      supersedes: observation.lifecycle?.supersedes,
+      superseded_by: observation.lifecycle?.superseded_by,
+      stale_since_git_ref: observation.lifecycle?.stale_since_git_ref ?? gitRef,
+      superseded_at_git_ref: observation.lifecycle?.superseded_at_git_ref,
+    },
+  };
+}
+
+function materializeSupersededLifecycle(observation: RcclObservation, supersededBy: string, gitRef: string): RcclObservation {
+  return {
+    ...observation,
+    lifecycle: {
+      first_seen_git_ref: observation.lifecycle?.first_seen_git_ref ?? gitRef,
+      last_seen_git_ref: observation.lifecycle?.last_seen_git_ref ?? gitRef,
+      last_verified_at: observation.lifecycle?.last_verified_at ?? observation.verification.checked_at,
+      content_fingerprint: observation.lifecycle?.content_fingerprint || fingerprintObservation(observation),
+      status: 'superseded',
+      supersedes: observation.lifecycle?.supersedes,
+      superseded_by: supersededBy,
+      stale_since_git_ref: observation.lifecycle?.stale_since_git_ref,
+      superseded_at_git_ref: observation.lifecycle?.superseded_at_git_ref ?? gitRef,
+    },
+  };
+}
+
+function summarizeLifecycleStats(
+  observations: RcclObservation[],
+  activeObservations: RcclObservation[],
+  existingById: Map<string, RcclObservation>,
+): EmitRcclResult['stats'] {
+  let added = 0;
+  let updated = 0;
+  let preserved = 0;
+
+  for (const observation of activeObservations) {
+    const previous = existingById.get(observation.id);
+    if (!previous) {
+      added += 1;
+      continue;
+    }
+    const previousFingerprint = previous.lifecycle?.content_fingerprint || fingerprintObservation(previous);
+    if (previousFingerprint === observation.lifecycle?.content_fingerprint) preserved += 1;
+    else updated += 1;
+  }
+
+  const stale = observations.filter((observation) => observation.lifecycle?.status === 'stale').length;
+  const superseded = observations.filter((observation) => observation.lifecycle?.status === 'superseded').length;
+  return { added, updated, preserved, stale, superseded };
+}
+
+function fingerprintObservation(observation: RcclObservation): string {
+  const stableObservation = {
+    id: observation.id,
+    semantic_key: observation.semantic_key,
+    category: observation.category,
+    scope: observation.scope,
+    pattern: observation.pattern,
+    confidence: observation.confidence,
+    adherence_quality: observation.adherence_quality,
+    evidence: observation.evidence,
+    support: observation.support,
+  };
+  return createHash('sha1').update(stableStringify(stableObservation)).digest('hex');
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalize(item)]),
+  );
+}
+
+function writeRcclHistorySnapshot(projectRoot: string, rccl: RcclDocument, serialized: string): string {
+  const gitRef = rccl.git_ref ?? 'unknown';
+  const stamp = (rccl.generated_at ?? new Date().toISOString()).replace(/[-:.TZ]/g, '').slice(0, 14);
+  const digest = createHash('sha1').update(serialized).digest('hex').slice(0, 10);
+  const relativePath = join('.resonant-code', 'context', 'rccl-history', `${stamp}-${gitRef}-${digest}.yaml`);
+  const absolutePath = join(projectRoot, relativePath);
+  mkdirSync(dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, serialized, 'utf-8');
+  return relativePath;
 }
 
 function loadExistingRccl(outputPath: string): RcclDocument | null {

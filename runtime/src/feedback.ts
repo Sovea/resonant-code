@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseYaml, toYaml } from './utils/yaml.ts';
-import type { EvaluateInput, ExecutionMode, LockfileDirectiveEntry, LockfileDocument } from './types.ts';
+import type { EvaluateInput, ExecutionMode, LockfileDirectiveEntry, LockfileDocument, LockfileObservationEntry, LockfileTensionEntry } from './types.ts';
 
 /**
  * Updates the runtime lockfile with per-directive quality signals.
@@ -15,12 +15,17 @@ export function evaluateGuidance(input: EvaluateInput): LockfileDocument {
   const now = new Date().toISOString();
   const modeCounts = summarizeExecutionModes(input);
   const tensionCount = input.packet?.governance.semantic_merge.context_tensions.length ?? input.ego.guidance.context_tensions.length;
+  const observedRccl = getObservedRccl(input);
 
   existing.governance_summary.total_tasks += 1;
   existing.governance_summary.by_task_type[taskType] = (existing.governance_summary.by_task_type[taskType] ?? 0) + 1;
   existing.governance_summary.last_execution_modes = modeCounts;
   existing.governance_summary.last_tension_count = tensionCount;
+  existing.governance_summary.last_observation_count = observedRccl.size;
   existing.governance_summary.last_updated_at = now;
+
+  updateObservationFeedback(existing, observedRccl, input, now);
+  updateTensionFeedback(existing, input, now);
 
   for (const directiveId of trackedDirectiveIds) {
     const entry = existing.directives[directiveId] ?? createEntry();
@@ -59,18 +64,26 @@ function loadLockfile(filePath: string): LockfileDocument {
     return {
       version: 2,
       directives: parsed.directives,
-      governance_summary: parsed.governance_summary,
+      observations: normalizeObservationEntries(parsed.observations ?? {}),
+      tensions: parsed.tensions ?? {},
+      governance_summary: {
+        ...parsed.governance_summary,
+        last_observation_count: parsed.governance_summary.last_observation_count ?? 0,
+      },
     };
   }
   if (isDirectiveRecord(parsed)) {
     return {
       version: 2,
       directives: parsed,
+      observations: {},
+      tensions: {},
       governance_summary: {
         total_tasks: 0,
         by_task_type: {},
         last_execution_modes: emptyModeCounts(),
         last_tension_count: 0,
+        last_observation_count: 0,
         last_updated_at: '',
       },
     };
@@ -87,15 +100,94 @@ function isDirectiveRecord(value: unknown): value is Record<string, LockfileDire
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeObservationEntries(entries: Record<string, LockfileObservationEntry>): Record<string, LockfileObservationEntry> {
+  return Object.fromEntries(Object.entries(entries).map(([id, entry]) => [id, {
+    ...createObservationEntry(),
+    ...entry,
+    last_content_fingerprint: entry.last_content_fingerprint ?? null,
+  }]));
+}
+
+function updateObservationFeedback(existing: LockfileDocument, observations: Map<string, number>, input: EvaluateInput, now: string): void {
+  const observationStates = new Map((input.packet?.governance.semantic_merge.observation_states ?? []).map((state) => [state.observation_id, state]));
+  for (const [observationId, relationCount] of observations) {
+    const entry = existing.observations[observationId] ?? createObservationEntry();
+    const state = observationStates.get(observationId);
+    entry.seen_count += 1;
+    entry.relation_count += relationCount;
+    if (state?.lifecycle_status === 'active') entry.active_seen_count += 1;
+    if (state?.lifecycle_status === 'stale') entry.stale_seen_count += 1;
+    if (state?.lifecycle_status === 'superseded') entry.superseded_seen_count += 1;
+    entry.last_disposition = state?.disposition ?? 'pending';
+    entry.last_lifecycle_status = state?.lifecycle_status ?? 'unknown';
+    entry.last_content_fingerprint = state?.content_fingerprint ?? null;
+    entry.last_seen = now;
+    existing.observations[observationId] = entry;
+  }
+}
+
+function updateTensionFeedback(existing: LockfileDocument, input: EvaluateInput, now: string): void {
+  const tensions = input.packet?.governance.semantic_merge.context_tensions ?? [];
+  for (const tension of tensions) {
+    if (!tension.observation_id) continue;
+    const key = `${tension.directive_id}::${tension.observation_id}`;
+    const entry = existing.tensions[key] ?? createTensionEntry(tension.directive_id, tension.observation_id, tension.execution_mode);
+    entry.seen_count += 1;
+    entry.last_execution_mode = tension.execution_mode;
+    entry.last_seen = now;
+    existing.tensions[key] = entry;
+  }
+}
+
+function getObservedRccl(input: EvaluateInput): Map<string, number> {
+  const counts = new Map<string, number>();
+  const relations = input.packet?.governance.semantic_merge.relations ?? [];
+  for (const relation of relations) {
+    if (!relation.observation_id) continue;
+    counts.set(relation.observation_id, (counts.get(relation.observation_id) ?? 0) + 1);
+  }
+  for (const link of input.packet?.governance.semantic_merge.observation_links ?? []) {
+    if (!counts.has(link.observation_id)) counts.set(link.observation_id, link.directive_ids.length);
+  }
+  return counts;
+}
+
+function createObservationEntry(): LockfileObservationEntry {
+  return {
+    seen_count: 0,
+    relation_count: 0,
+    active_seen_count: 0,
+    stale_seen_count: 0,
+    superseded_seen_count: 0,
+    last_disposition: 'pending',
+    last_lifecycle_status: 'unknown',
+    last_content_fingerprint: null,
+    last_seen: '',
+  };
+}
+
+function createTensionEntry(directiveId: string, observationId: string, executionMode: ExecutionMode): LockfileTensionEntry {
+  return {
+    seen_count: 0,
+    directive_id: directiveId,
+    observation_id: observationId,
+    last_execution_mode: executionMode,
+    last_seen: '',
+  };
+}
+
 function createDocument(): LockfileDocument {
   return {
     version: 2,
     directives: {},
+    observations: {},
+    tensions: {},
     governance_summary: {
       total_tasks: 0,
       by_task_type: {},
       last_execution_modes: emptyModeCounts(),
       last_tension_count: 0,
+      last_observation_count: 0,
       last_updated_at: '',
     },
   };

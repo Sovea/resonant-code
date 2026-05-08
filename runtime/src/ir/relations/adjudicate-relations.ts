@@ -12,6 +12,12 @@ export function adjudicateSemanticRelations(
   return relations.map((relation) => {
     const observation = observationById.get(relation.observationId);
     if (!observation) return rejectRelation(relation, 'observation is missing from the IR bundle');
+    if (observation.lifecycle.status === 'superseded') {
+      return rejectRelation(relation, 'observation lifecycle is superseded and must not influence current execution');
+    }
+    if (observation.lifecycle.status === 'stale') {
+      return downgradeRelation(relation, 'observation lifecycle is stale, so it can only provide ambient context');
+    }
     if (observation.verification.disposition === 'demote-to-ambient') {
       return downgradeRelation(relation, 'verify gate demoted the observation, so it can only provide ambient context');
     }

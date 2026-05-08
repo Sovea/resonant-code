@@ -10,25 +10,25 @@ function emitRccl(rccl, projectRoot) {
 	const outputPath = join(outputDir, "rccl.yaml");
 	if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
 	const existing = loadExistingRccl(outputPath);
-	const existingIds = new Set(existing?.observations.map((observation) => observation.id) ?? []);
-	const added = rccl.observations.filter((observation) => !existingIds.has(observation.id)).length;
-	const updated = rccl.observations.filter((observation) => existingIds.has(observation.id)).length;
-	const preserved = 0;
+	const now = (/* @__PURE__ */ new Date()).toISOString();
+	const gitRef = getGitRef(projectRoot);
+	const existingById = new Map(existing?.observations.map((observation) => [observation.id, observation]) ?? []);
+	const activeObservations = rccl.observations.map((observation) => materializeActiveLifecycle(observation, existingById.get(observation.id), gitRef, now));
+	const finalObservations = materializeHistoricalObservations(activeObservations, existingById, gitRef).sort((a, b) => a.id.localeCompare(b.id));
+	const stats = summarizeLifecycleStats(finalObservations, activeObservations, existingById);
 	const finalDoc = {
-		version: "1.0",
-		generated_at: (/* @__PURE__ */ new Date()).toISOString(),
-		git_ref: getGitRef(projectRoot),
-		observations: rccl.observations.slice().sort((a, b) => a.id.localeCompare(b.id))
+		version: "2.0",
+		generated_at: now,
+		git_ref: gitRef,
+		observations: finalObservations
 	};
 	const verificationSummary = summarizeVerification(finalDoc);
-	writeFileSync(outputPath, serializeRccl(finalDoc), "utf-8");
+	const serialized = serializeRccl(finalDoc);
+	writeFileSync(outputPath, serialized, "utf-8");
 	return {
 		written: ".resonant-code/rccl.yaml",
-		stats: {
-			added,
-			updated,
-			preserved
-		},
+		history_written: writeRcclHistorySnapshot(projectRoot, finalDoc, serialized),
+		stats,
 		verification_summary: verificationSummary
 	};
 }
@@ -142,9 +142,135 @@ function serializeRccl(rccl) {
 				induction_confidence: observation.verification.induction_confidence,
 				checked_at: observation.verification.checked_at,
 				disposition: observation.verification.disposition
+			},
+			lifecycle: observation.lifecycle == null ? void 0 : {
+				first_seen_git_ref: observation.lifecycle.first_seen_git_ref,
+				last_seen_git_ref: observation.lifecycle.last_seen_git_ref,
+				last_verified_at: observation.lifecycle.last_verified_at,
+				content_fingerprint: observation.lifecycle.content_fingerprint,
+				status: observation.lifecycle.status,
+				supersedes: observation.lifecycle.supersedes,
+				superseded_by: observation.lifecycle.superseded_by,
+				stale_since_git_ref: observation.lifecycle.stale_since_git_ref,
+				superseded_at_git_ref: observation.lifecycle.superseded_at_git_ref
 			}
 		}))
 	});
+}
+function materializeActiveLifecycle(observation, previous, gitRef, checkedAt) {
+	const contentFingerprint = fingerprintObservation(observation);
+	return {
+		...observation,
+		lifecycle: {
+			first_seen_git_ref: previous?.lifecycle?.first_seen_git_ref ?? gitRef,
+			last_seen_git_ref: gitRef,
+			last_verified_at: observation.verification.checked_at ?? checkedAt,
+			content_fingerprint: contentFingerprint,
+			status: "active",
+			supersedes: observation.lifecycle?.supersedes ?? previous?.lifecycle?.supersedes,
+			superseded_by: void 0,
+			stale_since_git_ref: void 0,
+			superseded_at_git_ref: void 0
+		}
+	};
+}
+function materializeHistoricalObservations(activeObservations, existingById, gitRef) {
+	const currentIds = new Set(activeObservations.map((observation) => observation.id));
+	const supersededById = /* @__PURE__ */ new Map();
+	for (const observation of activeObservations) for (const supersededId of observation.lifecycle?.supersedes ?? []) if (!currentIds.has(supersededId)) supersededById.set(supersededId, observation.id);
+	const historicalObservations = Array.from(existingById.values()).flatMap((previous) => {
+		if (currentIds.has(previous.id)) return [];
+		const supersededBy = supersededById.get(previous.id);
+		if (supersededBy) return [materializeSupersededLifecycle(previous, supersededBy, gitRef)];
+		if (previous.lifecycle?.status === "superseded") return [previous];
+		return [materializeStaleLifecycle(previous, gitRef)];
+	});
+	return [...activeObservations, ...historicalObservations];
+}
+function materializeStaleLifecycle(observation, gitRef) {
+	return {
+		...observation,
+		lifecycle: {
+			first_seen_git_ref: observation.lifecycle?.first_seen_git_ref ?? gitRef,
+			last_seen_git_ref: observation.lifecycle?.last_seen_git_ref ?? gitRef,
+			last_verified_at: observation.lifecycle?.last_verified_at ?? observation.verification.checked_at,
+			content_fingerprint: observation.lifecycle?.content_fingerprint || fingerprintObservation(observation),
+			status: "stale",
+			supersedes: observation.lifecycle?.supersedes,
+			superseded_by: observation.lifecycle?.superseded_by,
+			stale_since_git_ref: observation.lifecycle?.stale_since_git_ref ?? gitRef,
+			superseded_at_git_ref: observation.lifecycle?.superseded_at_git_ref
+		}
+	};
+}
+function materializeSupersededLifecycle(observation, supersededBy, gitRef) {
+	return {
+		...observation,
+		lifecycle: {
+			first_seen_git_ref: observation.lifecycle?.first_seen_git_ref ?? gitRef,
+			last_seen_git_ref: observation.lifecycle?.last_seen_git_ref ?? gitRef,
+			last_verified_at: observation.lifecycle?.last_verified_at ?? observation.verification.checked_at,
+			content_fingerprint: observation.lifecycle?.content_fingerprint || fingerprintObservation(observation),
+			status: "superseded",
+			supersedes: observation.lifecycle?.supersedes,
+			superseded_by: supersededBy,
+			stale_since_git_ref: observation.lifecycle?.stale_since_git_ref,
+			superseded_at_git_ref: observation.lifecycle?.superseded_at_git_ref ?? gitRef
+		}
+	};
+}
+function summarizeLifecycleStats(observations, activeObservations, existingById) {
+	let added = 0;
+	let updated = 0;
+	let preserved = 0;
+	for (const observation of activeObservations) {
+		const previous = existingById.get(observation.id);
+		if (!previous) {
+			added += 1;
+			continue;
+		}
+		if ((previous.lifecycle?.content_fingerprint || fingerprintObservation(previous)) === observation.lifecycle?.content_fingerprint) preserved += 1;
+		else updated += 1;
+	}
+	const stale = observations.filter((observation) => observation.lifecycle?.status === "stale").length;
+	const superseded = observations.filter((observation) => observation.lifecycle?.status === "superseded").length;
+	return {
+		added,
+		updated,
+		preserved,
+		stale,
+		superseded
+	};
+}
+function fingerprintObservation(observation) {
+	const stableObservation = {
+		id: observation.id,
+		semantic_key: observation.semantic_key,
+		category: observation.category,
+		scope: observation.scope,
+		pattern: observation.pattern,
+		confidence: observation.confidence,
+		adherence_quality: observation.adherence_quality,
+		evidence: observation.evidence,
+		support: observation.support
+	};
+	return createHash("sha1").update(stableStringify(stableObservation)).digest("hex");
+}
+function stableStringify(value) {
+	return JSON.stringify(canonicalize(value));
+}
+function canonicalize(value) {
+	if (Array.isArray(value)) return value.map(canonicalize);
+	if (!value || typeof value !== "object") return value;
+	return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== void 0).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, canonicalize(item)]));
+}
+function writeRcclHistorySnapshot(projectRoot, rccl, serialized) {
+	const gitRef = rccl.git_ref ?? "unknown";
+	const relativePath = join(".resonant-code", "context", "rccl-history", `${(rccl.generated_at ?? (/* @__PURE__ */ new Date()).toISOString()).replace(/[-:.TZ]/g, "").slice(0, 14)}-${gitRef}-${createHash("sha1").update(serialized).digest("hex").slice(0, 10)}.yaml`);
+	const absolutePath = join(projectRoot, relativePath);
+	mkdirSync(dirname(absolutePath), { recursive: true });
+	writeFileSync(absolutePath, serialized, "utf-8");
+	return relativePath;
 }
 function loadExistingRccl(outputPath) {
 	try {

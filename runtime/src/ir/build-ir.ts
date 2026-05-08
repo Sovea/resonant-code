@@ -7,6 +7,7 @@ import { directivesToIR } from './adapters/playbook.ts';
 import { observationsToIR } from './adapters/rccl.ts';
 import { taskToIR } from './adapters/task.ts';
 import { buildIRFingerprints } from './fingerprint.ts';
+import { stableHash } from '../utils/hash.ts';
 import type { GovernanceIRBundle } from './types.ts';
 
 function hasResolvedTask(input: CompileInput): input is ResolvedCompileInput {
@@ -38,6 +39,23 @@ export async function buildGovernanceIR(input: CompileInput, sources?: CompileSo
       rcclPath: input.rcclPath,
       lockfilePath: input.lockfilePath,
       projectRoot: input.projectRoot,
+      sources: [
+        {
+          kind: 'builtin-playbook',
+          id: 'builtin-root',
+          path: input.builtinRoot,
+          fingerprint: stableHash(loadedSources.selectedLayerIds),
+        },
+        ...(input.localAugmentPath ? [{ kind: 'local-playbook' as const, id: 'local-augment', path: input.localAugmentPath }] : []),
+        ...(loadedSources.rccl ? [{
+          kind: 'rccl' as const,
+          id: loadedSources.rccl.git_ref ?? 'rccl',
+          path: input.rcclPath,
+          version: loadedSources.rccl.version,
+          fingerprint: stableHash(loadedSources.rccl.observations.map((observation) => observation.lifecycle?.content_fingerprint ?? observation.id)),
+        }] : []),
+        ...(input.lockfilePath ? [{ kind: 'lockfile' as const, id: 'playbook.lock', path: input.lockfilePath }] : []),
+      ],
     },
   };
 

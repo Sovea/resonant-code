@@ -154,13 +154,18 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
   });
   const rccl = sources.rccl;
   traceSteps.push({
+    stage: 'RCCL Source Evolution',
+    lines: summarizeRcclSourceEvolution(rccl),
+  });
+  traceSteps.push({
     stage: 'RCCL Verify Gate',
     lines: rccl?.observations.length
       ? rccl.observations.map((observation) => {
           const evidenceStatus = observation.verification.evidence_status ?? 'pending';
           const inductionStatus = observation.verification.induction_status ?? 'pending';
           const disposition = observation.verification.disposition ?? 'pending';
-          return `${observation.id}: evidence=${evidenceStatus} induction=${inductionStatus} disposition=${disposition} support=${observation.support.scope_basis}/${observation.support.file_count}f/${observation.support.cluster_count}c`;
+          const lifecycleStatus = observation.lifecycle?.status ?? 'unknown';
+          return `${observation.id}: evidence=${evidenceStatus} induction=${inductionStatus} disposition=${disposition} lifecycle=${lifecycleStatus} support=${observation.support.scope_basis}/${observation.support.file_count}f/${observation.support.cluster_count}c`;
         })
       : ['no rccl loaded'],
   });
@@ -231,6 +236,22 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
   };
 
   return compileResolvedOutput(packet, resolved);
+}
+
+function summarizeRcclSourceEvolution(rccl: RcclDocument | null): string[] {
+  if (!rccl) return ['no rccl loaded'];
+  const lifecycleCounts = countBy(rccl.observations, (observation) => observation.lifecycle?.status ?? 'unknown');
+  const fingerprints = rccl.observations
+    .filter((observation) => observation.lifecycle?.content_fingerprint)
+    .map((observation) => `${observation.id}:${observation.lifecycle?.content_fingerprint.slice(0, 10)}`);
+  return [
+    `version: ${rccl.version}`,
+    `git_ref: ${rccl.git_ref ?? '(none)'}`,
+    `generated_at: ${rccl.generated_at ?? '(none)'}`,
+    `observations: ${rccl.observations.length}`,
+    `lifecycle_statuses: ${formatCounts(lifecycleCounts)}`,
+    `fingerprints: ${fingerprints.join(', ') || '(none)'}`,
+  ];
 }
 
 function summarizeSemanticRelationsIR(relations: SemanticRelationIR[]): string[] {

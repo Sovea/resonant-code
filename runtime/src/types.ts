@@ -16,6 +16,8 @@ export type VerificationStatus = 'pending' | 'verified' | 'partial' | 'failed' |
 export type VerificationDisposition = 'keep' | 'keep-with-reduced-confidence' | 'demote-to-ambient';
 export type InductionStatus = 'well-supported' | 'narrowly-supported' | 'overgeneralized' | 'ambiguous';
 export type ScopeBasis = 'single-file' | 'directory-cluster' | 'module-cluster' | 'cross-root';
+export type RcclSchemaVersion = '1.0' | '2.0';
+export type RcclLifecycleStatus = 'active' | 'stale' | 'superseded';
 export type ExecutionMode = 'enforce' | 'deviation-noted' | 'ambient' | 'suppress';
 
 export interface DirectiveExampleSide {
@@ -51,6 +53,18 @@ export interface Directive {
   };
 }
 
+export interface RcclLifecycle {
+  first_seen_git_ref: string | null;
+  last_seen_git_ref: string | null;
+  last_verified_at: string | null;
+  content_fingerprint: string;
+  status: RcclLifecycleStatus;
+  supersedes?: string[];
+  superseded_by?: string;
+  stale_since_git_ref?: string | null;
+  superseded_at_git_ref?: string | null;
+}
+
 export interface RcclObservation {
   id: string;
   semantic_key: string;
@@ -62,10 +76,11 @@ export interface RcclObservation {
   evidence: RcclEvidence[];
   support: RcclSupport;
   verification: RcclVerification;
+  lifecycle?: RcclLifecycle;
 }
 
 export interface RcclDocument {
-  version: string;
+  version: RcclSchemaVersion;
   generated_at: string | null;
   git_ref: string | null;
   observations: RcclObservation[];
@@ -370,12 +385,19 @@ export interface SemanticMergeObservationLink {
   directive_ids: string[];
 }
 
+export interface SemanticMergeObservationState extends SemanticMergeObservationLink {
+  disposition: VerificationDisposition | 'pending';
+  lifecycle_status: RcclLifecycleStatus | 'unknown';
+  content_fingerprint: string | null;
+}
+
 export interface SemanticMergeResult {
   activated_directives: string[];
   suppressed_directives: string[];
   context_tensions: SemanticMergeTensionRecord[];
   directive_modes: SemanticMergeDirectiveLink[];
   observation_links: SemanticMergeObservationLink[];
+  observation_states: SemanticMergeObservationState[];
   relations: DirectiveObservationRelation[];
   focus: SemanticMergeContextFocus;
   context_influences: ContextInfluenceRecord[];
@@ -517,6 +539,26 @@ export interface LockfileTaskOutcome {
   last_updated_at: string;
 }
 
+export interface LockfileObservationEntry {
+  seen_count: number;
+  relation_count: number;
+  active_seen_count: number;
+  stale_seen_count: number;
+  superseded_seen_count: number;
+  last_disposition: VerificationDisposition | 'pending';
+  last_lifecycle_status: RcclLifecycleStatus | 'unknown';
+  last_content_fingerprint: string | null;
+  last_seen: string;
+}
+
+export interface LockfileTensionEntry {
+  seen_count: number;
+  directive_id: string;
+  observation_id: string;
+  last_execution_mode: ExecutionMode;
+  last_seen: string;
+}
+
 export interface LockfileDirectiveEntry {
   quality_signal: {
     overall: LockfileSignal;
@@ -531,11 +573,14 @@ export interface LockfileDirectiveEntry {
 export interface LockfileDocument {
   version: 2;
   directives: Record<string, LockfileDirectiveEntry>;
+  observations: Record<string, LockfileObservationEntry>;
+  tensions: Record<string, LockfileTensionEntry>;
   governance_summary: {
     total_tasks: number;
     by_task_type: Record<string, number>;
     last_execution_modes: Record<ExecutionMode, number>;
     last_tension_count: number;
+    last_observation_count: number;
     last_updated_at: string;
   };
 }

@@ -9,15 +9,17 @@ function projectIRSemanticMergeToPublic(directives, observations, relationsIR, e
 	const contextTensions = buildContextTensions(effectiveRelations, directiveById, observationById, contextProfile);
 	const contextInfluences = buildContextInfluences(executionDecisionsIR);
 	const reviewFocus = buildReviewFocus(directiveModes, effectiveRelations, directiveById, contextTensions);
+	const observationStates = buildObservationStates(observations, directiveModes);
 	return {
 		activated_directives: directiveModes.filter((item) => item.execution_mode !== "suppress").map((item) => item.directive_id),
 		suppressed_directives: directiveModes.filter((item) => item.execution_mode === "suppress").map((item) => item.directive_id),
 		context_tensions: contextTensions,
 		directive_modes: directiveModes,
-		observation_links: observations.map((observation) => ({
-			observation_id: observation.id,
-			directive_ids: directiveModes.filter((item) => item.observation_ids.includes(observation.id)).map((item) => item.directive_id)
+		observation_links: observationStates.map((state) => ({
+			observation_id: state.observation_id,
+			directive_ids: state.directive_ids
 		})),
+		observation_states: observationStates,
 		relations: semanticRelationsIRToPublic(relationsIR),
 		focus: { review_focus: uniqueFocus(reviewFocus) },
 		context_influences: contextInfluences
@@ -55,6 +57,15 @@ function publicDecisionBasis(basis) {
 		case "feedback": return "context-adjusted";
 		case "anti-pattern": return "anti-pattern";
 	}
+}
+function buildObservationStates(observations, directiveModes) {
+	return observations.map((observation) => ({
+		observation_id: observation.id,
+		directive_ids: directiveModes.filter((item) => item.observation_ids.includes(observation.id)).map((item) => item.directive_id),
+		disposition: observation.verification.disposition ?? "pending",
+		lifecycle_status: observation.lifecycle?.status ?? "unknown",
+		content_fingerprint: observation.lifecycle?.content_fingerprint ?? null
+	}));
 }
 function buildContextTensions(relations, directiveById, observationById, contextProfile) {
 	return relations.flatMap((relation) => {

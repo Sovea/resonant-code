@@ -1,3 +1,4 @@
+export type RcclSchemaVersion = '1.0' | '2.0';
 export type RcclCategory = 'style' | 'architecture' | 'pattern' | 'constraint' | 'legacy' | 'anti-pattern' | 'migration';
 export type AdherenceQuality = 'good' | 'inconsistent' | 'poor';
 export type VerificationDisposition = 'keep' | 'keep-with-reduced-confidence' | 'demote-to-ambient';
@@ -28,6 +29,20 @@ export interface RcclVerification {
   disposition: VerificationDisposition | null;
 }
 
+export type RcclLifecycleStatus = 'active' | 'stale' | 'superseded';
+
+export interface RcclLifecycle {
+  first_seen_git_ref: string | null;
+  last_seen_git_ref: string | null;
+  last_verified_at: string | null;
+  content_fingerprint: string;
+  status: RcclLifecycleStatus;
+  supersedes?: string[];
+  superseded_by?: string;
+  stale_since_git_ref?: string | null;
+  superseded_at_git_ref?: string | null;
+}
+
 export interface RcclObservation {
   id: string;
   semantic_key: string;
@@ -39,10 +54,11 @@ export interface RcclObservation {
   evidence: RcclEvidence[];
   support: RcclSupport;
   verification: RcclVerification;
+  lifecycle?: RcclLifecycle;
 }
 
 export interface RcclDocument {
-  version: string;
+  version: RcclSchemaVersion;
   generated_at: string | null;
   git_ref: string | null;
   observations: RcclObservation[];
@@ -74,7 +90,7 @@ export interface CandidateObservation {
 }
 
 export interface CandidateRcclDocument {
-  version: string;
+  version: RcclSchemaVersion;
   generated_at: string | null;
   git_ref: string | null;
   observations: CandidateObservation[];
@@ -147,10 +163,13 @@ export interface VerificationSummary {
 
 export interface EmitRcclResult {
   written: string;
+  history_written: string;
   stats: {
     added: number;
     updated: number;
     preserved: number;
+    stale: number;
+    superseded: number;
   };
   verification_summary: VerificationSummary;
 }
