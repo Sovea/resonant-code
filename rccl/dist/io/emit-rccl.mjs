@@ -17,7 +17,7 @@ function emitRccl(rccl, projectRoot) {
 	const finalObservations = materializeHistoricalObservations(activeObservations, existingById, gitRef).sort((a, b) => a.id.localeCompare(b.id));
 	const stats = summarizeLifecycleStats(finalObservations, activeObservations, existingById);
 	const finalDoc = {
-		version: "2.0",
+		version: "1.0",
 		generated_at: now,
 		git_ref: gitRef,
 		observations: finalObservations

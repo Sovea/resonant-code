@@ -1,4 +1,4 @@
-export type RcclSchemaVersion = '1.0' | '2.0';
+export type RcclSchemaVersion = '1.0';
 export type RcclCategory = 'style' | 'architecture' | 'pattern' | 'constraint' | 'legacy' | 'anti-pattern' | 'migration';
 export type AdherenceQuality = 'good' | 'inconsistent' | 'poor';
 export type VerificationDisposition = 'keep' | 'keep-with-reduced-confidence' | 'demote-to-ambient';

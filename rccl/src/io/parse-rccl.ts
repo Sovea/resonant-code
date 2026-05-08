@@ -13,6 +13,7 @@ import type {
 } from '../types.ts';
 import { parseYaml } from '../utils/yaml.ts';
 
+const RCCL_VERSION: RcclSchemaVersion = '1.0';
 const ID_PATTERN = /^obs-[a-z0-9-]+$/;
 const VALID_CATEGORIES = new Set(['style', 'architecture', 'pattern', 'constraint', 'legacy', 'anti-pattern', 'migration']);
 const VALID_ADHERENCE = new Set(['good', 'inconsistent', 'poor']);
@@ -24,18 +25,17 @@ export function parseRccl(yamlText: string, options: { allowVerifiedFields?: boo
   const parsed = parseRawRcclDocument(yamlText);
   if (!parsed.valid || !parsed.doc) return { valid: false, errors: parsed.errors };
 
-  const errors = validateRcclDocument(parsed.doc, allowVerifiedFields);
+  const errors = validateFinalRcclDocument(parsed.doc, allowVerifiedFields);
   if (errors.length > 0) return { valid: false, errors };
 
   return { valid: true, data: normalizeDocument(parsed.doc) };
 }
 
-export function parseRcclCandidates(yamlText: string, options: { allowVerifiedFields?: boolean } = {}): ParsedCandidateRcclResult {
-  const allowVerifiedFields = options.allowVerifiedFields === true;
+export function parseRcclCandidates(yamlText: string): ParsedCandidateRcclResult {
   const parsed = parseRawRcclDocument(yamlText);
   if (!parsed.valid || !parsed.doc) return { valid: false, errors: parsed.errors };
 
-  const errors = validateRcclDocument(parsed.doc, allowVerifiedFields);
+  const errors = validateCandidateRcclDocument(parsed.doc);
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true, data: normalizeCandidateDocument(parsed.doc) };
 }
@@ -55,39 +55,118 @@ function parseRawRcclDocument(yamlText: string): { valid: true; doc: Record<stri
   return { valid: true, doc: doc as Record<string, unknown> };
 }
 
-function validateRcclDocument(doc: Record<string, unknown>, allowVerifiedFields: boolean): string[] {
-  const errors: string[] = [];
-  if (!isSupportedRcclVersion(doc.version)) errors.push(`'version' must be "1.0" or "2.0", got "${doc.version}"`);
-  if (!Array.isArray(doc.observations) || doc.observations.length === 0) {
-    errors.push("'observations' must be a non-empty array");
-    return errors;
-  }
+function validateFinalRcclDocument(doc: Record<string, unknown>, allowVerifiedFields: boolean): string[] {
+  const errors = validateDocumentEnvelope(doc);
+  if (errors.length > 0) return errors;
 
   const ids = new Set<string>();
   for (let i = 0; i < doc.observations.length; i += 1) {
     const obs = doc.observations[i] as Record<string, unknown>;
-    const rawId = String(obs.id ?? obs.provisional_id ?? '');
+    const rawId = String(obs.id ?? '');
     if (rawId) {
       if (ids.has(rawId)) errors.push(`Duplicate observation id: "${rawId}"`);
       ids.add(rawId);
     }
-    errors.push(...validateObservation(obs, i, allowVerifiedFields));
+    errors.push(...validateFinalObservation(obs, i, allowVerifiedFields));
   }
   return errors;
 }
 
-function validateObservation(obs: Record<string, unknown>, index: number, allowVerifiedFields: boolean): string[] {
+function validateCandidateRcclDocument(doc: Record<string, unknown>): string[] {
+  const errors = validateDocumentEnvelope(doc);
+  if (errors.length > 0) return errors;
+
+  const ids = new Set<string>();
+  for (let i = 0; i < doc.observations.length; i += 1) {
+    const obs = doc.observations[i] as Record<string, unknown>;
+    const rawId = String(obs.provisional_id ?? '');
+    if (rawId) {
+      if (ids.has(rawId)) errors.push(`Duplicate candidate observation id: "${rawId}"`);
+      ids.add(rawId);
+    }
+    errors.push(...validateCandidateObservation(obs, i));
+  }
+  return errors;
+}
+
+function validateDocumentEnvelope(doc: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  if (doc.version !== RCCL_VERSION) errors.push(`'version' must be "${RCCL_VERSION}", got "${doc.version}"`);
+  if (!Array.isArray(doc.observations) || doc.observations.length === 0) {
+    errors.push("'observations' must be a non-empty array");
+  }
+  return errors;
+}
+
+function validateFinalObservation(obs: Record<string, unknown>, index: number, allowVerifiedFields: boolean): string[] {
+  const errors = validateObservationCore(obs, index, 'id', 'scope');
+  const prefix = `observations[${index}]`;
+
+  if ('provisional_id' in obs) errors.push(`${prefix}: final RCCL observations must use 'id', not 'provisional_id'`);
+  if ('scope_hint' in obs) errors.push(`${prefix}: final RCCL observations must use 'scope', not 'scope_hint'`);
+  if ('source_slice_ids' in obs) errors.push(`${prefix}: final RCCL observations must store source slices in 'support.source_slices'`);
+  if ('support_hint' in obs) errors.push(`${prefix}: final RCCL observations must use 'support', not 'support_hint'`);
+
+  const support = obs.support as Record<string, unknown> | undefined;
+  if (!support || typeof support !== 'object' || Array.isArray(support)) {
+    errors.push(`${prefix}: missing or invalid 'support'`);
+  } else {
+    errors.push(...validateSupport(support, `${prefix}.support`));
+  }
+
+  const verification = obs.verification as Record<string, unknown> | undefined;
+  if (!verification || typeof verification !== 'object' || Array.isArray(verification)) {
+    errors.push(`${prefix}: missing or invalid 'verification'`);
+  } else {
+    errors.push(...validateVerification(verification, prefix, allowVerifiedFields));
+  }
+
+  errors.push(...validateLifecycle(obs.lifecycle as Record<string, unknown> | undefined, prefix));
+  return errors;
+}
+
+function validateCandidateObservation(obs: Record<string, unknown>, index: number): string[] {
+  const errors = validateObservationCore(obs, index, 'provisional_id', 'scope_hint');
+  const prefix = `observations[${index}]`;
+
+  if ('id' in obs) errors.push(`${prefix}: candidate observations must use 'provisional_id', not 'id'`);
+  if ('scope' in obs) errors.push(`${prefix}: candidate observations must use 'scope_hint', not 'scope'`);
+  if ('support' in obs) errors.push(`${prefix}: candidate observations must use 'support_hint', not 'support'`);
+  if ('verification' in obs) errors.push(`${prefix}: candidate observations must not include 'verification'`);
+  if ('lifecycle' in obs) errors.push(`${prefix}: candidate observations must not include 'lifecycle'`);
+
+  if (!Array.isArray(obs.source_slice_ids)) {
+    errors.push(`${prefix}: missing or invalid 'source_slice_ids'`);
+  }
+
+  if (obs.support_hint != null) {
+    const supportHint = obs.support_hint as Record<string, unknown>;
+    if (typeof supportHint !== 'object' || Array.isArray(supportHint)) {
+      errors.push(`${prefix}.support_hint: must be an object when present`);
+    } else {
+      if (supportHint.file_count != null && typeof supportHint.file_count !== 'number') errors.push(`${prefix}.support_hint.file_count: must be a number`);
+      if (supportHint.cluster_count != null && typeof supportHint.cluster_count !== 'number') errors.push(`${prefix}.support_hint.cluster_count: must be a number`);
+      if (supportHint.scope_basis != null && !VALID_SCOPE_BASES.has(String(supportHint.scope_basis))) {
+        errors.push(`${prefix}.support_hint.scope_basis: invalid value`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+function validateObservationCore(obs: Record<string, unknown>, index: number, idField: 'id' | 'provisional_id', scopeField: 'scope' | 'scope_hint'): string[] {
   const errors: string[] = [];
   const prefix = `observations[${index}]`;
-  const id = obs.id ?? obs.provisional_id;
+  const id = obs[idField];
+  const scope = obs[scopeField];
 
-  if (!id || typeof id !== 'string') errors.push(`${prefix}: missing or invalid 'id'`);
-  else if (!ID_PATTERN.test(String(id))) errors.push(`${prefix}: 'id' "${id}" does not match /^obs-[a-z0-9-]+$/`);
+  if (!id || typeof id !== 'string') errors.push(`${prefix}: missing or invalid '${idField}'`);
+  else if (!ID_PATTERN.test(String(id))) errors.push(`${prefix}: '${idField}' "${id}" does not match /^obs-[a-z0-9-]+$/`);
 
   if (!VALID_CATEGORIES.has(String(obs.category))) errors.push(`${prefix}: 'category' is invalid`);
   if (!obs.semantic_key || typeof obs.semantic_key !== 'string') errors.push(`${prefix}: missing or invalid 'semantic_key'`);
-  const scopeValue = obs.scope ?? obs.scope_hint;
-  if (!scopeValue || typeof scopeValue !== 'string') errors.push(`${prefix}: missing or invalid 'scope'`);
+  if (!scope || typeof scope !== 'string') errors.push(`${prefix}: missing or invalid '${scopeField}'`);
   if (!obs.pattern || typeof obs.pattern !== 'string') errors.push(`${prefix}: missing or invalid 'pattern'`);
   if (typeof obs.confidence !== 'number' || Number.isNaN(obs.confidence) || obs.confidence < 0 || obs.confidence > 1) {
     errors.push(`${prefix}: 'confidence' must be a number between 0 and 1, got ${obs.confidence}`);
@@ -104,41 +183,36 @@ function validateObservation(obs: Record<string, unknown>, index: number, allowV
       if (!evidence.snippet || typeof evidence.snippet !== 'string') {
         errors.push(`${prefix}.evidence[${i}]: missing or invalid 'snippet'`);
       } else {
-        const snippetErrors = validateEvidenceSnippet(evidence.snippet, prefix, i);
-        errors.push(...snippetErrors);
+        errors.push(...validateEvidenceSnippet(evidence.snippet, prefix, i));
       }
     }
   }
 
-  const support = (obs.support ?? {}) as Record<string, unknown>;
-  const sourceSlices = obs.source_slice_ids ?? support.source_slices;
-  if (sourceSlices != null && !Array.isArray(sourceSlices)) errors.push(`${prefix}.source_slice_ids: must be an array`);
-  if (obs.support != null) {
-    if (support.file_count != null && typeof support.file_count !== 'number') errors.push(`${prefix}.support.file_count: must be a number`);
-    if (support.cluster_count != null && typeof support.cluster_count !== 'number') errors.push(`${prefix}.support.cluster_count: must be a number`);
-    if (support.scope_basis != null && !VALID_SCOPE_BASES.has(String(support.scope_basis))) {
-      errors.push(`${prefix}.support.scope_basis: invalid value`);
-    }
+  return errors;
+}
+
+function validateSupport(support: Record<string, unknown>, prefix: string): string[] {
+  const errors: string[] = [];
+  if (!Array.isArray(support.source_slices)) errors.push(`${prefix}.source_slices: must be an array`);
+  if (typeof support.file_count !== 'number') errors.push(`${prefix}.file_count: must be a number`);
+  if (typeof support.cluster_count !== 'number') errors.push(`${prefix}.cluster_count: must be a number`);
+  if (!VALID_SCOPE_BASES.has(String(support.scope_basis))) errors.push(`${prefix}.scope_basis: invalid value`);
+  return errors;
+}
+
+function validateVerification(verification: Record<string, unknown>, prefix: string, allowVerifiedFields: boolean): string[] {
+  const errors: string[] = [];
+  for (const field of REQUIRED_VERIFICATION_FIELDS) {
+    if (!(field in verification)) errors.push(`${prefix}.verification.${field}: missing required field`);
   }
 
-  const verification = (obs.verification ?? {}) as Record<string, unknown>;
-  const hasVerification = Object.keys(verification).length > 0;
-  if (hasVerification) {
+  if (!allowVerifiedFields) {
     for (const field of REQUIRED_VERIFICATION_FIELDS) {
-      if (!(field in verification)) errors.push(`${prefix}.verification.${field}: missing required field`);
-    }
-
-    if (!allowVerifiedFields) {
-      for (const field of REQUIRED_VERIFICATION_FIELDS) {
-        if (verification[field] !== null && verification[field] !== undefined) {
-          errors.push(`${prefix}.verification.${field}: must be null (runtime fills this), got "${verification[field]}"`);
-        }
+      if (verification[field] !== null && verification[field] !== undefined) {
+        errors.push(`${prefix}.verification.${field}: must be null (runtime fills this), got "${verification[field]}"`);
       }
     }
   }
-
-  errors.push(...validateLifecycle(obs.lifecycle as Record<string, unknown> | undefined, prefix));
-
   return errors;
 }
 
@@ -189,7 +263,7 @@ function validateEvidenceSnippet(snippet: unknown, prefix: string, index: number
 
 function normalizeCandidateDocument(input: Record<string, unknown>): CandidateRcclDocument {
   return {
-    version: normalizeRcclVersion(input.version),
+    version: RCCL_VERSION,
     generated_at: typeof input.generated_at === 'string' ? input.generated_at : null,
     git_ref: typeof input.git_ref === 'string' ? input.git_ref : null,
     observations: Array.isArray(input.observations) ? input.observations.map(normalizeCandidateObservation) : [],
@@ -198,36 +272,30 @@ function normalizeCandidateDocument(input: Record<string, unknown>): CandidateRc
 
 function normalizeCandidateObservation(input: unknown): CandidateObservation {
   const item = input as Record<string, unknown>;
-  const support = item.support as Record<string, unknown> | undefined;
-  const sourceSlices = Array.isArray(item.source_slice_ids)
-    ? item.source_slice_ids
-    : Array.isArray(support?.source_slices)
-      ? support?.source_slices
-      : [];
-
+  const supportHint = item.support_hint as Record<string, unknown> | undefined;
   return {
-    provisional_id: String(item.provisional_id ?? item.id),
-    semantic_key: normalizeSemanticKey(String(item.semantic_key ?? item.id ?? '')),
+    provisional_id: String(item.provisional_id),
+    semantic_key: normalizeSemanticKey(String(item.semantic_key)),
     category: item.category as CandidateObservation['category'],
-    scope_hint: normalizeScope(String(item.scope_hint ?? item.scope ?? '**')),
+    scope_hint: normalizeScope(String(item.scope_hint)),
     pattern: String(item.pattern),
-    confidence: Number(item.confidence ?? 0),
+    confidence: Number(item.confidence),
     adherence_quality: item.adherence_quality as CandidateObservation['adherence_quality'],
     evidence: Array.isArray(item.evidence) ? item.evidence.map(normalizeEvidence) : [],
-    source_slice_ids: Array.from(new Set(sourceSlices.map(String))).sort(),
-    support_hint: support == null
+    source_slice_ids: Array.isArray(item.source_slice_ids) ? Array.from(new Set(item.source_slice_ids.map(String))).sort() : [],
+    support_hint: supportHint == null
       ? null
       : {
-          scope_basis: support.scope_basis == null ? null : normalizeScopeBasis(String(support.scope_basis)),
-          file_count: support.file_count == null ? null : Number(support.file_count),
-          cluster_count: support.cluster_count == null ? null : Number(support.cluster_count),
+          scope_basis: supportHint.scope_basis == null ? null : normalizeScopeBasis(String(supportHint.scope_basis)),
+          file_count: supportHint.file_count == null ? null : Number(supportHint.file_count),
+          cluster_count: supportHint.cluster_count == null ? null : Number(supportHint.cluster_count),
         },
   };
 }
 
 function normalizeDocument(input: Record<string, unknown>): RcclDocument {
   return {
-    version: normalizeRcclVersion(input.version),
+    version: RCCL_VERSION,
     generated_at: typeof input.generated_at === 'string' ? input.generated_at : null,
     git_ref: typeof input.git_ref === 'string' ? input.git_ref : null,
     observations: Array.isArray(input.observations) ? input.observations.map(normalizeObservation) : [],
@@ -236,26 +304,24 @@ function normalizeDocument(input: Record<string, unknown>): RcclDocument {
 
 export function normalizeObservation(input: unknown): RcclObservation {
   const item = input as Record<string, unknown>;
-  const verification = normalizeVerification(item.verification as Record<string, unknown> | undefined);
-  const support = normalizeSupport(item.support as Record<string, unknown> | undefined, item.evidence as unknown[] | undefined, normalizeScope(String(item.scope ?? '**')));
   return {
     id: String(item.id),
-    semantic_key: normalizeSemanticKey(String(item.semantic_key ?? item.id ?? '')),
+    semantic_key: normalizeSemanticKey(String(item.semantic_key)),
     category: item.category as RcclObservation['category'],
-    scope: normalizeScope(String(item.scope ?? '**')),
+    scope: normalizeScope(String(item.scope)),
     pattern: String(item.pattern),
-    confidence: Number(item.confidence ?? 0),
+    confidence: Number(item.confidence),
     adherence_quality: item.adherence_quality as RcclObservation['adherence_quality'],
     evidence: Array.isArray(item.evidence) ? item.evidence.map(normalizeEvidence) : [],
-    support,
-    verification,
+    support: normalizeSupport(item.support as Record<string, unknown>),
+    verification: normalizeVerification(item.verification as Record<string, unknown>),
     lifecycle: normalizeLifecycle(item.lifecycle as Record<string, unknown> | undefined),
   };
 }
 
 function normalizeEvidence(input: unknown): RcclEvidence {
   const value = input as Record<string, unknown>;
-  const lineRange = (value.line_range as unknown[]) ?? [1, 1];
+  const lineRange = value.line_range as unknown[];
   return {
     file: normalizePath(String(value.file)),
     line_range: [Number(lineRange[0]), Number(lineRange[1])] as [number, number],
@@ -263,56 +329,24 @@ function normalizeEvidence(input: unknown): RcclEvidence {
   };
 }
 
-function normalizeSupport(input: Record<string, unknown> | undefined, evidence: unknown[] | undefined, scope: string): RcclSupport {
-  const evidenceFiles = Array.from(new Set((evidence ?? []).map((item) => normalizePath(String((item as Record<string, unknown>).file ?? ''))).filter(Boolean)));
-  const fileCount = input?.file_count == null ? Math.max(1, evidenceFiles.length) : Number(input.file_count);
-  const clusterCount = input?.cluster_count == null
-    ? inferFallbackClusterCount(scope, evidenceFiles)
-    : Number(input.cluster_count);
-  const scopeBasis = input?.scope_basis == null
-    ? inferFallbackScopeBasis(scope, fileCount, evidenceFiles)
-    : normalizeScopeBasis(String(input.scope_basis));
+function normalizeSupport(input: Record<string, unknown>): RcclSupport {
   return {
-    source_slices: Array.isArray(input?.source_slices) ? Array.from(new Set(input?.source_slices.map(String))).sort() : [],
-    file_count: fileCount,
-    cluster_count: clusterCount,
-    scope_basis: scopeBasis,
+    source_slices: Array.isArray(input.source_slices) ? Array.from(new Set(input.source_slices.map(String))).sort() : [],
+    file_count: Number(input.file_count),
+    cluster_count: Number(input.cluster_count),
+    scope_basis: normalizeScopeBasis(String(input.scope_basis)),
   };
 }
 
-function inferFallbackClusterCount(scope: string, evidenceFiles: string[]): number {
-  return inferClusterCount(scope, evidenceFiles);
-}
-
-function inferFallbackScopeBasis(scope: string, fileCount: number, evidenceFiles: string[]): RcclSupport['scope_basis'] {
-  return normalizeScopeBasis(inferScopeBasis(scope, fileCount, evidenceFiles));
-}
-
-function inferClusterCount(scope: string, evidenceFiles: string[]): number {
-  if (scope === '**') return Math.max(2, new Set(evidenceFiles.map(rootFromPath)).size);
-  if (scope.includes('/**')) return 1;
-  if (evidenceFiles.length <= 1) return 1;
-  return new Set(evidenceFiles.map(directoryFromPath)).size;
-}
-
-function inferScopeBasis(scope: string, fileCount: number, evidenceFiles: string[]): string {
-  const roots = new Set(evidenceFiles.map(rootFromPath).filter(Boolean));
-  if (scope === '**' || roots.size > 1) return 'cross-root';
-  if (fileCount <= 1 && !scope.includes('*')) return 'single-file';
-  if (scope.includes('/**')) return 'directory-cluster';
-  return 'module-cluster';
-}
-
-function normalizeVerification(input: Record<string, unknown> | undefined): RcclVerification {
-  const verification = input ?? {};
+function normalizeVerification(input: Record<string, unknown>): RcclVerification {
   return {
-    evidence_status: (verification.evidence_status ?? null) as RcclVerification['evidence_status'],
-    evidence_verified_count: verification.evidence_verified_count == null ? null : Number(verification.evidence_verified_count),
-    evidence_confidence: verification.evidence_confidence == null ? null : Number(verification.evidence_confidence),
-    induction_status: (verification.induction_status ?? null) as RcclVerification['induction_status'],
-    induction_confidence: verification.induction_confidence == null ? null : Number(verification.induction_confidence),
-    checked_at: typeof verification.checked_at === 'string' ? verification.checked_at : null,
-    disposition: (verification.disposition ?? null) as RcclVerification['disposition'],
+    evidence_status: (input.evidence_status ?? null) as RcclVerification['evidence_status'],
+    evidence_verified_count: input.evidence_verified_count == null ? null : Number(input.evidence_verified_count),
+    evidence_confidence: input.evidence_confidence == null ? null : Number(input.evidence_confidence),
+    induction_status: (input.induction_status ?? null) as RcclVerification['induction_status'],
+    induction_confidence: input.induction_confidence == null ? null : Number(input.induction_confidence),
+    checked_at: typeof input.checked_at === 'string' ? input.checked_at : null,
+    disposition: (input.disposition ?? null) as RcclVerification['disposition'],
   };
 }
 
@@ -332,24 +366,9 @@ function normalizeLifecycle(input: Record<string, unknown> | undefined): RcclLif
   };
 }
 
-function isSupportedRcclVersion(value: unknown): boolean {
-  return value === '1.0' || value === 1 || value === '2.0' || value === 2;
-}
-
-function normalizeRcclVersion(value: unknown): RcclSchemaVersion {
-  return value === '2.0' || value === 2 ? '2.0' : '1.0';
-}
-
 function normalizeScopeBasis(value: string): RcclSupport['scope_basis'] {
   if (value === 'single-file' || value === 'directory-cluster' || value === 'module-cluster' || value === 'cross-root') return value;
   return 'module-cluster';
-}
-
-function normalizeObservationId(id: string, semanticKey: string, category: string, index: number): string {
-  if (ID_PATTERN.test(id)) return id;
-  const normalizedCategory = category.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'pattern';
-  const normalizedSemanticKey = normalizeSemanticKey(semanticKey).slice(0, 48) || `candidate-${index + 1}`;
-  return `obs-${normalizedCategory}-${normalizedSemanticKey}`;
 }
 
 function normalizeScope(scope: string): string {
@@ -364,31 +383,6 @@ function normalizePath(filePath: string): string {
 function normalizeSemanticKey(value: string): string {
   const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return normalized || 'unknown';
-}
-
-function rootFromPath(filePath: string): string {
-  const normalized = normalizePath(filePath);
-  const [root] = normalized.split('/');
-  return root || normalized;
-}
-
-function directoryFromPath(filePath: string): string {
-  const normalized = normalizePath(filePath);
-  const segments = normalized.split('/').filter(Boolean);
-  if (segments.length <= 1) return normalized;
-  return segments.slice(0, -1).join('/');
-}
-
-function emptyVerification(): RcclVerification {
-  return {
-    evidence_status: null,
-    evidence_verified_count: null,
-    evidence_confidence: null,
-    induction_status: null,
-    induction_confidence: null,
-    checked_at: null,
-    disposition: null,
-  };
 }
 
 export { normalizeDocument };

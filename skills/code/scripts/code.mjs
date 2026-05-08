@@ -3,13 +3,6 @@ import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const FALLBACK_GUIDANCE = [
-  'Preserve correctness before optimization or broad cleanup.',
-  'Prefer clear, legible code over compressed or clever code.',
-  'Match established local conventions at the touched boundary.',
-  'Make the smallest reasonable change that fully solves the task.',
-];
-
 const TASK_CANDIDATE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -209,7 +202,7 @@ export async function prepareCodeTask(options) {
     );
     const suggestedCandidatePath = buildCandidatePath(paths.projectRoot, task);
     const session = {
-      version: 3,
+      version: '1.0',
       status: 'ok',
       createdAt: new Date().toISOString(),
       paths,
@@ -223,7 +216,6 @@ export async function prepareCodeTask(options) {
       },
       compileInput,
       compileOutput: output,
-      fallbackGuidance: FALLBACK_GUIDANCE,
       warnings,
     };
     writeSession(sessionPath, session);
@@ -248,14 +240,13 @@ export async function prepareCodeTask(options) {
     const message = formatError(error);
     const interpretationMode = options.candidateFile ? 'assistive-ai' : 'deterministic-only';
     const candidateSnapshot = loadCandidateFile(options.candidateFile);
-    const suggestedCandidatePath = buildCandidatePath(paths.projectRoot, task);
-    const degradedDiagnostics = {
+    const failureDiagnostics = {
       clarification_recommended: !options.candidateFile,
       ambiguity_reasons: buildAmbiguityHints(task),
     };
     const session = {
-      version: 3,
-      status: 'degraded',
+      version: '1.0',
+      status: 'failed',
       createdAt: new Date().toISOString(),
       paths,
       taskInput: task,
@@ -273,26 +264,24 @@ export async function prepareCodeTask(options) {
         interpretationMode,
       },
       compileOutput: null,
-      fallbackGuidance: FALLBACK_GUIDANCE,
       warnings: [...warnings, `Runtime compile failed: ${message}`],
       error: message,
     };
     writeSession(sessionPath, session);
     return {
-      status: 'degraded',
+      status: 'failed',
       sessionPath,
       paths,
       ego: null,
       trace: null,
-      fallbackGuidance: FALLBACK_GUIDANCE,
       warnings: session.warnings,
       error: message,
       interpretation: {
         mode: interpretationMode,
         candidateFile: options.candidateFile ? resolve(options.candidateFile) : null,
-        diagnostics: degradedDiagnostics,
-        summary: summarizeInterpretationFlow(interpretationMode, options.candidateFile, degradedDiagnostics, candidateSnapshot.length),
-        nextStep: buildPrepareNextStep(interpretationMode, options.candidateFile, degradedDiagnostics, suggestedCandidatePath),
+        diagnostics: failureDiagnostics,
+        summary: summarizeInterpretationFlow(interpretationMode, options.candidateFile, failureDiagnostics, candidateSnapshot.length),
+        nextStep: 'Fix the Runtime compile error and re-run prepare.',
       },
     };
   }

@@ -225,7 +225,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
   }, selectedLayerIds, rccl);
 
   const packet: ChangeDecisionPacket = {
-    version: 2,
+    version: '1.0',
     task: {
       task_kind: resolved.taskKind,
       input: resolved.task,

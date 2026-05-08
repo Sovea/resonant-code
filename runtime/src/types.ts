@@ -16,7 +16,7 @@ export type VerificationStatus = 'pending' | 'verified' | 'partial' | 'failed' |
 export type VerificationDisposition = 'keep' | 'keep-with-reduced-confidence' | 'demote-to-ambient';
 export type InductionStatus = 'well-supported' | 'narrowly-supported' | 'overgeneralized' | 'ambiguous';
 export type ScopeBasis = 'single-file' | 'directory-cluster' | 'module-cluster' | 'cross-root';
-export type RcclSchemaVersion = '1.0' | '2.0';
+export type RcclSchemaVersion = '1.0';
 export type RcclLifecycleStatus = 'active' | 'stale' | 'superseded';
 export type ExecutionMode = 'enforce' | 'deviation-noted' | 'ambient' | 'suppress';
 
@@ -415,7 +415,7 @@ export interface ResolvedTaskOutput {
 }
 
 export interface ChangeDecisionPacket {
-  version: 2;
+  version: '1.0';
   task: {
     task_kind: TaskKind;
     input: CompileTaskInput;
@@ -437,8 +437,8 @@ export interface PrepareInterpretationOutput {
 }
 
 export interface RuntimeSessionRecord {
-  version: 3;
-  status: 'ok' | 'degraded';
+  version: '1.0';
+  status: 'ok' | 'failed';
   createdAt: string;
   paths: {
     projectRoot: string;
@@ -469,20 +469,18 @@ export interface RuntimeSessionRecord {
     interpretationMode?: InputProvenance['interpretation_mode'];
   };
   compileOutput: CompileOutput | null;
-  fallbackGuidance: string[];
   warnings: string[];
   error?: string;
 }
 
 export interface PrepareCodeTaskResult {
-  status: 'ok' | 'degraded';
+  status: 'ok' | 'failed';
   sessionPath: string;
   paths: RuntimeSessionRecord['paths'];
   packet?: ChangeDecisionPacket;
   ego: EffectiveGuidanceObject | null;
   trace: DecisionTrace | null;
   warnings: string[];
-  fallbackGuidance?: string[];
   error?: string;
 }
 
@@ -518,7 +516,7 @@ export interface CompileOutput {
 
 export interface EvaluateInput {
   ego: EffectiveGuidanceObject;
-  packet?: ChangeDecisionPacket;
+  packet: ChangeDecisionPacket;
   lockfilePath: string;
   followedDirectiveIds?: string[];
   ignoredDirectiveIds?: string[];
@@ -571,7 +569,7 @@ export interface LockfileDirectiveEntry {
 }
 
 export interface LockfileDocument {
-  version: 2;
+  version: '1.0';
   directives: Record<string, LockfileDirectiveEntry>;
   observations: Record<string, LockfileObservationEntry>;
   tensions: Record<string, LockfileTensionEntry>;

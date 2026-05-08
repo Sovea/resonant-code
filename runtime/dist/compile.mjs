@@ -181,7 +181,7 @@ async function compile(input) {
 		builtinLayers: sources.builtinLayers
 	}, selectedLayerIds, rccl);
 	return compileResolvedOutput({
-		version: 2,
+		version: "1.0",
 		task: {
 			task_kind: resolved.taskKind,
 			input: resolved.task

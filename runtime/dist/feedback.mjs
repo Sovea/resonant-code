@@ -1,9 +1,6 @@
 import { parseYaml, toYaml } from "./utils/yaml.mjs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 //#region src/feedback.ts
-/**
-* Updates the runtime lockfile with per-directive quality signals.
-*/
 function evaluateGuidance(input) {
 	const existing = loadLockfile(input.lockfilePath);
 	const trackedDirectiveIds = getTrackedDirectiveIds(input);
@@ -13,7 +10,7 @@ function evaluateGuidance(input) {
 	const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 	const now = (/* @__PURE__ */ new Date()).toISOString();
 	const modeCounts = summarizeExecutionModes(input);
-	const tensionCount = input.packet?.governance.semantic_merge.context_tensions.length ?? input.ego.guidance.context_tensions.length;
+	const tensionCount = input.packet.governance.semantic_merge.context_tensions.length;
 	const observedRccl = getObservedRccl(input);
 	existing.governance_summary.total_tasks += 1;
 	existing.governance_summary.by_task_type[taskType] = (existing.governance_summary.by_task_type[taskType] ?? 0) + 1;
@@ -55,37 +52,21 @@ function evaluateGuidance(input) {
 function loadLockfile(filePath) {
 	if (!existsSync(filePath)) return createDocument();
 	const parsed = parseYaml(readFileSync(filePath, "utf-8"));
-	if (isLockfileDocument(parsed)) return {
-		version: 2,
+	if (!isLockfileDocument(parsed)) return createDocument();
+	return {
+		version: "1.0",
 		directives: parsed.directives,
-		observations: normalizeObservationEntries(parsed.observations ?? {}),
-		tensions: parsed.tensions ?? {},
-		governance_summary: {
-			...parsed.governance_summary,
-			last_observation_count: parsed.governance_summary.last_observation_count ?? 0
-		}
+		observations: normalizeObservationEntries(parsed.observations),
+		tensions: parsed.tensions,
+		governance_summary: parsed.governance_summary
 	};
-	if (isDirectiveRecord(parsed)) return {
-		version: 2,
-		directives: parsed,
-		observations: {},
-		tensions: {},
-		governance_summary: {
-			total_tasks: 0,
-			by_task_type: {},
-			last_execution_modes: emptyModeCounts(),
-			last_tension_count: 0,
-			last_observation_count: 0,
-			last_updated_at: ""
-		}
-	};
-	return createDocument();
 }
 function isLockfileDocument(value) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-	return "directives" in value && "governance_summary" in value;
+	const candidate = value;
+	return candidate.version === "1.0" && isRecord(candidate.directives) && isRecord(candidate.observations) && isRecord(candidate.tensions) && Boolean(candidate.governance_summary) && typeof candidate.governance_summary === "object";
 }
-function isDirectiveRecord(value) {
+function isRecord(value) {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function normalizeObservationEntries(entries) {
@@ -96,7 +77,7 @@ function normalizeObservationEntries(entries) {
 	}]));
 }
 function updateObservationFeedback(existing, observations, input, now) {
-	const observationStates = new Map((input.packet?.governance.semantic_merge.observation_states ?? []).map((state) => [state.observation_id, state]));
+	const observationStates = new Map(input.packet.governance.semantic_merge.observation_states.map((state) => [state.observation_id, state]));
 	for (const [observationId, relationCount] of observations) {
 		const entry = existing.observations[observationId] ?? createObservationEntry();
 		const state = observationStates.get(observationId);
@@ -113,8 +94,7 @@ function updateObservationFeedback(existing, observations, input, now) {
 	}
 }
 function updateTensionFeedback(existing, input, now) {
-	const tensions = input.packet?.governance.semantic_merge.context_tensions ?? [];
-	for (const tension of tensions) {
+	for (const tension of input.packet.governance.semantic_merge.context_tensions) {
 		if (!tension.observation_id) continue;
 		const key = `${tension.directive_id}::${tension.observation_id}`;
 		const entry = existing.tensions[key] ?? createTensionEntry(tension.directive_id, tension.observation_id, tension.execution_mode);
@@ -126,12 +106,11 @@ function updateTensionFeedback(existing, input, now) {
 }
 function getObservedRccl(input) {
 	const counts = /* @__PURE__ */ new Map();
-	const relations = input.packet?.governance.semantic_merge.relations ?? [];
-	for (const relation of relations) {
+	for (const relation of input.packet.governance.semantic_merge.relations) {
 		if (!relation.observation_id) continue;
 		counts.set(relation.observation_id, (counts.get(relation.observation_id) ?? 0) + 1);
 	}
-	for (const link of input.packet?.governance.semantic_merge.observation_links ?? []) if (!counts.has(link.observation_id)) counts.set(link.observation_id, link.directive_ids.length);
+	for (const link of input.packet.governance.semantic_merge.observation_links) if (!counts.has(link.observation_id)) counts.set(link.observation_id, link.directive_ids.length);
 	return counts;
 }
 function createObservationEntry() {
@@ -158,7 +137,7 @@ function createTensionEntry(directiveId, observationId, executionMode) {
 }
 function createDocument() {
 	return {
-		version: 2,
+		version: "1.0",
 		directives: {},
 		observations: {},
 		tensions: {},
@@ -202,19 +181,11 @@ function emptyModeCounts() {
 	};
 }
 function getTrackedDirectiveIds(input) {
-	if (input.packet) return input.packet.governance.semantic_merge.directive_modes.filter((directive) => directive.execution_mode !== "suppress").map((directive) => directive.directive_id);
-	return input.ego.guidance.must_follow.map((directive) => directive.id);
+	return input.packet.governance.semantic_merge.directive_modes.filter((directive) => directive.execution_mode !== "suppress").map((directive) => directive.directive_id);
 }
 function summarizeExecutionModes(input) {
 	const counts = emptyModeCounts();
-	const directives = input.packet?.governance.semantic_merge.directive_modes ?? input.ego.guidance.must_follow.map((directive) => ({
-		directive_id: directive.id,
-		observation_ids: [],
-		execution_mode: directive.execution_mode,
-		reason: "derived from effective guidance fallback",
-		decision_basis: "default"
-	}));
-	for (const directive of directives) counts[directive.execution_mode] += 1;
+	for (const directive of input.packet.governance.semantic_merge.directive_modes) counts[directive.execution_mode] += 1;
 	return counts;
 }
 function computeFollowRate(entry) {

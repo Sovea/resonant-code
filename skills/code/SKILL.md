@@ -80,10 +80,10 @@ If `status` is `ok`:
 - Use `ego.guidance.ambient` only as background repository context.
 - Treat `trace` as developer/debug output. Do not dump it to the user unless it helps explain a conflict or failure.
 
-If `status` is `degraded`:
-- State briefly that Runtime guidance was unavailable.
-- Continue with reduced guidance only: correctness, clarity, local consistency, minimal change.
-- Do not fall back to manually parsing playbook YAML.
+If `status` is `failed`:
+- Stop before implementation and report the Runtime compile error briefly.
+- Fix the Runtime issue or task interpretation input, then re-run prepare.
+- Do not continue with generic fallback guidance or manually parse playbook YAML.
 
 ### Step 2 - Implement the task
 

@@ -21,7 +21,7 @@ export function emitRccl(rccl: RcclDocument, projectRoot: string): EmitRcclResul
   const stats = summarizeLifecycleStats(finalObservations, activeObservations, existingById);
 
   const finalDoc: RcclDocument = {
-    version: '2.0',
+    version: '1.0',
     generated_at: now,
     git_ref: gitRef,
     observations: finalObservations,
