@@ -1,4 +1,5 @@
 import { parseYaml } from "../../utils/yaml.mjs";
+import { SEMANTIC_RELATION_POLICY } from "../relations/policy.mjs";
 import { existsSync, readFileSync } from "node:fs";
 //#region src/ir/adapters/feedback.ts
 function feedbackToIR(lockfilePath) {
@@ -20,8 +21,8 @@ function feedbackToIR(lockfilePath) {
 			totalTasks: parsed.governance_summary?.total_tasks ?? 0,
 			byTaskType: parsed.governance_summary?.by_task_type ?? {},
 			noisyDirectiveIds: [],
-			frequentlyIgnoredDirectiveIds: directiveSignals.filter((signal) => signal.ignored >= 2 && signal.followRate < .75).map((signal) => signal.directiveId),
-			recurringTensionKeys: tensionSignals.filter((signal) => signal.seenCount >= 2).map((signal) => signal.tensionKey)
+			frequentlyIgnoredDirectiveIds: directiveSignals.filter((signal) => signal.ignored >= SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredMinIgnored && signal.followRate < SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredFollowRate).map((signal) => signal.directiveId),
+			recurringTensionKeys: tensionSignals.filter((signal) => signal.seenCount >= SEMANTIC_RELATION_POLICY.feedback.recurringTensionSeenCount).map((signal) => signal.tensionKey)
 		}
 	};
 }
@@ -45,9 +46,26 @@ function directiveSignalToIR(directiveId, entry) {
 		ignored: overall?.ignored ?? 0,
 		followRate: overall?.follow_rate ?? 0,
 		trend: overall?.trend ?? "stable",
-		signalConfidence: "implicit",
+		signalConfidence: validSignalConfidence(entry.quality_signal?.signal_confidence) ? entry.quality_signal.signal_confidence : "implicit",
+		ignoredReasons: normalizeIgnoredReasons(entry.quality_signal?.ignored_reasons),
+		...validIgnoredReason(entry.quality_signal?.last_ignored_reason) ? { lastIgnoredReason: entry.quality_signal.last_ignored_reason } : {},
 		lastSeen: entry.quality_signal?.last_seen ?? ""
 	};
+}
+function normalizeIgnoredReasons(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const result = {};
+	for (const [reason, count] of Object.entries(value)) {
+		if (!validIgnoredReason(reason) || typeof count !== "number" || !Number.isFinite(count) || count <= 0) continue;
+		result[reason] = count;
+	}
+	return result;
+}
+function validIgnoredReason(value) {
+	return value === "not-applicable" || value === "conflicts-with-task" || value === "too-broad" || value === "repo-reality" || value === "false-positive" || value === "user-corrected" || value === "other";
+}
+function validSignalConfidence(value) {
+	return value === "implicit" || value === "explicit" || value === "review-confirmed" || value === "user-corrected";
 }
 function observationSignalToIR(observationId, entry) {
 	return {

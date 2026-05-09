@@ -4,6 +4,8 @@ import type {
   DirectiveIR,
   GovernanceIRBundle,
   HostProposalIR,
+  HostSemanticCandidateProposal,
+  HostSemanticCandidateProposalPayload,
   HostSemanticRelationProposal,
   HostSemanticRelationProposalPayload,
   ObservationIR,
@@ -13,6 +15,8 @@ import type {
   SemanticRelationSignalIR,
   TaskIR,
 } from '../types.ts';
+import { proposeFeedbackRelations } from './propose-feedback-relations.ts';
+import { SEMANTIC_RELATION_POLICY } from './policy.ts';
 
 const MINIMUM_HOST_CONFIDENCE = 0.5;
 const REVIEW_PRIORITIES: SemanticRelationReviewPriorityIR[] = ['low', 'normal', 'high', 'critical'];
@@ -39,6 +43,8 @@ export function proposeSemanticRelations(bundle: GovernanceIRBundle): SemanticRe
   return [
     ...proposeRuntimeStructuralRelations(bundle),
     ...proposeHostSemanticRelations(bundle),
+    ...proposeHostSemanticCandidateRelations(bundle),
+    ...proposeFeedbackRelations(bundle),
   ];
 }
 
@@ -156,12 +162,42 @@ function proposeHostSemanticRelations(bundle: GovernanceIRBundle): SemanticRelat
   });
 }
 
+function proposeHostSemanticCandidateRelations(bundle: GovernanceIRBundle): SemanticRelationIR[] {
+  const directiveIds = new Set(bundle.directives.map((directive) => directive.id));
+  const observationIds = new Set(bundle.observations.map((observation) => observation.id));
+  const byDirective = new Map<string, Array<{ proposal: HostProposalIR; candidate: HostSemanticCandidateProposal }>>();
+
+  for (const proposal of bundle.hostProposals) {
+    if (proposal.kind !== 'semantic-candidate') continue;
+    for (const candidate of semanticCandidatePayload(proposal).candidates) {
+      if (!directiveIds.has(candidate.directive_id) || !observationIds.has(candidate.observation_id)) continue;
+      if (!Number.isFinite(candidate.confidence) || candidate.confidence < SEMANTIC_RELATION_POLICY.hostSemantic.minConfidence) continue;
+      const current = byDirective.get(candidate.directive_id) ?? [];
+      current.push({ proposal, candidate });
+      byDirective.set(candidate.directive_id, current);
+    }
+  }
+
+  return [...byDirective.values()].flatMap((items) => items
+    .sort((left, right) => right.candidate.confidence - left.candidate.confidence)
+    .slice(0, SEMANTIC_RELATION_POLICY.hostSemantic.maxCandidatesPerDirective)
+    .map(({ proposal, candidate }) => toHostSemanticCandidateRelationIR(proposal, candidate, bundle)));
+}
+
 function semanticRelationPayload(proposal: HostProposalIR): HostSemanticRelationProposalPayload {
   const payload = proposal.payload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { relations: [] };
   const relations = (payload as Partial<HostSemanticRelationProposalPayload>).relations;
   if (!Array.isArray(relations)) return { relations: [] };
   return { relations: relations.filter(isHostSemanticRelationProposal) };
+}
+
+function semanticCandidatePayload(proposal: HostProposalIR): HostSemanticCandidateProposalPayload {
+  const payload = proposal.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { candidates: [] };
+  const candidates = (payload as Partial<HostSemanticCandidateProposalPayload>).candidates;
+  if (!Array.isArray(candidates)) return { candidates: [] };
+  return { candidates: candidates.filter(isHostSemanticCandidateProposal) };
 }
 
 function isHostSemanticRelationProposal(value: unknown): value is HostSemanticRelationProposal {
@@ -174,12 +210,29 @@ function isHostSemanticRelationProposal(value: unknown): value is HostSemanticRe
     && typeof candidate.reason === 'string';
 }
 
+function isHostSemanticCandidateProposal(value: unknown): value is HostSemanticCandidateProposal {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Partial<HostSemanticCandidateProposal>;
+  return typeof candidate.directive_id === 'string'
+    && typeof candidate.observation_id === 'string'
+    && isCandidateHint(candidate.relation_hint)
+    && typeof candidate.confidence === 'number'
+    && typeof candidate.reason === 'string';
+}
+
 function isRelation(value: unknown): value is HostSemanticRelationProposal['relation'] {
   return value === 'reinforce'
     || value === 'tension'
     || value === 'suppress'
     || value === 'ambient-only'
     || value === 'unrelated';
+}
+
+function isCandidateHint(value: unknown): value is HostSemanticCandidateProposal['relation_hint'] {
+  return value === 'reinforce'
+    || value === 'tension'
+    || value === 'ambient-only'
+    || value === 'unknown';
 }
 
 function toHostSemanticRelationIR(
@@ -230,6 +283,55 @@ function toHostSemanticRelationIR(
   };
 }
 
+function toHostSemanticCandidateRelationIR(
+  proposal: HostProposalIR,
+  candidate: HostSemanticCandidateProposal,
+  bundle: GovernanceIRBundle,
+): SemanticRelationIR {
+  const directive = requiredDirective(bundle.directives, candidate.directive_id);
+  const observation = requiredObservation(bundle.observations, candidate.observation_id);
+  const relation = candidate.relation_hint === 'unknown' ? 'ambient-only' : candidate.relation_hint;
+  const taskScoped = scopeMatchesTask(directive.scope.path, bundle.task) && scopeMatchesTask(observation.scope.path, bundle.task);
+  const evidenceRefs = normalizedCandidateEvidenceRefs(candidate, observation);
+  const signals = normalizeCandidateSignals(candidate, observation, taskScoped, relation);
+  const impact = normalizedImpact(candidate.impact) ?? defaultImpact(relation);
+  const reviewPriority = normalizedReviewPriority(candidate.review_priority) ?? defaultReviewPriority(directive, relation);
+  const mergeIntent = normalizedOptionalString(candidate.merge_intent, 360);
+  const groupId = normalizedOptionalString(candidate.group_id, 120);
+  const conflictClass = inferConflictClass(directive, observation, relation);
+
+  return {
+    irVersion: 'governance-ir/v1',
+    id: stableHash(['semantic-relation-ir', proposal.source.id, 'candidate', candidate.directive_id, candidate.observation_id, candidate.relation_hint, candidate.reason, signals, impact, reviewPriority, mergeIntent, groupId]),
+    directiveId: candidate.directive_id,
+    observationId: candidate.observation_id,
+    proposedBy: 'host-semantic-candidate',
+    relation,
+    ...(conflictClass ? { conflictClass } : {}),
+    confidence: clampConfidence(candidate.confidence),
+    basis: {
+      scope: taskScoped,
+      semanticKey: false,
+      category: false,
+      evidence: hasVerifiedEvidence(observation),
+      hostReasoning: true,
+      feedback: false,
+    },
+    signals,
+    evidenceRefs,
+    reasoningSummary: candidate.reason.trim(),
+    impact,
+    reviewPriority,
+    ...(mergeIntent ? { mergeIntent } : {}),
+    ...(groupId ? { groupId } : {}),
+    adjudication: {
+      status: 'accepted',
+      finalRelation: relation,
+      reason: 'initial host semantic candidate before adjudication',
+    },
+  };
+}
+
 function requiredDirective(directives: DirectiveIR[], id: string): DirectiveIR {
   const directive = directives.find((item) => item.id === id);
   if (!directive) throw new Error(`Missing directive for semantic relation proposal: ${id}`);
@@ -246,6 +348,18 @@ function normalizedEvidenceRefs(relation: HostSemanticRelationProposal, observat
   const allowed = new Set(observationEvidenceRefs(observation));
   if (Array.isArray(relation.evidence_refs)) {
     const filtered = unique(relation.evidence_refs
+      .filter((reference): reference is string => typeof reference === 'string')
+      .map((reference) => reference.trim())
+      .filter((reference) => allowed.has(reference)));
+    if (filtered.length) return filtered;
+  }
+  return [...allowed];
+}
+
+function normalizedCandidateEvidenceRefs(candidate: HostSemanticCandidateProposal, observation: ObservationIR): string[] {
+  const allowed = new Set(observationEvidenceRefs(observation));
+  if (Array.isArray(candidate.evidence_refs)) {
+    const filtered = unique(candidate.evidence_refs
       .filter((reference): reference is string => typeof reference === 'string')
       .map((reference) => reference.trim())
       .filter((reference) => allowed.has(reference)));
@@ -308,6 +422,40 @@ function normalizeSignals(
       reason: `RCCL lifecycle status is ${observation.lifecycle.status}`,
     },
     ...hostSignals,
+  ];
+}
+
+function normalizeCandidateSignals(
+  candidate: HostSemanticCandidateProposal,
+  observation: ObservationIR,
+  taskScoped: boolean,
+  relation: SemanticRelationIR['relation'],
+): SemanticRelationSignalIR[] {
+  return [
+    {
+      kind: 'host-proposal',
+      strength: candidate.confidence >= 0.85 ? 'strong' : 'moderate',
+      direction: relationToSignalDirection(relation),
+      reason: `host semantic candidate: ${candidate.reason.trim()}`,
+    },
+    {
+      kind: 'scope',
+      strength: taskScoped ? 'strong' : 'weak',
+      direction: taskScoped ? 'neutral' : 'ambient',
+      reason: taskScoped ? 'host semantic candidate matches task-scoped directive and observation' : 'host semantic candidate is outside the concrete task scope',
+    },
+    {
+      kind: 'verification',
+      strength: verificationStrength(observation),
+      direction: observation.verification.disposition === 'demote-to-ambient' ? 'ambient' : 'neutral',
+      reason: `RCCL verification disposition is ${observation.verification.disposition}`,
+    },
+    {
+      kind: 'lifecycle',
+      strength: observation.lifecycle.status === 'active' ? 'strong' : 'weak',
+      direction: observation.lifecycle.status === 'superseded' || observation.lifecycle.status === 'stale' ? 'ambient' : 'neutral',
+      reason: `RCCL lifecycle status is ${observation.lifecycle.status}`,
+    },
   ];
 }
 
@@ -380,7 +528,7 @@ function isSignalDirection(value: unknown): value is SemanticRelationSignalIR['d
   return value === 'reinforce' || value === 'tension' || value === 'suppress' || value === 'ambient' || value === 'neutral';
 }
 
-function relationToSignalDirection(relation: HostSemanticRelationProposal['relation']): SemanticRelationSignalIR['direction'] {
+function relationToSignalDirection(relation: SemanticRelationIR['relation']): SemanticRelationSignalIR['direction'] {
   if (relation === 'ambient-only' || relation === 'unrelated') return 'ambient';
   return relation;
 }

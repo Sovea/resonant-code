@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { parseYaml } from '../../utils/yaml.ts';
 import type { DirectiveFeedbackSignalIR, FeedbackIR, ObservationFeedbackSignalIR, TensionFeedbackSignalIR } from '../types.ts';
+import type { FeedbackSignalConfidence, IgnoredReason } from '../../types.ts';
+import { SEMANTIC_RELATION_POLICY } from '../relations/policy.ts';
 
 interface LockfileDirectiveLike {
   quality_signal?: {
@@ -10,6 +12,9 @@ interface LockfileDirectiveLike {
       follow_rate?: number;
       trend?: 'improving' | 'stable' | 'degrading';
     };
+    ignored_reasons?: Partial<Record<IgnoredReason, number>>;
+    last_ignored_reason?: IgnoredReason;
+    signal_confidence?: FeedbackSignalConfidence;
     last_seen?: string;
   };
 }
@@ -64,10 +69,12 @@ export function feedbackToIR(lockfilePath?: string): FeedbackIR {
       byTaskType: parsed.governance_summary?.by_task_type ?? {},
       noisyDirectiveIds: [],
       frequentlyIgnoredDirectiveIds: directiveSignals
-        .filter((signal) => signal.ignored >= 2 && signal.followRate < 0.75)
+        .filter((signal) =>
+          signal.ignored >= SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredMinIgnored
+          && signal.followRate < SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredFollowRate)
         .map((signal) => signal.directiveId),
       recurringTensionKeys: tensionSignals
-        .filter((signal) => signal.seenCount >= 2)
+        .filter((signal) => signal.seenCount >= SEMANTIC_RELATION_POLICY.feedback.recurringTensionSeenCount)
         .map((signal) => signal.tensionKey),
     },
   };
@@ -97,9 +104,42 @@ function directiveSignalToIR(directiveId: string, entry: LockfileDirectiveLike):
     ignored: overall?.ignored ?? 0,
     followRate: overall?.follow_rate ?? 0,
     trend: overall?.trend ?? 'stable',
-    signalConfidence: 'implicit',
+    signalConfidence: validSignalConfidence(entry.quality_signal?.signal_confidence)
+      ? entry.quality_signal.signal_confidence
+      : 'implicit',
+    ignoredReasons: normalizeIgnoredReasons(entry.quality_signal?.ignored_reasons),
+    ...(validIgnoredReason(entry.quality_signal?.last_ignored_reason)
+      ? { lastIgnoredReason: entry.quality_signal.last_ignored_reason }
+      : {}),
     lastSeen: entry.quality_signal?.last_seen ?? '',
   };
+}
+
+function normalizeIgnoredReasons(value: unknown): Partial<Record<IgnoredReason, number>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result: Partial<Record<IgnoredReason, number>> = {};
+  for (const [reason, count] of Object.entries(value)) {
+    if (!validIgnoredReason(reason) || typeof count !== 'number' || !Number.isFinite(count) || count <= 0) continue;
+    result[reason] = count;
+  }
+  return result;
+}
+
+function validIgnoredReason(value: unknown): value is IgnoredReason {
+  return value === 'not-applicable'
+    || value === 'conflicts-with-task'
+    || value === 'too-broad'
+    || value === 'repo-reality'
+    || value === 'false-positive'
+    || value === 'user-corrected'
+    || value === 'other';
+}
+
+function validSignalConfidence(value: unknown): value is FeedbackSignalConfidence {
+  return value === 'implicit'
+    || value === 'explicit'
+    || value === 'review-confirmed'
+    || value === 'user-corrected';
 }
 
 function observationSignalToIR(observationId: string, entry: LockfileObservationLike): ObservationFeedbackSignalIR {

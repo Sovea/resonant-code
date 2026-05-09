@@ -12,6 +12,7 @@ import type {
 } from '../../types.ts';
 import type { ExecutionDecisionIR, SemanticRelationIR } from '../types.ts';
 import { semanticRelationsIRToPublic } from '../relations/public-mapping.ts';
+import { semanticRelationPolicyTraceRecord } from '../relations/policy.ts';
 
 export function projectIRSemanticMergeToPublic(
   directives: Directive[],
@@ -51,7 +52,7 @@ export function projectIRSemanticMergeToPublic(
     })),
     observation_states: observationStates,
     relations,
-    merge_summary: buildMergeSummary(relationsIR),
+    merge_summary: buildMergeSummary(relationsIR, executionDecisionsIR),
     focus: {
       review_focus: uniqueFocus(reviewFocus),
     },
@@ -92,6 +93,7 @@ function projectExecutionDecision(
     reason: decision.reason,
     decision_basis: publicDecisionBasis(decision.basis),
     context_applied: decision.contextApplied,
+    feedback_applied: decision.feedbackApplied,
   };
 }
 
@@ -184,6 +186,16 @@ function buildReviewFocus(
         group_id: decision.relation_summaries[0]?.group_id,
       });
     }
+    if (decision.feedback_applied.includes('feedback:frequently-ignored-must-review')) {
+      reviewFocus.push({
+        kind: 'high-priority-directive',
+        directive_id: directive.id,
+        reason: `Review ${directive.id} because lockfile feedback shows repeated ignores; Runtime did not weaken must-level execution.`,
+        priority: 'high',
+        relation_id: decision.relation_summaries[0]?.relation_id,
+        group_id: decision.relation_summaries[0]?.group_id,
+      });
+    }
   }
 
   for (const tension of contextTensions) {
@@ -240,7 +252,7 @@ function relationSummary(relation: SemanticRelationIR): SemanticMergeRelationSum
   };
 }
 
-function buildMergeSummary(relations: SemanticRelationIR[]): SemanticMergeResult['merge_summary'] {
+function buildMergeSummary(relations: SemanticRelationIR[], decisions: ExecutionDecisionIR[]): SemanticMergeResult['merge_summary'] {
   const final_relation_counts = emptyRelationCounts();
   const proposed_by_counts: Record<string, number> = {};
   const review_priority_counts = { low: 0, normal: 0, high: 0, critical: 0 };
@@ -267,7 +279,10 @@ function buildMergeSummary(relations: SemanticRelationIR[]): SemanticMergeResult
     final_relation_counts,
     proposed_by_counts,
     execution_mode_impacting: executionModeImpacting,
+    feedback_applied_count: decisions.reduce((count, decision) => count + decision.feedbackApplied.length, 0),
+    host_semantic_candidate_count: relations.filter(hasHostSemanticCandidateSource).length,
     review_priority_counts,
+    policy: semanticRelationPolicyTraceRecord(),
   };
 }
 
@@ -305,16 +320,30 @@ function directiveFocusPriority(
   return 'low';
 }
 
+function hasHostSemanticCandidateSource(relation: SemanticRelationIR): boolean {
+  return relation.proposedBy === 'host-semantic-candidate'
+    || relation.signals.some((signal) => signal.kind === 'host-proposal' && signal.reason.startsWith('host semantic candidate:'));
+}
+
 function buildContextInfluences(decisions: ExecutionDecisionIR[]): ContextInfluenceRecord[] {
-  return decisions.flatMap((decision) => decision.contextApplied.map((context) => {
-    const [field, value] = context.split(':');
-    return {
-      field: publicContextField(field),
-      value: value ?? '',
+  return decisions.flatMap((decision) => {
+    const contextInfluences = decision.contextApplied.map((context) => {
+      const [field, value] = context.split(':');
+      return {
+        field: publicContextField(field),
+        value: value ?? '',
+        directive_id: decision.directiveId,
+        effect: contextInfluenceEffect(context, decision.mode),
+      };
+    });
+    const feedbackInfluences = decision.feedbackApplied.map((feedback) => ({
+      field: 'feedback' as const,
+      value: feedback,
       directive_id: decision.directiveId,
-      effect: contextInfluenceEffect(context, decision.mode),
-    };
-  }));
+      effect: contextInfluenceEffect(feedback, decision.mode),
+    }));
+    return [...contextInfluences, ...feedbackInfluences];
+  });
 }
 
 function publicContextField(field: string): ContextInfluenceRecord['field'] {
@@ -323,6 +352,7 @@ function publicContextField(field: string): ContextInfluenceRecord['field'] {
     case 'hard_constraints':
     case 'allowed_tradeoffs':
     case 'avoid':
+    case 'feedback':
       return field;
     default:
       return 'project_stage';
@@ -341,6 +371,9 @@ function contextInfluenceEffect(context: string, mode: ExecutionMode): string {
   }
   if (context.startsWith('avoid:')) {
     return `adjusted execution to ${mode} for task avoidance guidance`;
+  }
+  if (context.startsWith('feedback:')) {
+    return `recorded feedback influence while resolving execution to ${mode}`;
   }
   return `adjusted execution to ${mode} for task context`;
 }

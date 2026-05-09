@@ -19,6 +19,8 @@ export type ScopeBasis = 'single-file' | 'directory-cluster' | 'module-cluster' 
 export type RcclSchemaVersion = '1.0';
 export type RcclLifecycleStatus = 'active' | 'stale' | 'superseded';
 export type ExecutionMode = 'enforce' | 'deviation-noted' | 'ambient' | 'suppress';
+export type IgnoredReason = 'not-applicable' | 'conflicts-with-task' | 'too-broad' | 'repo-reality' | 'false-positive' | 'user-corrected' | 'other';
+export type FeedbackSignalConfidence = 'implicit' | 'explicit' | 'review-confirmed' | 'user-corrected';
 
 export interface DirectiveExampleSide {
   code: string;
@@ -357,7 +359,7 @@ export interface DirectiveObservationRelation {
   confidence: number;
   basis: Array<'scope' | 'verification' | 'category' | 'context'>;
   reason: string;
-  proposed_by: 'runtime-structural' | 'host-agent' | 'feedback' | 'multi-source';
+  proposed_by: 'runtime-structural' | 'host-agent' | 'host-semantic-candidate' | 'feedback' | 'multi-source';
   adjudication_status: 'accepted' | 'rejected' | 'downgraded';
   final_relation: RelationKind;
   conflict_class?: string;
@@ -393,7 +395,7 @@ export interface SemanticMergeContextFocus {
 export interface SemanticMergeTensionRecord extends TensionRecord {}
 
 export interface ContextInfluenceRecord {
-  field: 'optimization_target' | 'hard_constraints' | 'allowed_tradeoffs' | 'avoid' | 'project_stage';
+  field: 'optimization_target' | 'hard_constraints' | 'allowed_tradeoffs' | 'avoid' | 'project_stage' | 'feedback';
   value: string;
   directive_id?: string;
   effect: string;
@@ -409,6 +411,7 @@ export interface SemanticMergeDirectiveLink {
   reason: string;
   decision_basis: 'default' | 'observed-conflict' | 'anti-pattern' | 'rccl-immune' | 'context-adjusted';
   context_applied: string[];
+  feedback_applied: string[];
 }
 
 export interface SemanticMergeRelationSummary {
@@ -450,7 +453,21 @@ export interface SemanticMergeResult {
     final_relation_counts: Record<RelationKind, number>;
     proposed_by_counts: Record<string, number>;
     execution_mode_impacting: number;
+    feedback_applied_count: number;
+    host_semantic_candidate_count: number;
     review_priority_counts: Record<'low' | 'normal' | 'high' | 'critical', number>;
+    policy: {
+      host_semantic: {
+        min_confidence: number;
+        max_candidates_per_directive: number;
+      };
+      feedback: {
+        frequently_ignored_follow_rate: number;
+        frequently_ignored_min_ignored: number;
+        recurring_tension_seen_count: number;
+        noisy_observation_relation_count: number;
+      };
+    };
   };
   focus: SemanticMergeContextFocus;
   context_influences: ContextInfluenceRecord[];
@@ -522,6 +539,7 @@ export interface RuntimeSessionRecord {
     interpretationMode?: InputProvenance['interpretation_mode'];
     hostProposals?: import('./ir/types.ts').HostProposalIR[];
     hostProposalFile?: string;
+    semanticProposalFile?: string;
   };
   compileOutput: CompileOutput | null;
   warnings: string[];
@@ -545,6 +563,8 @@ export interface CompleteCodeTaskResult {
   lockfilePath: string | null;
   followedDirectiveIds?: string[];
   ignoredDirectiveIds?: string[];
+  ignoredDirectiveReasons?: Partial<Record<string, IgnoredReason>>;
+  signalConfidence?: FeedbackSignalConfidence;
   reason?: string;
 }
 
@@ -575,6 +595,8 @@ export interface EvaluateInput {
   lockfilePath: string;
   followedDirectiveIds?: string[];
   ignoredDirectiveIds?: string[];
+  ignoredDirectiveReasons?: Partial<Record<string, IgnoredReason>>;
+  signalConfidence?: FeedbackSignalConfidence;
 }
 
 export interface LockfileSignal {
@@ -616,6 +638,9 @@ export interface LockfileDirectiveEntry {
   quality_signal: {
     overall: LockfileSignal;
     by_task_type: Record<string, { followed: number; ignored: number }>;
+    ignored_reasons: Partial<Record<IgnoredReason, number>>;
+    last_ignored_reason?: IgnoredReason;
+    signal_confidence: FeedbackSignalConfidence;
     last_seen: string;
   };
   governance?: {

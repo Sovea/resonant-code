@@ -1,10 +1,13 @@
+import { SEMANTIC_RELATION_POLICY } from "../relations/policy.mjs";
 //#region src/ir/execution/resolve-execution.ts
 function resolveExecutionDecisionsIR(bundle, relations) {
 	const relationsByDirective = groupEffectiveRelations(relations);
 	return bundle.directives.map((directive) => {
 		const linkedRelations = relationsByDirective.get(directive.id) ?? [];
 		const defaultDecision = deriveDirectiveDecision(directive, linkedRelations);
-		const decision = applyContextAdjustments(directive, linkedRelations, defaultDecision, bundle.task.context);
+		const contextDecision = applyContextAdjustments(directive, linkedRelations, defaultDecision, bundle.task.context);
+		const feedbackEffects = feedbackSignalsForDirective(bundle, directive, linkedRelations);
+		const decision = applyFeedbackAdjustments(directive, contextDecision, feedbackEffects);
 		return {
 			directiveId: directive.id,
 			mode: decision.mode,
@@ -12,7 +15,7 @@ function resolveExecutionDecisionsIR(bundle, relations) {
 			basis: decision.basis,
 			relationIds: linkedRelations.map((relation) => relation.id),
 			contextApplied: decision.contextApplied,
-			feedbackApplied: feedbackSignalsForDirective(bundle, directive.id),
+			feedbackApplied: feedbackEffects.labels,
 			reason: decision.reason
 		};
 	});
@@ -105,19 +108,65 @@ function applyContextAdjustments(directive, relations, defaultDecision, context)
 	};
 	return decision;
 }
+function applyFeedbackAdjustments(directive, decision, effects) {
+	let result = {
+		...decision,
+		contextApplied: [...decision.contextApplied]
+	};
+	if (effects.recurringTension && directive.prescription === "must") result = {
+		...result,
+		mode: result.mode === "suppress" ? result.mode : "deviation-noted",
+		basis: "feedback",
+		reason: `${result.reason} Recurring lockfile tension keeps this must-level directive reviewable as deviation-noted instead of silently treating the repository reality as unrelated.`
+	};
+	if (effects.frequentlyIgnored && directive.prescription === "should") result = {
+		...result,
+		mode: "ambient",
+		basis: "feedback",
+		reason: `${result.reason} Lockfile feedback shows this should-level directive is frequently ignored, so it remains ambient unless stronger verified relations require attention.`
+	};
+	if (effects.frequentlyIgnoredMust) result = {
+		...result,
+		basis: result.basis === "prescription" ? "feedback" : result.basis,
+		reason: `${result.reason} Lockfile feedback shows a must-level directive was frequently ignored; execution is not weakened, but review focus should verify the outcome.`
+	};
+	if (effects.noisyObservation) result = {
+		...result,
+		reason: `${result.reason} Feedback marks one linked observation as noisy, so Runtime keeps the relation reviewable and still relies on RCCL verification before changing execution.`
+	};
+	return result;
+}
 function isCompatibilitySensitiveDirective(directive) {
 	return directive.traits.compatibilitySensitive || directive.traits.rcclImmune || directive.prescription === "must";
 }
 function hasConstraint(values, expected) {
 	return expected.some((item) => values.includes(item));
 }
-function feedbackSignalsForDirective(bundle, directiveId) {
-	return bundle.feedback.directiveSignals.filter((signal) => signal.directiveId === directiveId).flatMap((signal) => {
-		const effects = [];
-		if (signal.followRate < .5) effects.push("feedback:frequently-ignored");
-		if (signal.trend === "degrading") effects.push("feedback:degrading");
-		return effects;
+function feedbackSignalsForDirective(bundle, directive, relations) {
+	const labels = [];
+	const directiveSignal = bundle.feedback.directiveSignals.find((signal) => signal.directiveId === directive.id);
+	const frequentlyIgnored = Boolean(directiveSignal) && directiveSignal.ignored >= SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredMinIgnored && directiveSignal.followRate < SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredFollowRate;
+	const recurringTension = relations.some((relation) => relation.basis.feedback && relation.adjudication.status !== "rejected" && relation.adjudication.finalRelation === "tension");
+	const noisyObservation = relations.some((relation) => {
+		const signal = bundle.feedback.observationSignals.find((item) => item.observationId === relation.observationId);
+		return Boolean(signal) && signal.relationCount >= SEMANTIC_RELATION_POLICY.feedback.noisyObservationRelationCount && signal.lastDisposition === "demote-to-ambient";
 	});
+	if (frequentlyIgnored) labels.push("feedback:frequently-ignored");
+	if (frequentlyIgnored && directive.prescription === "must") labels.push("feedback:frequently-ignored-must-review");
+	if (directiveSignal?.trend === "degrading") labels.push("feedback:degrading");
+	if (directiveSignal?.signalConfidence === "user-corrected") labels.push("feedback:user-corrected");
+	if (recurringTension) labels.push("feedback:recurring-tension");
+	if (noisyObservation) labels.push("feedback:noisy-observation");
+	return {
+		labels: unique(labels),
+		frequentlyIgnored,
+		frequentlyIgnoredMust: frequentlyIgnored && directive.prescription === "must",
+		recurringTension,
+		noisyObservation
+	};
+}
+function unique(values) {
+	return [...new Set(values)];
 }
 //#endregion
 export { resolveExecutionDecisionsIR };

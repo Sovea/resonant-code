@@ -59,12 +59,17 @@ export function projectIREgoToPublic(
 }
 
 function buildMergeContext(decision: SemanticMergeResult['directive_modes'][number]): string | undefined {
-  if (!decision.relation_summaries.length) return undefined;
+  if (!decision.relation_summaries.length) {
+    return decision.feedback_applied.length
+      ? `feedback influenced ${decision.execution_mode}: ${decision.feedback_applied.join(', ')}`
+      : undefined;
+  }
   const highPriority = decision.relation_summaries.find((relation) => relation.review_priority === 'critical' || relation.review_priority === 'high');
   const modeChanged = decision.execution_mode !== decision.default_execution_mode;
-  if (!modeChanged && !highPriority) return undefined;
+  if (!modeChanged && !highPriority && !decision.feedback_applied.length) return undefined;
   const relation = highPriority ?? decision.relation_summaries[0];
-  return `${relation.relation} relation ${relation.relation_id} influenced ${decision.execution_mode}: ${relation.reason}`;
+  const feedback = decision.feedback_applied.length ? ` feedback=${decision.feedback_applied.join(', ')}` : '';
+  return `${relation.relation} relation ${relation.relation_id} influenced ${decision.execution_mode}: ${relation.reason}${feedback}`;
 }
 
 function compareDirectives(

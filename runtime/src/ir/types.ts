@@ -4,6 +4,8 @@ import type {
   DirectiveExample,
   DirectiveType,
   ExecutionMode,
+  FeedbackSignalConfidence,
+  IgnoredReason,
   Operation,
   Prescription,
   RcclEvidence,
@@ -181,7 +183,9 @@ export interface DirectiveFeedbackSignalIR {
   ignored: number;
   followRate: number;
   trend: 'improving' | 'stable' | 'degrading';
-  signalConfidence: 'implicit' | 'explicit' | 'review-confirmed' | 'user-corrected';
+  signalConfidence: FeedbackSignalConfidence;
+  ignoredReasons: Partial<Record<IgnoredReason, number>>;
+  lastIgnoredReason?: IgnoredReason;
   lastSeen: string;
 }
 
@@ -226,7 +230,7 @@ export type SemanticRelationKindIR = 'reinforce' | 'tension' | 'suppress' | 'amb
 export type SemanticRelationSignalDirectionIR = 'reinforce' | 'tension' | 'suppress' | 'ambient' | 'neutral';
 export type SemanticRelationImpactIR = 'execution-mode' | 'review-focus' | 'ambient-context' | 'no-effect';
 export type SemanticRelationReviewPriorityIR = 'low' | 'normal' | 'high' | 'critical';
-export type SemanticRelationProposedByIR = 'runtime-structural' | 'host-agent' | 'feedback' | 'multi-source';
+export type SemanticRelationProposedByIR = 'runtime-structural' | 'host-agent' | 'host-semantic-candidate' | 'feedback' | 'multi-source';
 
 export interface SemanticRelationSignalIR {
   kind: 'semantic-key' | 'category' | 'scope' | 'verification' | 'lifecycle' | 'feedback' | 'host-proposal';
@@ -252,6 +256,25 @@ export interface HostSemanticRelationProposal {
 
 export interface HostSemanticRelationProposalPayload {
   relations: HostSemanticRelationProposal[];
+}
+
+export type HostSemanticCandidateHintIR = 'reinforce' | 'tension' | 'ambient-only' | 'unknown';
+
+export interface HostSemanticCandidateProposal {
+  directive_id: string;
+  observation_id: string;
+  relation_hint: HostSemanticCandidateHintIR;
+  confidence: number;
+  reason: string;
+  evidence_refs?: string[];
+  impact?: SemanticRelationImpactIR;
+  review_priority?: SemanticRelationReviewPriorityIR;
+  merge_intent?: string;
+  group_id?: string;
+}
+
+export interface HostSemanticCandidateProposalPayload {
+  candidates: HostSemanticCandidateProposal[];
 }
 
 export interface SemanticRelationIR {
@@ -301,7 +324,7 @@ export interface ActivationDecisionIR {
 export interface HostProposalIR {
   irVersion: GovernanceIRVersion;
   source: SourceRefIR;
-  kind: 'task-interpretation' | 'semantic-relation' | 'review-outcome';
+  kind: 'task-interpretation' | 'semantic-relation' | 'semantic-candidate' | 'review-outcome';
   payload: unknown;
 }
 

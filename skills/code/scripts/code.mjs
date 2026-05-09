@@ -88,6 +88,37 @@ const HOST_SEMANTIC_RELATION_SCHEMA = {
   required: ['relations'],
 };
 
+const HOST_SEMANTIC_CANDIDATE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    candidates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          directive_id: { type: 'string' },
+          observation_id: { type: 'string' },
+          relation_hint: { enum: ['reinforce', 'tension', 'ambient-only', 'unknown'] },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          reason: { type: 'string' },
+          impact: { enum: ['execution-mode', 'review-focus', 'ambient-context', 'no-effect'] },
+          review_priority: { enum: ['low', 'normal', 'high', 'critical'] },
+          merge_intent: { type: 'string' },
+          group_id: { type: 'string' },
+          evidence_refs: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        required: ['directive_id', 'observation_id', 'relation_hint', 'confidence', 'reason'],
+      },
+    },
+  },
+  required: ['candidates'],
+};
+
 function fieldSchema(enumValues) {
   const value = enumValues ? { enum: enumValues } : { type: 'string' };
   return {
@@ -266,6 +297,57 @@ export async function prepareRelations(options) {
   };
 }
 
+export async function prepareSemanticCandidates(options) {
+  const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
+  const task = normalizeTaskInput(options, paths.projectRoot);
+  const runtime = await loadRuntime(paths.runtimeEntry);
+  const candidates = loadCandidateFile(options.candidateFile);
+  const interpretationMode = candidates.length ? 'assistive-ai' : 'deterministic-only';
+  const resolvedTask = runtime.resolveTask({
+    task,
+    candidates,
+    interpretationMode,
+  });
+  const compileInput = {
+    builtinRoot: paths.builtinRoot,
+    localAugmentPath: paths.localAugmentPath,
+    rcclPath: paths.rcclPath,
+    lockfilePath: paths.lockfilePath,
+    projectRoot: paths.projectRoot,
+    resolvedTask,
+  };
+  const governanceIR = await runtime.buildGovernanceIR(compileInput);
+  const activationDecisions = runtime.resolveActivationDecisionsIR(governanceIR);
+  const activatedDirectiveIds = runtime.activatedDirectiveIdsIR(activationDecisions);
+  const activeDirectives = governanceIR.directives.filter((directive) => activatedDirectiveIds.has(directive.id));
+  const artifactPath = buildSemanticCandidatePath(paths.projectRoot, task);
+  const directiveSummaries = activeDirectives.map(summarizeDirectiveForProposal);
+  const observationSummaries = governanceIR.observations.map(summarizeObservationForProposal);
+
+  return {
+    task: {
+      input: task,
+      resolved: {
+        task_intent: resolvedTask.task_intent,
+        context_profile: resolvedTask.context_profile,
+      },
+      interpretation: {
+        mode: interpretationMode,
+        diagnostics: resolvedTask.diagnostics,
+      },
+    },
+    directives: directiveSummaries,
+    observations: observationSummaries,
+    candidatePrompt: buildSemanticCandidatePrompt(resolvedTask, directiveSummaries, observationSummaries),
+    candidateSchema: JSON.stringify(HOST_SEMANTIC_CANDIDATE_SCHEMA, null, 2),
+    candidateArtifact: {
+      suggestedPath: artifactPath,
+      format: 'json',
+      usage: `Write the semantic candidate payload to ${artifactPath}, then pass --semantic-proposal-file ${artifactPath} to prepare.`,
+    },
+  };
+}
+
 export async function prepareCodeTask(options) {
   const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
   const task = normalizeTaskInput(options, paths.projectRoot);
@@ -278,7 +360,10 @@ export async function prepareCodeTask(options) {
   try {
     const runtime = await loadRuntime(paths.runtimeEntry);
     const candidates = loadCandidateFile(options.candidateFile);
-    const hostProposals = loadHostProposalFile(options.hostProposalFile, 'code-skill-semantic-relations');
+    const hostProposals = [
+      ...loadHostProposalFile(options.hostProposalFile, 'code-skill-semantic-relations'),
+      ...loadHostSemanticCandidateFile(options.semanticProposalFile, 'code-skill-semantic-candidates'),
+    ];
     const interpretationMode = candidates.length ? 'assistive-ai' : 'deterministic-only';
     const resolvedTask = runtime.resolveTask({
       task,
@@ -365,6 +450,7 @@ export async function prepareCodeTask(options) {
         task,
         interpretationMode,
         ...(options.hostProposalFile ? { hostProposalFile: resolve(options.hostProposalFile) } : {}),
+        ...(options.semanticProposalFile ? { semanticProposalFile: resolve(options.semanticProposalFile) } : {}),
       },
       compileOutput: null,
       warnings: [...warnings, `Runtime compile failed: ${message}`],
@@ -416,6 +502,8 @@ export async function completeCodeTask(options) {
       lockfilePath: session.paths.lockfilePath,
       followedDirectiveIds,
       ignoredDirectiveIds,
+      ignoredDirectiveReasons: options.ignoredDirectiveReasons,
+      signalConfidence: options.signalConfidence,
     });
     return {
       status: 'updated',
@@ -423,6 +511,8 @@ export async function completeCodeTask(options) {
       lockfilePath: session.paths.lockfilePath,
       followedDirectiveIds,
       ignoredDirectiveIds,
+      ignoredDirectiveReasons: options.ignoredDirectiveReasons,
+      signalConfidence: options.signalConfidence,
     };
   } catch (error) {
     return {
@@ -511,14 +601,34 @@ function loadHostProposalFile(hostProposalFile, sourceId) {
   ];
 }
 
+function loadHostSemanticCandidateFile(semanticProposalFile, sourceId) {
+  if (!semanticProposalFile) return [];
+  const payload = JSON.parse(readFileSync(resolve(semanticProposalFile), 'utf-8'));
+  return [
+    {
+      irVersion: 'governance-ir/v1',
+      source: {
+        kind: 'host-proposal',
+        id: sourceId,
+        path: resolve(semanticProposalFile),
+      },
+      kind: 'semantic-candidate',
+      payload: Array.isArray(payload) ? { candidates: payload } : payload,
+    },
+  ];
+}
+
 function summarizeHostProposals(hostProposals) {
   const proposal = hostProposals[0];
-  const relations = Array.isArray(proposal?.payload?.relations) ? proposal.payload.relations : [];
+  const relationCount = hostProposals.reduce((count, item) => count + (Array.isArray(item.payload?.relations) ? item.payload.relations.length : 0), 0);
+  const candidateCount = hostProposals.reduce((count, item) => count + (Array.isArray(item.payload?.candidates) ? item.payload.candidates.length : 0), 0);
   return {
     provided: hostProposals.length > 0,
     file: proposal?.source?.path ?? null,
+    files: hostProposals.map((item) => item.source?.path).filter(Boolean),
     proposalCount: hostProposals.length,
-    relationCount: relations.length,
+    relationCount,
+    candidateCount,
   };
 }
 
@@ -551,6 +661,22 @@ function buildRelationProposalPath(projectRoot, task) {
     .slice(0, 10);
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
   return join(projectRoot, '.resonant-code', 'context', 'semantic-relations', 'code', `${stamp}-${digest}.json`);
+}
+
+function buildSemanticCandidatePath(projectRoot, task) {
+  const digest = createHash('sha1')
+    .update(JSON.stringify({
+      description: task.description,
+      targetFile: task.targetFile ?? '',
+      changedFiles: task.changedFiles,
+      techStack: task.techStack,
+      operation: task.operation ?? '',
+      type: 'semantic-candidates',
+    }))
+    .digest('hex')
+    .slice(0, 10);
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return join(projectRoot, '.resonant-code', 'context', 'semantic-candidates', 'code', `${stamp}-${digest}.json`);
 }
 
 function writeSession(sessionPath, session) {
@@ -594,6 +720,27 @@ function buildRelationProposalPrompt(resolvedTask, directives, observations) {
     'Use group_id only to connect closely related relations from the same task-level judgment.',
     'Do not infer relations from ids alone; base every relation on the task, directive description, observation pattern, verification, lifecycle, and evidence refs.',
     'Return only JSON matching proposalSchema.',
+    `Resolved task intent: ${JSON.stringify(resolvedTask.task_intent)}`,
+    `Resolved context profile: ${JSON.stringify(resolvedTask.context_profile)}`,
+    `Directive count: ${directives.length}`,
+    `Observation count: ${observations.length}`,
+  ].join('\n');
+}
+
+function buildSemanticCandidatePrompt(resolvedTask, directives, observations) {
+  return [
+    'Produce a HostSemanticCandidateProposalPayload JSON object for Runtime.',
+    'This is a semantic proposer artifact: use host-agent semantic judgment to shortlist likely directive/observation pairs, but do not decide final execution.',
+    'Runtime will validate IDs, confidence, scope, RCCL verification, lifecycle, feedback policy, and final adjudication deterministically.',
+    'Use only directive_id values and observation_id values listed in this output.',
+    'Use relation_hint="reinforce" when the observation likely supports the directive.',
+    'Use relation_hint="tension" when the observation likely conflicts with the directive or requires deviation-noted handling.',
+    'Use relation_hint="ambient-only" when the observation is relevant background but should not change execution mode.',
+    'Use relation_hint="unknown" when the semantic relation is plausible but impact is not clear; Runtime will keep it ambient.',
+    'Do not propose suppress here; use prepare-relations only for an explicit anti-pattern suppress proposal.',
+    'Use confidence >= 0.72 only when the task, directive, observation pattern, verification/lifecycle, and evidence refs support the candidate.',
+    'When useful, set impact, review_priority, merge_intent, and group_id. These are advisory fields and Runtime may ignore malformed values.',
+    'Return only JSON matching candidateSchema.',
     `Resolved task intent: ${JSON.stringify(resolvedTask.task_intent)}`,
     `Resolved context profile: ${JSON.stringify(resolvedTask.context_profile)}`,
     `Directive count: ${directives.length}`,
@@ -656,10 +803,10 @@ function formatError(error) {
 function parseCli(argv) {
   const [command, ...rest] = argv;
   if (!command) {
-    throw new Error('Expected a command: prepare-interpretation, prepare-relations, prepare, or complete.');
+    throw new Error('Expected a command: prepare-interpretation, prepare-relations, prepare-semantic-candidates, prepare, or complete.');
   }
 
-  if (command === 'prepare-interpretation' || command === 'prepare-relations' || command === 'prepare') {
+  if (command === 'prepare-interpretation' || command === 'prepare-relations' || command === 'prepare-semantic-candidates' || command === 'prepare') {
     const { positionals, flags } = parseFlags(rest);
     const projectRoot = positionals[0];
     const taskDescription = readSingleFlag(flags, 'task');
@@ -673,6 +820,7 @@ function parseCli(argv) {
         taskDescription,
         candidateFile: readSingleFlag(flags, 'candidate-file'),
         hostProposalFile: readSingleFlag(flags, 'host-proposal-file'),
+        semanticProposalFile: readSingleFlag(flags, 'semantic-proposal-file'),
         targetFile: readSingleFlag(flags, 'target-file'),
         changedFiles: readMultiFlag(flags, 'changed-file'),
         techStack: readMultiFlag(flags, 'tech'),
@@ -697,6 +845,8 @@ function parseCli(argv) {
         sessionPath,
         followedDirectiveIds: readMultiFlag(flags, 'followed'),
         ignoredDirectiveIds: readMultiFlag(flags, 'ignored'),
+        ignoredDirectiveReasons: readIgnoredReasonMap(readMultiFlag(flags, 'ignored-reason')),
+        signalConfidence: readSingleFlag(flags, 'signal-confidence'),
       },
     };
   }
@@ -734,15 +884,44 @@ function readMultiFlag(flags, key) {
   return flags.get(key) ?? [];
 }
 
+function readIgnoredReasonMap(values) {
+  const result = {};
+  for (const value of values) {
+    const separator = value.indexOf(':');
+    if (separator <= 0) {
+      throw new Error(`Invalid --ignored-reason value "${value}"; expected <directive-id>:<reason>.`);
+    }
+    const directiveId = value.slice(0, separator);
+    const reason = value.slice(separator + 1);
+    if (!isIgnoredReason(reason)) {
+      throw new Error(`Invalid ignored reason "${reason}" for ${directiveId}.`);
+    }
+    result[directiveId] = reason;
+  }
+  return result;
+}
+
+function isIgnoredReason(value) {
+  return value === 'not-applicable'
+    || value === 'conflicts-with-task'
+    || value === 'too-broad'
+    || value === 'repo-reality'
+    || value === 'false-positive'
+    || value === 'user-corrected'
+    || value === 'other';
+}
+
 async function main() {
   const parsed = parseCli(process.argv.slice(2));
   const result = parsed.command === 'prepare-interpretation'
     ? await prepareInterpretation(parsed.options)
     : parsed.command === 'prepare-relations'
       ? await prepareRelations(parsed.options)
-      : parsed.command === 'prepare'
-        ? await prepareCodeTask(parsed.options)
-        : await completeCodeTask(parsed.options);
+      : parsed.command === 'prepare-semantic-candidates'
+        ? await prepareSemanticCandidates(parsed.options)
+        : parsed.command === 'prepare'
+          ? await prepareCodeTask(parsed.options)
+          : await completeCodeTask(parsed.options);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 

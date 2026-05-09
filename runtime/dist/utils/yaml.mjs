@@ -10,7 +10,9 @@ function parseYaml(text) {
 		return trimmed;
 	}
 	function parseScalar(raw) {
-		const value = stripQuotes(raw);
+		const trimmed = raw.trim();
+		if (trimmed.startsWith("\"") && trimmed.endsWith("\"") || trimmed.startsWith("'") && trimmed.endsWith("'")) return trimmed.slice(1, -1);
+		const value = trimmed;
 		if (value === "null") return null;
 		if (value === "true") return true;
 		if (value === "false") return false;
@@ -39,6 +41,27 @@ function parseYaml(text) {
 			value: stripQuotes(parts.join(" ")),
 			nextIndex: index
 		};
+	}
+	function keyColonIndex(value) {
+		let quote = null;
+		let escaped = false;
+		for (let index = 0; index < value.length; index += 1) {
+			const char = value[index];
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (char === "\\" && quote === "\"") {
+				escaped = true;
+				continue;
+			}
+			if ((char === "\"" || char === "'") && (!quote || quote === char)) {
+				quote = quote ? null : char;
+				continue;
+			}
+			if (char === ":" && !quote) return index;
+		}
+		return -1;
 	}
 	function skipEmpty(index) {
 		let cursor = index;
@@ -72,8 +95,8 @@ function parseYaml(text) {
 		};
 	}
 	function parseInlineMap(remainder, indent, index) {
-		const colon = remainder.indexOf(":");
-		const key = remainder.slice(0, colon).trim();
+		const colon = keyColonIndex(remainder);
+		const key = stripQuotes(remainder.slice(0, colon).trim());
 		const rawValue = remainder.slice(colon + 1).trim();
 		const map = {};
 		if (rawValue === "" || rawValue === "|" || rawValue === ">") {
@@ -128,7 +151,7 @@ function parseYaml(text) {
 				index = quoted.nextIndex;
 				continue;
 			}
-			if (remainder.includes(":")) {
+			if (keyColonIndex(remainder) !== -1) {
 				const item = parseInlineMap(remainder, currentIndent, index);
 				const merged = item.value;
 				let cursor = item.nextIndex;
@@ -166,9 +189,9 @@ function parseYaml(text) {
 			const currentIndent = lineIndent(index);
 			const trimmed = lines[index].trim();
 			if (currentIndent < indent || trimmed.startsWith("- ")) break;
-			const colon = trimmed.indexOf(":");
+			const colon = keyColonIndex(trimmed);
 			if (colon === -1) throw new Error(`Invalid YAML line ${index + 1}: ${trimmed}`);
-			const key = trimmed.slice(0, colon).trim();
+			const key = stripQuotes(trimmed.slice(0, colon).trim());
 			const rawValue = trimmed.slice(colon + 1).trim();
 			if (rawValue === "" || rawValue === "|" || rawValue === ">") if (rawValue === "|" || rawValue === ">") {
 				const block = readBlockScalar(index + 1, currentIndent, rawValue);
@@ -206,7 +229,7 @@ function parseYaml(text) {
 	return parseNode(0, 0).value;
 }
 function quoteIfNeeded(value) {
-	return value === "" || /[:"'{}[\]#&*!|>%@`]/.test(value) || /^[ \t\n\r-]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"` : value;
+	return value === "" || /[:"'{}[\]#&*!|>%@`]/.test(value) || /^[ \t\n\r-]/.test(value) || /^(?:null|true|false|-?\d+(?:\.\d+)?)$/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"` : value;
 }
 function emitScalar(value) {
 	if (value === null) return "null";
@@ -227,9 +250,12 @@ function toYaml(value, indent = 0) {
 	}
 	if (value && typeof value === "object") return Object.keys(value).map((key) => {
 		const child = value[key];
-		if (typeof child === "string" && child.includes("\n")) return `${spaces}${key}: |\n${child.split("\n").map((line) => `${" ".repeat(indent + 2)}${line}`).join("\n")}\n`;
-		if (Array.isArray(child) || child && typeof child === "object") return `${spaces}${key}:\n${toYaml(child, indent + 2)}`;
-		return `${spaces}${key}: ${emitScalar(child)}\n`;
+		if (typeof child === "string" && child.includes("\n")) {
+			const block = child.split("\n").map((line) => `${" ".repeat(indent + 2)}${line}`).join("\n");
+			return `${spaces}${emitScalar(key)}: |\n${block}\n`;
+		}
+		if (Array.isArray(child) || child && typeof child === "object") return `${spaces}${emitScalar(key)}:\n${toYaml(child, indent + 2)}`;
+		return `${spaces}${emitScalar(key)}: ${emitScalar(child)}\n`;
 	}).join("");
 	return `${spaces}${emitScalar(value)}\n`;
 }

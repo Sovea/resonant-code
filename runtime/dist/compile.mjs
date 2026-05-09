@@ -153,6 +153,9 @@ async function compile(input) {
 			`final_relations: ${formatRecordCounts(semanticMergeResult.merge_summary.final_relation_counts)}`,
 			`relation_sources: ${formatRecordCounts(semanticMergeResult.merge_summary.proposed_by_counts)}`,
 			`execution_mode_impacting_relations: ${semanticMergeResult.merge_summary.execution_mode_impacting}`,
+			`host_semantic_candidates: ${semanticMergeResult.merge_summary.host_semantic_candidate_count}`,
+			`feedback_applied: ${semanticMergeResult.merge_summary.feedback_applied_count}`,
+			`semantic_relation_policy: ${formatPolicy(semanticMergeResult.merge_summary.policy)}`,
 			`review_focus_by_priority: ${formatRecordCounts(semanticMergeResult.merge_summary.review_priority_counts)}`,
 			`semantic_relation_mode_changes: ${semanticRelationModeChanges(semanticMergeResult).join(", ") || "(none)"}`,
 			`context_tensions: ${semanticMergeResult.context_tensions.length}`,
@@ -218,13 +221,15 @@ function summarizeSemanticRelationsIR(relations) {
 	const statusCounts = countBy(relations, (relation) => relation.adjudication.status);
 	const finalRelationCounts = countBy(relations, (relation) => relation.adjudication.finalRelation);
 	const proposedRelationCounts = countBy(relations, (relation) => relation.relation);
+	const proposedByCounts = countBy(relations, (relation) => relation.proposedBy);
 	return [
 		`proposed: ${relations.length}`,
 		`accepted: ${statusCounts.get("accepted") ?? 0}`,
 		`downgraded: ${statusCounts.get("downgraded") ?? 0}`,
 		`rejected: ${statusCounts.get("rejected") ?? 0}`,
 		`proposed_relations: ${formatCounts(proposedRelationCounts)}`,
-		`final_relations: ${formatCounts(finalRelationCounts)}`
+		`final_relations: ${formatCounts(finalRelationCounts)}`,
+		`proposed_by: ${formatCounts(proposedByCounts)}`
 	];
 }
 function countBy(items, key) {
@@ -270,6 +275,15 @@ function semanticRelationModeChanges(semanticMergeResult) {
 function formatRecordCounts(counts) {
 	const entries = Object.entries(counts).filter(([, count]) => count > 0);
 	return entries.length ? entries.sort(([left], [right]) => left.localeCompare(right)).map(([key, count]) => `${key}=${count}`).join(", ") : "(none)";
+}
+function formatPolicy(policy) {
+	return [
+		`host_min_confidence=${policy.host_semantic.min_confidence}`,
+		`host_candidate_cap=${policy.host_semantic.max_candidates_per_directive}`,
+		`feedback_follow_rate=${policy.feedback.frequently_ignored_follow_rate}`,
+		`feedback_min_ignored=${policy.feedback.frequently_ignored_min_ignored}`,
+		`recurring_tension_seen=${policy.feedback.recurring_tension_seen_count}`
+	].join(", ");
 }
 /**
 * Derives stable cache keys for layered inputs and the concrete task payload.

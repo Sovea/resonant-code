@@ -35,11 +35,12 @@ function projectIREgoToPublic(activatedBundle, semanticMergeResult, taskIntent) 
 	};
 }
 function buildMergeContext(decision) {
-	if (!decision.relation_summaries.length) return void 0;
+	if (!decision.relation_summaries.length) return decision.feedback_applied.length ? `feedback influenced ${decision.execution_mode}: ${decision.feedback_applied.join(", ")}` : void 0;
 	const highPriority = decision.relation_summaries.find((relation) => relation.review_priority === "critical" || relation.review_priority === "high");
-	if (!(decision.execution_mode !== decision.default_execution_mode) && !highPriority) return void 0;
+	if (!(decision.execution_mode !== decision.default_execution_mode) && !highPriority && !decision.feedback_applied.length) return void 0;
 	const relation = highPriority ?? decision.relation_summaries[0];
-	return `${relation.relation} relation ${relation.relation_id} influenced ${decision.execution_mode}: ${relation.reason}`;
+	const feedback = decision.feedback_applied.length ? ` feedback=${decision.feedback_applied.join(", ")}` : "";
+	return `${relation.relation} relation ${relation.relation_id} influenced ${decision.execution_mode}: ${relation.reason}${feedback}`;
 }
 function compareDirectives(a, b, decisionByDirectiveId) {
 	const layerScore = getDirectiveLayerRank(b.layer.id) - getDirectiveLayerRank(a.layer.id);

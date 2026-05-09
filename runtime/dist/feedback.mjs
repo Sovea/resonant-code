@@ -29,6 +29,11 @@ function evaluateGuidance(input) {
 		if (ignored.has(directiveId)) {
 			entry.quality_signal.overall.ignored += 1;
 			counts.ignored += 1;
+			const ignoredReason = validIgnoredReason(input.ignoredDirectiveReasons?.[directiveId]) ? input.ignoredDirectiveReasons[directiveId] : void 0;
+			if (ignoredReason) {
+				entry.quality_signal.ignored_reasons[ignoredReason] = (entry.quality_signal.ignored_reasons[ignoredReason] ?? 0) + 1;
+				entry.quality_signal.last_ignored_reason = ignoredReason;
+			}
 		} else if (followed.has(directiveId)) {
 			entry.quality_signal.overall.followed += 1;
 			counts.followed += 1;
@@ -36,6 +41,7 @@ function evaluateGuidance(input) {
 		entry.quality_signal.by_task_type[taskType] = counts;
 		entry.quality_signal.overall.follow_rate = computeFollowRate(entry);
 		entry.quality_signal.overall.trend = computeTrend(entry);
+		entry.quality_signal.signal_confidence = resolveSignalConfidence(input, ignored.has(directiveId));
 		entry.quality_signal.last_seen = today;
 		entry.governance = { outcomes: {
 			total_tasks: (entry.governance?.outcomes.total_tasks ?? 0) + 1,
@@ -55,9 +61,9 @@ function loadLockfile(filePath) {
 	if (!isLockfileDocument(parsed)) return createDocument();
 	return {
 		version: "1.0",
-		directives: parsed.directives,
+		directives: normalizeDirectiveEntries(parsed.directives),
 		observations: normalizeObservationEntries(parsed.observations),
-		tensions: parsed.tensions,
+		tensions: normalizeTensionEntries(parsed.tensions),
 		governance_summary: parsed.governance_summary
 	};
 }
@@ -74,6 +80,37 @@ function normalizeObservationEntries(entries) {
 		...createObservationEntry(),
 		...entry,
 		last_content_fingerprint: entry.last_content_fingerprint ?? null
+	}]));
+}
+function normalizeDirectiveEntries(entries) {
+	return Object.fromEntries(Object.entries(entries).map(([id, entry]) => {
+		const normalized = createEntry();
+		return [id, {
+			...normalized,
+			...entry,
+			quality_signal: {
+				...normalized.quality_signal,
+				...entry.quality_signal,
+				overall: {
+					...normalized.quality_signal.overall,
+					...entry.quality_signal?.overall
+				},
+				by_task_type: entry.quality_signal?.by_task_type ?? {},
+				ignored_reasons: normalizeIgnoredReasons(entry.quality_signal?.ignored_reasons),
+				...validIgnoredReason(entry.quality_signal?.last_ignored_reason) ? { last_ignored_reason: entry.quality_signal.last_ignored_reason } : {},
+				signal_confidence: validSignalConfidence(entry.quality_signal?.signal_confidence) ? entry.quality_signal.signal_confidence : "implicit",
+				last_seen: entry.quality_signal?.last_seen ?? ""
+			}
+		}];
+	}));
+}
+function normalizeTensionEntries(entries) {
+	return Object.fromEntries(Object.entries(entries).map(([id, entry]) => [id, {
+		seen_count: entry.seen_count ?? 0,
+		directive_id: entry.directive_id ?? "",
+		observation_id: entry.observation_id ?? "",
+		last_execution_mode: entry.last_execution_mode ?? "ambient",
+		last_seen: entry.last_seen ?? ""
 	}]));
 }
 function updateObservationFeedback(existing, observations, input, now) {
@@ -161,6 +198,8 @@ function createEntry() {
 				trend: "stable"
 			},
 			by_task_type: {},
+			ignored_reasons: {},
+			signal_confidence: "implicit",
 			last_seen: ""
 		},
 		governance: { outcomes: {
@@ -197,6 +236,26 @@ function computeTrend(entry) {
 	if (rate >= .9) return "stable";
 	if (rate >= .75) return "improving";
 	return "degrading";
+}
+function resolveSignalConfidence(input, ignored) {
+	if (validSignalConfidence(input.signalConfidence)) return input.signalConfidence;
+	if (ignored) return "explicit";
+	return input.followedDirectiveIds?.length || input.ignoredDirectiveIds?.length ? "explicit" : "implicit";
+}
+function normalizeIgnoredReasons(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const result = {};
+	for (const [reason, count] of Object.entries(value)) {
+		if (!validIgnoredReason(reason) || typeof count !== "number" || !Number.isFinite(count) || count <= 0) continue;
+		result[reason] = count;
+	}
+	return result;
+}
+function validIgnoredReason(value) {
+	return value === "not-applicable" || value === "conflicts-with-task" || value === "too-broad" || value === "repo-reality" || value === "false-positive" || value === "user-corrected" || value === "other";
+}
+function validSignalConfidence(value) {
+	return value === "implicit" || value === "explicit" || value === "review-confirmed" || value === "user-corrected";
 }
 //#endregion
 export { evaluateGuidance };

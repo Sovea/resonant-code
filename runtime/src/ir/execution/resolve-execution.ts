@@ -1,11 +1,20 @@
 import type { ExecutionMode } from '../../types.ts';
 import type { ExecutionDecisionIR, GovernanceIRBundle, SemanticRelationIR, DirectiveIR } from '../types.ts';
+import { SEMANTIC_RELATION_POLICY } from '../relations/policy.ts';
 
 interface DirectiveDecision {
   mode: ExecutionMode;
   reason: string;
   basis: ExecutionDecisionIR['basis'];
   contextApplied: string[];
+}
+
+interface FeedbackEffects {
+  labels: string[];
+  frequentlyIgnored: boolean;
+  frequentlyIgnoredMust: boolean;
+  recurringTension: boolean;
+  noisyObservation: boolean;
 }
 
 export function resolveExecutionDecisionsIR(
@@ -17,7 +26,9 @@ export function resolveExecutionDecisionsIR(
   return bundle.directives.map((directive) => {
     const linkedRelations = relationsByDirective.get(directive.id) ?? [];
     const defaultDecision = deriveDirectiveDecision(directive, linkedRelations);
-    const decision = applyContextAdjustments(directive, linkedRelations, defaultDecision, bundle.task.context);
+    const contextDecision = applyContextAdjustments(directive, linkedRelations, defaultDecision, bundle.task.context);
+    const feedbackEffects = feedbackSignalsForDirective(bundle, directive, linkedRelations);
+    const decision = applyFeedbackAdjustments(directive, contextDecision, feedbackEffects);
 
     return {
       directiveId: directive.id,
@@ -26,7 +37,7 @@ export function resolveExecutionDecisionsIR(
       basis: decision.basis,
       relationIds: linkedRelations.map((relation) => relation.id),
       contextApplied: decision.contextApplied,
-      feedbackApplied: feedbackSignalsForDirective(bundle, directive.id),
+      feedbackApplied: feedbackEffects.labels,
       reason: decision.reason,
     };
   });
@@ -171,6 +182,49 @@ function applyContextAdjustments(
   return decision;
 }
 
+function applyFeedbackAdjustments(
+  directive: DirectiveIR,
+  decision: DirectiveDecision,
+  effects: FeedbackEffects,
+): DirectiveDecision {
+  let result = { ...decision, contextApplied: [...decision.contextApplied] };
+
+  if (effects.recurringTension && directive.prescription === 'must') {
+    result = {
+      ...result,
+      mode: result.mode === 'suppress' ? result.mode : 'deviation-noted',
+      basis: 'feedback',
+      reason: `${result.reason} Recurring lockfile tension keeps this must-level directive reviewable as deviation-noted instead of silently treating the repository reality as unrelated.`,
+    };
+  }
+
+  if (effects.frequentlyIgnored && directive.prescription === 'should') {
+    result = {
+      ...result,
+      mode: 'ambient',
+      basis: 'feedback',
+      reason: `${result.reason} Lockfile feedback shows this should-level directive is frequently ignored, so it remains ambient unless stronger verified relations require attention.`,
+    };
+  }
+
+  if (effects.frequentlyIgnoredMust) {
+    result = {
+      ...result,
+      basis: result.basis === 'prescription' ? 'feedback' : result.basis,
+      reason: `${result.reason} Lockfile feedback shows a must-level directive was frequently ignored; execution is not weakened, but review focus should verify the outcome.`,
+    };
+  }
+
+  if (effects.noisyObservation) {
+    result = {
+      ...result,
+      reason: `${result.reason} Feedback marks one linked observation as noisy, so Runtime keeps the relation reviewable and still relies on RCCL verification before changing execution.`,
+    };
+  }
+
+  return result;
+}
+
 function isCompatibilitySensitiveDirective(directive: DirectiveIR): boolean {
   return directive.traits.compatibilitySensitive || directive.traits.rcclImmune || directive.prescription === 'must';
 }
@@ -179,13 +233,43 @@ function hasConstraint(values: string[], expected: string[]): boolean {
   return expected.some((item) => values.includes(item));
 }
 
-function feedbackSignalsForDirective(bundle: GovernanceIRBundle, directiveId: string): string[] {
-  return bundle.feedback.directiveSignals
-    .filter((signal) => signal.directiveId === directiveId)
-    .flatMap((signal) => {
-      const effects: string[] = [];
-      if (signal.followRate < 0.5) effects.push('feedback:frequently-ignored');
-      if (signal.trend === 'degrading') effects.push('feedback:degrading');
-      return effects;
-    });
+function feedbackSignalsForDirective(
+  bundle: GovernanceIRBundle,
+  directive: DirectiveIR,
+  relations: SemanticRelationIR[],
+): FeedbackEffects {
+  const labels: string[] = [];
+  const directiveSignal = bundle.feedback.directiveSignals.find((signal) => signal.directiveId === directive.id);
+  const frequentlyIgnored = Boolean(directiveSignal)
+    && directiveSignal.ignored >= SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredMinIgnored
+    && directiveSignal.followRate < SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredFollowRate;
+  const recurringTension = relations.some((relation) =>
+    relation.basis.feedback
+    && relation.adjudication.status !== 'rejected'
+    && relation.adjudication.finalRelation === 'tension');
+  const noisyObservation = relations.some((relation) => {
+    const signal = bundle.feedback.observationSignals.find((item) => item.observationId === relation.observationId);
+    return Boolean(signal)
+      && signal.relationCount >= SEMANTIC_RELATION_POLICY.feedback.noisyObservationRelationCount
+      && signal.lastDisposition === 'demote-to-ambient';
+  });
+
+  if (frequentlyIgnored) labels.push('feedback:frequently-ignored');
+  if (frequentlyIgnored && directive.prescription === 'must') labels.push('feedback:frequently-ignored-must-review');
+  if (directiveSignal?.trend === 'degrading') labels.push('feedback:degrading');
+  if (directiveSignal?.signalConfidence === 'user-corrected') labels.push('feedback:user-corrected');
+  if (recurringTension) labels.push('feedback:recurring-tension');
+  if (noisyObservation) labels.push('feedback:noisy-observation');
+
+  return {
+    labels: unique(labels),
+    frequentlyIgnored,
+    frequentlyIgnoredMust: frequentlyIgnored && directive.prescription === 'must',
+    recurringTension,
+    noisyObservation,
+  };
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
 }
