@@ -45,13 +45,23 @@ This prints a Runtime-owned interpretation prompt, candidate schema, normalized 
 Then run:
 
 ```sh
-node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<user task>" [--candidate-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
+node <this-skill-directory>/scripts/code.mjs prepare-relations <project-root> --task "<user task>" [--candidate-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
+```
+
+This prints Runtime-owned task context, active directive summaries, RCCL observation summaries, a proposal prompt, a proposal schema, and a suggested semantic relation artifact path. Use host Claude to write a JSON `HostSemanticRelationProposalPayload` at that path. The host proposal should use only listed directive and observation ids, and should only connect pairs whose task-level semantic relation is justified by the provided summaries.
+
+Then run:
+
+```sh
+node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<user task>" [--candidate-file <path>] [--host-proposal-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
 ```
 
 Pass `--changed-file` for each known changed or directly relevant file.
 Pass `--tech` only when there is a strong hint not already obvious from the target file.
 Pass `--candidate-file` only when host Claude produced a structured interpretation candidate.
-If `prepare-interpretation` recommended AI assistance, use its suggested candidate path so the flow stays consistent across `prepare-interpretation` and `prepare`.
+Pass `--host-proposal-file` when host Claude produced a structured semantic relation proposal from `prepare-relations`.
+If `prepare-interpretation` recommended AI assistance, use its suggested candidate path so the flow stays consistent across `prepare-interpretation`, `prepare-relations`, and `prepare`.
+Do not infer semantic relations manually from raw YAML or recreate EGO logic in the skill; use `prepare-relations` and pass the host proposal artifact back into Runtime.
 
 The script prints JSON:
 
@@ -67,6 +77,12 @@ The script prints JSON:
     "candidateFile": "<path-or-null>",
     "summary": ["..."],
     "nextStep": "..."
+  },
+  "hostProposals": {
+    "provided": true,
+    "file": "<path-or-null>",
+    "proposalCount": 1,
+    "relationCount": 3
   }
 }
 ```

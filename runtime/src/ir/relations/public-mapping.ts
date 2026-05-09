@@ -3,12 +3,30 @@ import type { SemanticRelationIR } from '../types.ts';
 
 export function semanticRelationIRToPublic(relation: SemanticRelationIR): DirectiveObservationRelation {
   return {
+    id: relation.id,
     directive_id: relation.directiveId,
     observation_id: relation.observationId,
     relation: publicRelationKind(relation.adjudication.finalRelation),
     confidence: relation.confidence,
     basis: publicBasis(relation),
     reason: relation.adjudication.reason,
+    proposed_by: relation.proposedBy,
+    adjudication_status: relation.adjudication.status,
+    final_relation: publicRelationKind(relation.adjudication.finalRelation),
+    signals: relation.signals.map((signal) => ({
+      kind: signal.kind,
+      strength: signal.strength,
+      direction: signal.direction,
+      reason: signal.reason,
+    })),
+    evidence_refs: relation.evidenceRefs,
+    reasoning_summary: relation.reasoningSummary,
+    adjudication_reason: relation.adjudication.reason,
+    ...(relation.conflictClass ? { conflict_class: relation.conflictClass } : {}),
+    ...(relation.impact ? { impact: relation.impact } : {}),
+    ...(relation.reviewPriority ? { review_priority: relation.reviewPriority } : {}),
+    ...(relation.mergeIntent ? { merge_intent: relation.mergeIntent } : {}),
+    ...(relation.groupId ? { group_id: relation.groupId } : {}),
   };
 }
 

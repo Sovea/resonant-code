@@ -222,14 +222,46 @@ export interface FeedbackIR {
   };
 }
 
+export type SemanticRelationKindIR = 'reinforce' | 'tension' | 'suppress' | 'ambient-only' | 'unrelated';
+export type SemanticRelationSignalDirectionIR = 'reinforce' | 'tension' | 'suppress' | 'ambient' | 'neutral';
+export type SemanticRelationImpactIR = 'execution-mode' | 'review-focus' | 'ambient-context' | 'no-effect';
+export type SemanticRelationReviewPriorityIR = 'low' | 'normal' | 'high' | 'critical';
+export type SemanticRelationProposedByIR = 'runtime-structural' | 'host-agent' | 'feedback' | 'multi-source';
+
+export interface SemanticRelationSignalIR {
+  kind: 'semantic-key' | 'category' | 'scope' | 'verification' | 'lifecycle' | 'feedback' | 'host-proposal';
+  strength: 'weak' | 'moderate' | 'strong';
+  direction: SemanticRelationSignalDirectionIR;
+  reason: string;
+}
+
+export interface HostSemanticRelationProposal {
+  directive_id: string;
+  observation_id: string;
+  relation: SemanticRelationKindIR;
+  confidence: number;
+  reason: string;
+  conflict_class?: 'compatibility-boundary' | 'migration-tension' | 'local-deviation' | 'legacy-interface' | 'anti-pattern' | 'scope-mismatch' | 'style-drift' | 'architecture-drift';
+  evidence_refs?: string[];
+  signals?: SemanticRelationSignalIR[];
+  impact?: SemanticRelationImpactIR;
+  review_priority?: SemanticRelationReviewPriorityIR;
+  merge_intent?: string;
+  group_id?: string;
+}
+
+export interface HostSemanticRelationProposalPayload {
+  relations: HostSemanticRelationProposal[];
+}
+
 export interface SemanticRelationIR {
   irVersion: GovernanceIRVersion;
   id: string;
   directiveId: string;
   observationId: string;
-  proposedBy: 'runtime-structural' | 'semantic-key' | 'host-agent' | 'feedback';
-  relation: 'reinforce' | 'tension' | 'suppress' | 'ambient-only' | 'unrelated';
-  conflictClass?: 'compatibility-boundary' | 'migration-tension' | 'local-deviation' | 'legacy-interface' | 'anti-pattern' | 'scope-mismatch' | 'style-drift' | 'architecture-drift';
+  proposedBy: SemanticRelationProposedByIR;
+  relation: SemanticRelationKindIR;
+  conflictClass?: HostSemanticRelationProposal['conflict_class'];
   confidence: number;
   basis: {
     scope: boolean;
@@ -239,8 +271,13 @@ export interface SemanticRelationIR {
     hostReasoning: boolean;
     feedback: boolean;
   };
+  signals: SemanticRelationSignalIR[];
   evidenceRefs: string[];
   reasoningSummary: string;
+  impact?: SemanticRelationImpactIR;
+  reviewPriority?: SemanticRelationReviewPriorityIR;
+  mergeIntent?: string;
+  groupId?: string;
   adjudication: {
     status: 'accepted' | 'rejected' | 'downgraded';
     finalRelation: SemanticRelationIR['relation'];

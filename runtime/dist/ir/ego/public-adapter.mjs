@@ -3,15 +3,20 @@ import { getDirectiveLayerRank } from "../../select/activation-plan.mjs";
 function projectIREgoToPublic(activatedBundle, semanticMergeResult, taskIntent) {
 	const modeByDirectiveId = new Map(semanticMergeResult.directive_modes.map((item) => [item.directive_id, item.execution_mode]));
 	const decisionByDirectiveId = new Map(semanticMergeResult.directive_modes.map((item) => [item.directive_id, item]));
-	const must_follow = activatedBundle.directives.filter((directive) => directive.kind !== "anti-pattern").sort((a, b) => compareDirectives(a, b, decisionByDirectiveId)).map((directive) => ({
-		id: directive.id,
-		statement: directive.body.description,
-		rationale: directive.body.rationale,
-		prescription: directive.prescription,
-		exceptions: directive.body.exceptions,
-		examples: directive.body.examples,
-		execution_mode: modeByDirectiveId.get(directive.id) ?? "ambient"
-	}));
+	const must_follow = activatedBundle.directives.filter((directive) => directive.kind !== "anti-pattern").sort((a, b) => compareDirectives(a, b, decisionByDirectiveId)).map((directive) => {
+		const decision = decisionByDirectiveId.get(directive.id);
+		const mergeContext = decision ? buildMergeContext(decision) : void 0;
+		return {
+			id: directive.id,
+			statement: directive.body.description,
+			rationale: directive.body.rationale,
+			prescription: directive.prescription,
+			exceptions: directive.body.exceptions,
+			examples: directive.body.examples,
+			execution_mode: modeByDirectiveId.get(directive.id) ?? "ambient",
+			...mergeContext ? { merge_context: mergeContext } : {}
+		};
+	});
 	const avoid = activatedBundle.observations.filter((observation) => observation.category === "anti-pattern").filter((observation) => observation.verification.disposition !== "demote-to-ambient").map((observation) => ({
 		statement: observation.pattern,
 		trigger: `anti-pattern:${observation.id}`
@@ -28,6 +33,13 @@ function projectIREgoToPublic(activatedBundle, semanticMergeResult, taskIntent) 
 			ambient
 		}
 	};
+}
+function buildMergeContext(decision) {
+	if (!decision.relation_summaries.length) return void 0;
+	const highPriority = decision.relation_summaries.find((relation) => relation.review_priority === "critical" || relation.review_priority === "high");
+	if (!(decision.execution_mode !== decision.default_execution_mode) && !highPriority) return void 0;
+	const relation = highPriority ?? decision.relation_summaries[0];
+	return `${relation.relation} relation ${relation.relation_id} influenced ${decision.execution_mode}: ${relation.reason}`;
 }
 function compareDirectives(a, b, decisionByDirectiveId) {
 	const layerScore = getDirectiveLayerRank(b.layer.id) - getDirectiveLayerRank(a.layer.id);

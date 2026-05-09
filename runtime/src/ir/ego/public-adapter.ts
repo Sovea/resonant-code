@@ -17,15 +17,20 @@ export function projectIREgoToPublic(
   const must_follow = activatedBundle.directives
     .filter((directive) => directive.kind !== 'anti-pattern')
     .sort((a, b) => compareDirectives(a, b, decisionByDirectiveId))
-    .map((directive) => ({
-      id: directive.id,
-      statement: directive.body.description,
-      rationale: directive.body.rationale,
-      prescription: directive.prescription,
-      exceptions: directive.body.exceptions,
-      examples: directive.body.examples,
-      execution_mode: modeByDirectiveId.get(directive.id) ?? 'ambient',
-    }));
+    .map((directive) => {
+      const decision = decisionByDirectiveId.get(directive.id);
+      const mergeContext = decision ? buildMergeContext(decision) : undefined;
+      return {
+        id: directive.id,
+        statement: directive.body.description,
+        rationale: directive.body.rationale,
+        prescription: directive.prescription,
+        exceptions: directive.body.exceptions,
+        examples: directive.body.examples,
+        execution_mode: modeByDirectiveId.get(directive.id) ?? 'ambient',
+        ...(mergeContext ? { merge_context: mergeContext } : {}),
+      };
+    });
 
   const avoid = activatedBundle.observations
     .filter((observation) => observation.category === 'anti-pattern')
@@ -51,6 +56,15 @@ export function projectIREgoToPublic(
       ambient,
     },
   };
+}
+
+function buildMergeContext(decision: SemanticMergeResult['directive_modes'][number]): string | undefined {
+  if (!decision.relation_summaries.length) return undefined;
+  const highPriority = decision.relation_summaries.find((relation) => relation.review_priority === 'critical' || relation.review_priority === 'high');
+  const modeChanged = decision.execution_mode !== decision.default_execution_mode;
+  if (!modeChanged && !highPriority) return undefined;
+  const relation = highPriority ?? decision.relation_summaries[0];
+  return `${relation.relation} relation ${relation.relation_id} influenced ${decision.execution_mode}: ${relation.reason}`;
 }
 
 function compareDirectives(

@@ -191,6 +191,7 @@ export interface CompileInputBase {
   rcclPath?: string;
   projectRoot: string;
   lockfilePath?: string;
+  hostProposals?: import('./ir/types.ts').HostProposalIR[];
 }
 
 export interface RawCompileInput extends CompileInputBase {
@@ -279,6 +280,9 @@ export interface ReviewFocusItem {
   reason: string;
   directive_id?: string;
   observation_id?: string;
+  priority?: 'low' | 'normal' | 'high' | 'critical';
+  relation_id?: string;
+  group_id?: string;
 }
 
 export interface FocusView {
@@ -293,6 +297,7 @@ export interface GuidanceDirective {
   exceptions: string[];
   examples: DirectiveExample[];
   execution_mode: ExecutionMode;
+  merge_context?: string;
 }
 
 export interface AvoidEntry {
@@ -306,6 +311,9 @@ export interface ContextTension {
   conflict: string;
   resolution: string;
   rccl_confidence: number;
+  relation_id?: string;
+  group_id?: string;
+  review_priority?: 'low' | 'normal' | 'high' | 'critical';
 }
 
 export interface EffectiveGuidanceObject {
@@ -342,12 +350,30 @@ export interface DecisionTrace {
 export type RelationKind = 'reinforce' | 'tension' | 'anti-pattern-suppress' | 'ambient-only' | 'none';
 
 export interface DirectiveObservationRelation {
+  id: string;
   directive_id: string;
   observation_id: string;
   relation: RelationKind;
   confidence: number;
   basis: Array<'scope' | 'verification' | 'category' | 'context'>;
   reason: string;
+  proposed_by: 'runtime-structural' | 'host-agent' | 'feedback' | 'multi-source';
+  adjudication_status: 'accepted' | 'rejected' | 'downgraded';
+  final_relation: RelationKind;
+  conflict_class?: string;
+  signals: Array<{
+    kind: string;
+    strength: string;
+    direction: string;
+    reason: string;
+  }>;
+  evidence_refs: string[];
+  reasoning_summary: string;
+  adjudication_reason: string;
+  impact?: 'execution-mode' | 'review-focus' | 'ambient-context' | 'no-effect';
+  review_priority?: 'low' | 'normal' | 'high' | 'critical';
+  merge_intent?: string;
+  group_id?: string;
 }
 
 export interface ReviewFocusSeed {
@@ -355,6 +381,9 @@ export interface ReviewFocusSeed {
   directive_id?: string;
   observation_id?: string;
   reason: string;
+  priority?: ReviewFocusItem['priority'];
+  relation_id?: string;
+  group_id?: string;
 }
 
 export interface SemanticMergeContextFocus {
@@ -373,11 +402,25 @@ export interface ContextInfluenceRecord {
 export interface SemanticMergeDirectiveLink {
   directive_id: string;
   observation_ids: string[];
+  relation_ids: string[];
+  relation_summaries: SemanticMergeRelationSummary[];
   execution_mode: ExecutionMode;
   default_execution_mode: ExecutionMode;
   reason: string;
   decision_basis: 'default' | 'observed-conflict' | 'anti-pattern' | 'rccl-immune' | 'context-adjusted';
   context_applied: string[];
+}
+
+export interface SemanticMergeRelationSummary {
+  relation_id: string;
+  observation_id: string;
+  relation: RelationKind;
+  adjudication_status: 'accepted' | 'rejected' | 'downgraded';
+  confidence: number;
+  reason: string;
+  review_priority?: 'low' | 'normal' | 'high' | 'critical';
+  impact?: 'execution-mode' | 'review-focus' | 'ambient-context' | 'no-effect';
+  group_id?: string;
 }
 
 export interface SemanticMergeObservationLink {
@@ -399,6 +442,16 @@ export interface SemanticMergeResult {
   observation_links: SemanticMergeObservationLink[];
   observation_states: SemanticMergeObservationState[];
   relations: DirectiveObservationRelation[];
+  merge_summary: {
+    proposed: number;
+    accepted: number;
+    downgraded: number;
+    rejected: number;
+    final_relation_counts: Record<RelationKind, number>;
+    proposed_by_counts: Record<string, number>;
+    execution_mode_impacting: number;
+    review_priority_counts: Record<'low' | 'normal' | 'high' | 'critical', number>;
+  };
   focus: SemanticMergeContextFocus;
   context_influences: ContextInfluenceRecord[];
 }
@@ -467,6 +520,8 @@ export interface RuntimeSessionRecord {
     task?: CompileTaskInput;
     parsedTaskCandidate?: ParsedTaskCandidate;
     interpretationMode?: InputProvenance['interpretation_mode'];
+    hostProposals?: import('./ir/types.ts').HostProposalIR[];
+    hostProposalFile?: string;
   };
   compileOutput: CompileOutput | null;
   warnings: string[];

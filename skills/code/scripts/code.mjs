@@ -40,6 +40,54 @@ const TASK_CANDIDATE_SCHEMA = {
   required: ['intent', 'context', 'uncertainties'],
 };
 
+const HOST_SEMANTIC_RELATION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    relations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          directive_id: { type: 'string' },
+          observation_id: { type: 'string' },
+          relation: { enum: ['reinforce', 'tension', 'suppress', 'ambient-only', 'unrelated'] },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          reason: { type: 'string' },
+          conflict_class: {
+            enum: ['compatibility-boundary', 'migration-tension', 'local-deviation', 'legacy-interface', 'anti-pattern', 'scope-mismatch', 'style-drift', 'architecture-drift'],
+          },
+          impact: { enum: ['execution-mode', 'review-focus', 'ambient-context', 'no-effect'] },
+          review_priority: { enum: ['low', 'normal', 'high', 'critical'] },
+          merge_intent: { type: 'string' },
+          group_id: { type: 'string' },
+          evidence_refs: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+          signals: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { enum: ['semantic-key', 'category', 'scope', 'verification', 'lifecycle', 'feedback', 'host-proposal'] },
+                strength: { enum: ['weak', 'moderate', 'strong'] },
+                direction: { enum: ['reinforce', 'tension', 'suppress', 'ambient', 'neutral'] },
+                reason: { type: 'string' },
+              },
+              required: ['kind', 'strength', 'direction', 'reason'],
+            },
+          },
+        },
+        required: ['directive_id', 'observation_id', 'relation', 'confidence', 'reason'],
+      },
+    },
+  },
+  required: ['relations'],
+};
+
 function fieldSchema(enumValues) {
   const value = enumValues ? { enum: enumValues } : { type: 'string' };
   return {
@@ -167,6 +215,57 @@ function buildPrepareNextStep(mode, candidateFile, diagnostics, recommendationPa
   return 'Proceed with the compiled packet.';
 }
 
+export async function prepareRelations(options) {
+  const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
+  const task = normalizeTaskInput(options, paths.projectRoot);
+  const runtime = await loadRuntime(paths.runtimeEntry);
+  const candidates = loadCandidateFile(options.candidateFile);
+  const interpretationMode = candidates.length ? 'assistive-ai' : 'deterministic-only';
+  const resolvedTask = runtime.resolveTask({
+    task,
+    candidates,
+    interpretationMode,
+  });
+  const compileInput = {
+    builtinRoot: paths.builtinRoot,
+    localAugmentPath: paths.localAugmentPath,
+    rcclPath: paths.rcclPath,
+    lockfilePath: paths.lockfilePath,
+    projectRoot: paths.projectRoot,
+    resolvedTask,
+  };
+  const governanceIR = await runtime.buildGovernanceIR(compileInput);
+  const activationDecisions = runtime.resolveActivationDecisionsIR(governanceIR);
+  const activatedDirectiveIds = runtime.activatedDirectiveIdsIR(activationDecisions);
+  const activeDirectives = governanceIR.directives.filter((directive) => activatedDirectiveIds.has(directive.id));
+  const artifactPath = buildRelationProposalPath(paths.projectRoot, task);
+  const directiveSummaries = activeDirectives.map(summarizeDirectiveForProposal);
+  const observationSummaries = governanceIR.observations.map(summarizeObservationForProposal);
+
+  return {
+    task: {
+      input: task,
+      resolved: {
+        task_intent: resolvedTask.task_intent,
+        context_profile: resolvedTask.context_profile,
+      },
+      interpretation: {
+        mode: interpretationMode,
+        diagnostics: resolvedTask.diagnostics,
+      },
+    },
+    directives: directiveSummaries,
+    observations: observationSummaries,
+    proposalPrompt: buildRelationProposalPrompt(resolvedTask, directiveSummaries, observationSummaries),
+    proposalSchema: JSON.stringify(HOST_SEMANTIC_RELATION_SCHEMA, null, 2),
+    proposalArtifact: {
+      suggestedPath: artifactPath,
+      format: 'json',
+      usage: `Write the semantic relation proposal payload to ${artifactPath}, then pass --host-proposal-file ${artifactPath} to prepare.`,
+    },
+  };
+}
+
 export async function prepareCodeTask(options) {
   const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
   const task = normalizeTaskInput(options, paths.projectRoot);
@@ -179,6 +278,7 @@ export async function prepareCodeTask(options) {
   try {
     const runtime = await loadRuntime(paths.runtimeEntry);
     const candidates = loadCandidateFile(options.candidateFile);
+    const hostProposals = loadHostProposalFile(options.hostProposalFile, 'code-skill-semantic-relations');
     const interpretationMode = candidates.length ? 'assistive-ai' : 'deterministic-only';
     const resolvedTask = runtime.resolveTask({
       task,
@@ -192,6 +292,7 @@ export async function prepareCodeTask(options) {
       lockfilePath: paths.lockfilePath,
       projectRoot: paths.projectRoot,
       resolvedTask,
+      ...(hostProposals.length ? { hostProposals } : {}),
     };
     const output = await runtime.compile(compileInput);
     const interpretationSummary = summarizeInterpretationFlow(
@@ -235,6 +336,7 @@ export async function prepareCodeTask(options) {
         summary: interpretationSummary,
         nextStep: buildPrepareNextStep(interpretationMode, options.candidateFile, output.packet.interpretation.diagnostics, suggestedCandidatePath),
       },
+      hostProposals: summarizeHostProposals(hostProposals),
     };
   } catch (error) {
     const message = formatError(error);
@@ -262,6 +364,7 @@ export async function prepareCodeTask(options) {
         projectRoot: paths.projectRoot,
         task,
         interpretationMode,
+        ...(options.hostProposalFile ? { hostProposalFile: resolve(options.hostProposalFile) } : {}),
       },
       compileOutput: null,
       warnings: [...warnings, `Runtime compile failed: ${message}`],
@@ -391,6 +494,34 @@ function loadCandidateFile(candidateFile) {
   return Array.isArray(payload) ? payload : [payload];
 }
 
+function loadHostProposalFile(hostProposalFile, sourceId) {
+  if (!hostProposalFile) return [];
+  const payload = JSON.parse(readFileSync(resolve(hostProposalFile), 'utf-8'));
+  return [
+    {
+      irVersion: 'governance-ir/v1',
+      source: {
+        kind: 'host-proposal',
+        id: sourceId,
+        path: resolve(hostProposalFile),
+      },
+      kind: 'semantic-relation',
+      payload: Array.isArray(payload) ? { relations: payload } : payload,
+    },
+  ];
+}
+
+function summarizeHostProposals(hostProposals) {
+  const proposal = hostProposals[0];
+  const relations = Array.isArray(proposal?.payload?.relations) ? proposal.payload.relations : [];
+  return {
+    provided: hostProposals.length > 0,
+    file: proposal?.source?.path ?? null,
+    proposalCount: hostProposals.length,
+    relationCount: relations.length,
+  };
+}
+
 function buildSessionPath(projectRoot, task) {
   const digest = createHash('sha1')
     .update(JSON.stringify({
@@ -404,6 +535,22 @@ function buildSessionPath(projectRoot, task) {
     .slice(0, 10);
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
   return join(projectRoot, '.resonant-code', 'context', 'runtime-sessions', 'code', `${stamp}-${digest}.json`);
+}
+
+function buildRelationProposalPath(projectRoot, task) {
+  const digest = createHash('sha1')
+    .update(JSON.stringify({
+      description: task.description,
+      targetFile: task.targetFile ?? '',
+      changedFiles: task.changedFiles,
+      techStack: task.techStack,
+      operation: task.operation ?? '',
+      type: 'semantic-relations',
+    }))
+    .digest('hex')
+    .slice(0, 10);
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return join(projectRoot, '.resonant-code', 'context', 'semantic-relations', 'code', `${stamp}-${digest}.json`);
 }
 
 function writeSession(sessionPath, session) {
@@ -431,6 +578,64 @@ function buildInterpretationPrompt(task) {
   ].join('\n');
 }
 
+function buildRelationProposalPrompt(resolvedTask, directives, observations) {
+  return [
+    'Produce a HostSemanticRelationProposalPayload JSON object for Runtime.',
+    'Use only directive_id values and observation_id values listed in this prepare-relations output.',
+    'Propose a relation only when the observation materially affects how the directive should execute for this task.',
+    'Use relation="reinforce" when repository reality supports following the directive.',
+    'Use relation="tension" when repository reality conflicts with the directive but new work should still account for both.',
+    'Use relation="suppress" only when an anti-pattern observation should suppress a directive in this task scope.',
+    'Use relation="ambient-only" for relevant background that should not change execution mode.',
+    'Use relation="unrelated" sparingly; omit weak pairs instead of listing them as unrelated.',
+    'When useful, set impact to execution-mode, review-focus, ambient-context, or no-effect.',
+    'When useful, set review_priority to low, normal, high, or critical based on review risk; this does not decide execution mode.',
+    'When useful, include merge_intent as one short sentence explaining how Runtime should consider the relation.',
+    'Use group_id only to connect closely related relations from the same task-level judgment.',
+    'Do not infer relations from ids alone; base every relation on the task, directive description, observation pattern, verification, lifecycle, and evidence refs.',
+    'Return only JSON matching proposalSchema.',
+    `Resolved task intent: ${JSON.stringify(resolvedTask.task_intent)}`,
+    `Resolved context profile: ${JSON.stringify(resolvedTask.context_profile)}`,
+    `Directive count: ${directives.length}`,
+    `Observation count: ${observations.length}`,
+  ].join('\n');
+}
+
+function summarizeDirectiveForProposal(directive) {
+  return {
+    id: directive.id,
+    semanticKey: directive.semanticKey,
+    kind: directive.kind,
+    prescription: directive.prescription,
+    weight: directive.weight,
+    layer: directive.layer.id,
+    scope: directive.scope.path,
+    description: directive.body.description,
+    rationale: directive.body.rationale,
+    traits: directive.traits,
+  };
+}
+
+function summarizeObservationForProposal(observation) {
+  return {
+    id: observation.id,
+    semanticKey: observation.semanticKey,
+    category: observation.category,
+    scope: observation.scope.path,
+    pattern: observation.pattern,
+    adherence: observation.adherence,
+    verification: observation.verification,
+    lifecycle: observation.lifecycle,
+    traits: observation.traits,
+    evidenceRefs: observation.evidence.map((evidence) => `${evidence.file}:${evidence.line_range[0]}-${evidence.line_range[1]}`),
+    evidence: observation.evidence.map((evidence) => ({
+      file: evidence.file,
+      line_range: evidence.line_range,
+      snippet: evidence.snippet,
+    })),
+  };
+}
+
 function buildAmbiguityHints(task) {
   const hints = [];
   if (!task.operation) hints.push('operation is not explicit');
@@ -451,10 +656,10 @@ function formatError(error) {
 function parseCli(argv) {
   const [command, ...rest] = argv;
   if (!command) {
-    throw new Error('Expected a command: prepare-interpretation, prepare, or complete.');
+    throw new Error('Expected a command: prepare-interpretation, prepare-relations, prepare, or complete.');
   }
 
-  if (command === 'prepare-interpretation' || command === 'prepare') {
+  if (command === 'prepare-interpretation' || command === 'prepare-relations' || command === 'prepare') {
     const { positionals, flags } = parseFlags(rest);
     const projectRoot = positionals[0];
     const taskDescription = readSingleFlag(flags, 'task');
@@ -467,6 +672,7 @@ function parseCli(argv) {
         pluginRoot: readSingleFlag(flags, 'plugin-root'),
         taskDescription,
         candidateFile: readSingleFlag(flags, 'candidate-file'),
+        hostProposalFile: readSingleFlag(flags, 'host-proposal-file'),
         targetFile: readSingleFlag(flags, 'target-file'),
         changedFiles: readMultiFlag(flags, 'changed-file'),
         techStack: readMultiFlag(flags, 'tech'),
@@ -532,9 +738,11 @@ async function main() {
   const parsed = parseCli(process.argv.slice(2));
   const result = parsed.command === 'prepare-interpretation'
     ? await prepareInterpretation(parsed.options)
-    : parsed.command === 'prepare'
-      ? await prepareCodeTask(parsed.options)
-      : await completeCodeTask(parsed.options);
+    : parsed.command === 'prepare-relations'
+      ? await prepareRelations(parsed.options)
+      : parsed.command === 'prepare'
+        ? await prepareCodeTask(parsed.options)
+        : await completeCodeTask(parsed.options);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 

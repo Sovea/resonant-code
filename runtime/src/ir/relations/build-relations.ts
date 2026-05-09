@@ -1,8 +1,137 @@
 import type { GovernanceIRBundle, SemanticRelationIR } from '../types.ts';
 import { adjudicateSemanticRelations } from './adjudicate-relations.ts';
 import { proposeSemanticRelations } from './propose-relations.ts';
+import { stableHash } from '../../utils/hash.ts';
 
 export function buildSemanticRelationsIR(bundle: GovernanceIRBundle): SemanticRelationIR[] {
-  const proposals = proposeSemanticRelations(bundle.directives, bundle.observations, bundle.task);
+  const proposals = mergeRelationProposals(proposeSemanticRelations(bundle));
   return adjudicateSemanticRelations(proposals, bundle);
+}
+
+function mergeRelationProposals(relations: SemanticRelationIR[]): SemanticRelationIR[] {
+  const grouped = new Map<string, SemanticRelationIR[]>();
+  for (const relation of relations) {
+    const key = `${relation.directiveId}::${relation.observationId}`;
+    const current = grouped.get(key) ?? [];
+    current.push(relation);
+    grouped.set(key, current);
+  }
+
+  return [...grouped.values()]
+    .map(mergeRelationGroup)
+    .sort((left, right) => left.directiveId.localeCompare(right.directiveId) || left.observationId.localeCompare(right.observationId));
+}
+
+function mergeRelationGroup(group: SemanticRelationIR[]): SemanticRelationIR {
+  if (group.length === 1) return group[0];
+
+  const relation = chooseMergedRelation(group);
+  const directiveId = group[0].directiveId;
+  const observationId = group[0].observationId;
+  const signals = uniqueSignals(group.flatMap((item) => item.signals));
+  const evidenceRefs = uniqueStrings(group.flatMap((item) => item.evidenceRefs));
+  const proposedBy = group.some((item) => item.proposedBy !== group[0].proposedBy) ? 'multi-source' : group[0].proposedBy;
+  const impact = chooseImpact(group, relation);
+  const reviewPriority = chooseReviewPriority(group);
+  const mergeIntent = chooseMergeIntent(group);
+  const groupId = chooseGroupId(group);
+  const conflictClass = chooseConflictClass(group, relation);
+  const confidence = Number(Math.max(...group.map((item) => item.confidence)).toFixed(2));
+  const basis = {
+    scope: group.some((item) => item.basis.scope),
+    semanticKey: group.some((item) => item.basis.semanticKey),
+    category: group.some((item) => item.basis.category),
+    evidence: group.some((item) => item.basis.evidence),
+    hostReasoning: group.some((item) => item.basis.hostReasoning),
+    feedback: group.some((item) => item.basis.feedback),
+  };
+
+  return {
+    irVersion: 'governance-ir/v1',
+    id: stableHash(['semantic-relation-ir', 'merged', directiveId, observationId, relation, proposedBy, signals, evidenceRefs, impact, reviewPriority, mergeIntent, groupId]),
+    directiveId,
+    observationId,
+    proposedBy,
+    relation,
+    ...(conflictClass ? { conflictClass } : {}),
+    confidence,
+    basis,
+    signals,
+    evidenceRefs,
+    reasoningSummary: summarizeMergedReasoning(group, relation),
+    ...(impact ? { impact } : {}),
+    ...(reviewPriority ? { reviewPriority } : {}),
+    ...(mergeIntent ? { mergeIntent } : {}),
+    ...(groupId ? { groupId } : {}),
+    adjudication: {
+      status: 'accepted',
+      finalRelation: relation,
+      reason: 'merged semantic relation proposal before adjudication',
+    },
+  };
+}
+
+function chooseMergedRelation(group: SemanticRelationIR[]): SemanticRelationIR['relation'] {
+  const relations = group.map((item) => item.relation);
+  if (relations.includes('suppress')) return 'suppress';
+  if (relations.includes('tension')) return 'tension';
+  if (relations.includes('reinforce')) return 'reinforce';
+  if (relations.includes('ambient-only')) return 'ambient-only';
+  return 'unrelated';
+}
+
+function chooseImpact(group: SemanticRelationIR[], relation: SemanticRelationIR['relation']): SemanticRelationIR['impact'] {
+  const explicit = group.find((item) => item.impact && item.relation === relation)?.impact
+    ?? group.find((item) => item.impact)?.impact;
+  if (explicit) return explicit;
+  if (relation === 'tension' || relation === 'suppress') return 'execution-mode';
+  if (relation === 'reinforce') return 'review-focus';
+  if (relation === 'ambient-only') return 'ambient-context';
+  return 'no-effect';
+}
+
+function chooseReviewPriority(group: SemanticRelationIR[]): SemanticRelationIR['reviewPriority'] {
+  const order = { low: 0, normal: 1, high: 2, critical: 3 } as const;
+  return group
+    .map((item) => item.reviewPriority)
+    .filter((item): item is NonNullable<SemanticRelationIR['reviewPriority']> => Boolean(item))
+    .sort((left, right) => order[right] - order[left])[0];
+}
+
+function chooseMergeIntent(group: SemanticRelationIR[]): string | undefined {
+  return group.find((item) => item.mergeIntent)?.mergeIntent;
+}
+
+function chooseGroupId(group: SemanticRelationIR[]): string | undefined {
+  return group.find((item) => item.groupId)?.groupId;
+}
+
+function chooseConflictClass(
+  group: SemanticRelationIR[],
+  relation: SemanticRelationIR['relation'],
+): SemanticRelationIR['conflictClass'] | undefined {
+  return group.find((item) => item.relation === relation && item.conflictClass)?.conflictClass
+    ?? group.find((item) => item.conflictClass)?.conflictClass;
+}
+
+function summarizeMergedReasoning(group: SemanticRelationIR[], relation: SemanticRelationIR['relation']): string {
+  const sources = uniqueStrings(group.map((item) => item.proposedBy)).join(', ');
+  const reasons = uniqueStrings(group.map((item) => item.reasoningSummary)).slice(0, 3).join(' | ');
+  return `merged ${group.length} proposal(s) from ${sources}; selected ${relation}; ${reasons}`;
+}
+
+function uniqueSignals(signals: SemanticRelationIR['signals']): SemanticRelationIR['signals'] {
+  const seen = new Set<string>();
+  const result: SemanticRelationIR['signals'] = [];
+  for (const signal of signals) {
+    const key = `${signal.kind}:${signal.strength}:${signal.direction}:${signal.reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(signal);
+  }
+  return result;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }

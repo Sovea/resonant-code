@@ -41,6 +41,7 @@ function toResolvedCompileInput(input: CompileInput): ResolvedCompileInput {
     rcclPath: input.rcclPath,
     projectRoot: input.projectRoot,
     lockfilePath: input.lockfilePath,
+    hostProposals: input.hostProposals,
     resolvedTask: resolveTask({
       task: input.task,
       candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
@@ -186,6 +187,14 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       `activated_directives: ${semanticMergeResult.activated_directives.length}`,
       `suppressed_directives: ${semanticMergeResult.suppressed_directives.length}`,
       `relations: ${semanticMergeResult.relations.length}`,
+      `accepted_relations: ${semanticMergeResult.merge_summary.accepted}`,
+      `downgraded_relations: ${semanticMergeResult.merge_summary.downgraded}`,
+      `rejected_relations: ${semanticMergeResult.merge_summary.rejected}`,
+      `final_relations: ${formatRecordCounts(semanticMergeResult.merge_summary.final_relation_counts)}`,
+      `relation_sources: ${formatRecordCounts(semanticMergeResult.merge_summary.proposed_by_counts)}`,
+      `execution_mode_impacting_relations: ${semanticMergeResult.merge_summary.execution_mode_impacting}`,
+      `review_focus_by_priority: ${formatRecordCounts(semanticMergeResult.merge_summary.review_priority_counts)}`,
+      `semantic_relation_mode_changes: ${semanticRelationModeChanges(semanticMergeResult).join(', ') || '(none)'}`,
       `context_tensions: ${semanticMergeResult.context_tensions.length}`,
       `review_focus: ${focus.review_focus.length}`,
       `context_influences: ${semanticMergeResult.context_influences.length}`,
@@ -222,6 +231,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     rcclPath: normalizedInput.rcclPath,
     task: resolved.task,
     builtinLayers: sources.builtinLayers,
+    hostProposalsFingerprint: governanceIR.fingerprints.hostProposals,
   }, selectedLayerIds, rccl);
 
   const packet: ChangeDecisionPacket = {
@@ -295,6 +305,9 @@ function buildFocusView(semanticMergeResult: SemanticMergeResult, directives: Di
       reason: item.reason,
       directive_id: item.directive_id,
       observation_id: item.observation_id,
+      priority: item.priority,
+      relation_id: item.relation_id,
+      group_id: item.group_id,
     };
   });
   return { review_focus };
@@ -319,6 +332,19 @@ function buildFocusTitle(
   }
 }
 
+function semanticRelationModeChanges(semanticMergeResult: SemanticMergeResult): string[] {
+  return semanticMergeResult.directive_modes
+    .filter((item) => item.relation_ids.length > 0 && item.execution_mode !== item.default_execution_mode)
+    .map((item) => `${item.directive_id}:${item.default_execution_mode}->${item.execution_mode}`);
+}
+
+function formatRecordCounts(counts: Record<string, number>): string {
+  const entries = Object.entries(counts).filter(([, count]) => count > 0);
+  return entries.length
+    ? entries.sort(([left], [right]) => left.localeCompare(right)).map(([key, count]) => `${key}=${count}`).join(', ')
+    : '(none)';
+}
+
 /**
  * Derives stable cache keys for layered inputs and the concrete task payload.
  */
@@ -326,6 +352,7 @@ function buildCacheKeys(
   input: Pick<ResolvedCompileInput, 'builtinRoot' | 'localAugmentPath' | 'rcclPath'> & {
     task: ResolvedTaskOutput['task'];
     builtinLayers: CompileSources['builtinLayers'];
+    hostProposalsFingerprint: string;
   },
   selectedLayerIds: string[],
   rccl: RcclDocument | null,
@@ -340,7 +367,7 @@ function buildCacheKeys(
     : '';
   const l1Key = stableHash(builtinFingerprints);
   const l2Key = stableHash([l1Key, localSource, rcclSource]);
-  const l3Key = stableHash([l2Key, input.task]);
+  const l3Key = stableHash([l2Key, input.task, input.hostProposalsFingerprint]);
   return { l1Key, l2Key, l3Key };
 }
 

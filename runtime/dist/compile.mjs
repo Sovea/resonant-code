@@ -21,6 +21,7 @@ function toResolvedCompileInput(input) {
 		rcclPath: input.rcclPath,
 		projectRoot: input.projectRoot,
 		lockfilePath: input.lockfilePath,
+		hostProposals: input.hostProposals,
 		resolvedTask: resolveTask({
 			task: input.task,
 			candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
@@ -146,6 +147,14 @@ async function compile(input) {
 			`activated_directives: ${semanticMergeResult.activated_directives.length}`,
 			`suppressed_directives: ${semanticMergeResult.suppressed_directives.length}`,
 			`relations: ${semanticMergeResult.relations.length}`,
+			`accepted_relations: ${semanticMergeResult.merge_summary.accepted}`,
+			`downgraded_relations: ${semanticMergeResult.merge_summary.downgraded}`,
+			`rejected_relations: ${semanticMergeResult.merge_summary.rejected}`,
+			`final_relations: ${formatRecordCounts(semanticMergeResult.merge_summary.final_relation_counts)}`,
+			`relation_sources: ${formatRecordCounts(semanticMergeResult.merge_summary.proposed_by_counts)}`,
+			`execution_mode_impacting_relations: ${semanticMergeResult.merge_summary.execution_mode_impacting}`,
+			`review_focus_by_priority: ${formatRecordCounts(semanticMergeResult.merge_summary.review_priority_counts)}`,
+			`semantic_relation_mode_changes: ${semanticRelationModeChanges(semanticMergeResult).join(", ") || "(none)"}`,
 			`context_tensions: ${semanticMergeResult.context_tensions.length}`,
 			`review_focus: ${focus.review_focus.length}`,
 			`context_influences: ${semanticMergeResult.context_influences.length}`
@@ -178,7 +187,8 @@ async function compile(input) {
 		localAugmentPath: normalizedInput.localAugmentPath,
 		rcclPath: normalizedInput.rcclPath,
 		task: resolved.task,
-		builtinLayers: sources.builtinLayers
+		builtinLayers: sources.builtinLayers,
+		hostProposalsFingerprint: governanceIR.fingerprints.hostProposals
 	}, selectedLayerIds, rccl);
 	return compileResolvedOutput({
 		version: "1.0",
@@ -238,7 +248,10 @@ function buildFocusView(semanticMergeResult, directives) {
 			title: buildFocusTitle(item.kind, directive?.description, item.directive_id, item.observation_id),
 			reason: item.reason,
 			directive_id: item.directive_id,
-			observation_id: item.observation_id
+			observation_id: item.observation_id,
+			priority: item.priority,
+			relation_id: item.relation_id,
+			group_id: item.group_id
 		};
 	}) };
 }
@@ -250,6 +263,13 @@ function buildFocusTitle(kind, directiveDescription, directiveId, observationId)
 		case "high-priority-directive": return `Confirm high-priority guidance for ${directiveLabel}`;
 		case "compatibility-boundary": return `Inspect compatibility boundary for ${directiveLabel}`;
 	}
+}
+function semanticRelationModeChanges(semanticMergeResult) {
+	return semanticMergeResult.directive_modes.filter((item) => item.relation_ids.length > 0 && item.execution_mode !== item.default_execution_mode).map((item) => `${item.directive_id}:${item.default_execution_mode}->${item.execution_mode}`);
+}
+function formatRecordCounts(counts) {
+	const entries = Object.entries(counts).filter(([, count]) => count > 0);
+	return entries.length ? entries.sort(([left], [right]) => left.localeCompare(right)).map(([key, count]) => `${key}=${count}`).join(", ") : "(none)";
 }
 /**
 * Derives stable cache keys for layered inputs and the concrete task payload.
@@ -274,7 +294,11 @@ function buildCacheKeys(input, selectedLayerIds, rccl) {
 	return {
 		l1Key,
 		l2Key,
-		l3Key: stableHash([l2Key, input.task])
+		l3Key: stableHash([
+			l2Key,
+			input.task,
+			input.hostProposalsFingerprint
+		])
 	};
 }
 //#endregion

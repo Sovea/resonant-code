@@ -4,12 +4,14 @@ function projectIRSemanticMergeToPublic(directives, observations, relationsIR, e
 	const directiveById = new Map(directives.map((directive) => [directive.id, directive]));
 	const observationById = new Map(observations.map((observation) => [observation.id, observation]));
 	const effectiveRelations = relationsIR.filter(isEffectiveRelation);
+	const relationSummaryById = new Map(relationsIR.map((relation) => [relation.id, relationSummary(relation)]));
 	const observationIdsByDirective = groupObservationIdsByDirective(effectiveRelations);
-	const directiveModes = executionDecisionsIR.map((decision) => projectExecutionDecision(decision, observationIdsByDirective.get(decision.directiveId) ?? []));
+	const directiveModes = executionDecisionsIR.map((decision) => projectExecutionDecision(decision, observationIdsByDirective.get(decision.directiveId) ?? [], relationSummaryById));
 	const contextTensions = buildContextTensions(effectiveRelations, directiveById, observationById, contextProfile);
 	const contextInfluences = buildContextInfluences(executionDecisionsIR);
 	const reviewFocus = buildReviewFocus(directiveModes, effectiveRelations, directiveById, contextTensions);
 	const observationStates = buildObservationStates(observations, directiveModes);
+	const relations = semanticRelationsIRToPublic(relationsIR);
 	return {
 		activated_directives: directiveModes.filter((item) => item.execution_mode !== "suppress").map((item) => item.directive_id),
 		suppressed_directives: directiveModes.filter((item) => item.execution_mode === "suppress").map((item) => item.directive_id),
@@ -20,7 +22,8 @@ function projectIRSemanticMergeToPublic(directives, observations, relationsIR, e
 			directive_ids: state.directive_ids
 		})),
 		observation_states: observationStates,
-		relations: semanticRelationsIRToPublic(relationsIR),
+		relations,
+		merge_summary: buildMergeSummary(relationsIR),
 		focus: { review_focus: uniqueFocus(reviewFocus) },
 		context_influences: contextInfluences
 	};
@@ -37,10 +40,16 @@ function groupObservationIdsByDirective(relations) {
 	}
 	return grouped;
 }
-function projectExecutionDecision(decision, observationIds) {
+function projectExecutionDecision(decision, observationIds, relationSummaryById) {
+	const relation_summaries = decision.relationIds.flatMap((relationId) => {
+		const summary = relationSummaryById.get(relationId);
+		return summary ? [summary] : [];
+	});
 	return {
 		directive_id: decision.directiveId,
 		observation_ids: observationIds,
+		relation_ids: decision.relationIds,
+		relation_summaries,
 		execution_mode: decision.mode,
 		default_execution_mode: decision.defaultMode,
 		reason: decision.reason,
@@ -76,6 +85,9 @@ function buildContextTensions(relations, directiveById, observationById, context
 		return [{
 			directive_id: directive.id,
 			observation_id: observation.id,
+			relation_id: relation.id,
+			group_id: relation.groupId,
+			review_priority: relation.reviewPriority,
 			category: observation.category,
 			execution_mode: "deviation-noted",
 			conflict: `${directive.description} conflicts with observed local pattern: ${observation.pattern}`,
@@ -92,27 +104,122 @@ function buildReviewFocus(directiveModes, relations, directiveById, contextTensi
 		if (decision.execution_mode === "deviation-noted") reviewFocus.push({
 			kind: "compatibility-boundary",
 			directive_id: directive.id,
-			reason: decision.reason
+			reason: decision.reason,
+			priority: directiveFocusPriority(directive, decision.execution_mode),
+			relation_id: decision.relation_summaries[0]?.relation_id,
+			group_id: decision.relation_summaries[0]?.group_id
 		});
 		if (directive.prescription === "must" || decision.execution_mode === "deviation-noted" || directive.weight === "critical" && decision.execution_mode === "enforce") reviewFocus.push({
 			kind: "high-priority-directive",
 			directive_id: directive.id,
-			reason: `Review whether ${directive.id} was respected under ${decision.execution_mode} execution mode.`
+			reason: `Review whether ${directive.id} was respected under ${decision.execution_mode} execution mode.`,
+			priority: directiveFocusPriority(directive, decision.execution_mode),
+			relation_id: decision.relation_summaries[0]?.relation_id,
+			group_id: decision.relation_summaries[0]?.group_id
 		});
 	}
 	for (const tension of contextTensions) reviewFocus.push({
 		kind: "tension",
 		directive_id: tension.directive_id,
 		observation_id: tension.observation_id,
-		reason: tension.resolution
+		reason: tension.resolution,
+		priority: tension.review_priority ?? "high",
+		relation_id: tension.relation_id,
+		group_id: tension.group_id
 	});
 	for (const relation of relations.filter((item) => item.adjudication.finalRelation === "suppress")) reviewFocus.push({
 		kind: "anti-pattern",
 		directive_id: relation.directiveId,
 		observation_id: relation.observationId,
-		reason: relation.adjudication.reason
+		reason: relation.adjudication.reason,
+		priority: relation.reviewPriority ?? "critical",
+		relation_id: relation.id,
+		group_id: relation.groupId
 	});
+	for (const relation of relations.filter((item) => item.reviewPriority === "high" || item.reviewPriority === "critical")) {
+		if (relation.adjudication.finalRelation === "suppress" || relation.adjudication.finalRelation === "tension") continue;
+		reviewFocus.push({
+			kind: "high-priority-directive",
+			directive_id: relation.directiveId,
+			observation_id: relation.observationId,
+			reason: relation.mergeIntent ?? relation.adjudication.reason,
+			priority: relation.reviewPriority,
+			relation_id: relation.id,
+			group_id: relation.groupId
+		});
+	}
 	return reviewFocus;
+}
+function relationSummary(relation) {
+	return {
+		relation_id: relation.id,
+		observation_id: relation.observationId,
+		relation: publicRelationKind(relation.adjudication.finalRelation),
+		adjudication_status: relation.adjudication.status,
+		confidence: relation.confidence,
+		reason: relation.mergeIntent ?? relation.adjudication.reason,
+		review_priority: relation.reviewPriority,
+		impact: relation.impact,
+		group_id: relation.groupId
+	};
+}
+function buildMergeSummary(relations) {
+	const final_relation_counts = emptyRelationCounts();
+	const proposed_by_counts = {};
+	const review_priority_counts = {
+		low: 0,
+		normal: 0,
+		high: 0,
+		critical: 0
+	};
+	let accepted = 0;
+	let downgraded = 0;
+	let rejected = 0;
+	let executionModeImpacting = 0;
+	for (const relation of relations) {
+		if (relation.adjudication.status === "accepted") accepted += 1;
+		if (relation.adjudication.status === "downgraded") downgraded += 1;
+		if (relation.adjudication.status === "rejected") rejected += 1;
+		final_relation_counts[publicRelationKind(relation.adjudication.finalRelation)] += 1;
+		proposed_by_counts[relation.proposedBy] = (proposed_by_counts[relation.proposedBy] ?? 0) + 1;
+		if (relation.reviewPriority) review_priority_counts[relation.reviewPriority] += 1;
+		if (relation.impact === "execution-mode" && relation.adjudication.status !== "rejected") executionModeImpacting += 1;
+	}
+	return {
+		proposed: relations.length,
+		accepted,
+		downgraded,
+		rejected,
+		final_relation_counts,
+		proposed_by_counts,
+		execution_mode_impacting: executionModeImpacting,
+		review_priority_counts
+	};
+}
+function emptyRelationCounts() {
+	return {
+		reinforce: 0,
+		tension: 0,
+		"anti-pattern-suppress": 0,
+		"ambient-only": 0,
+		none: 0
+	};
+}
+function publicRelationKind(relation) {
+	switch (relation) {
+		case "reinforce":
+		case "tension":
+		case "ambient-only": return relation;
+		case "suppress": return "anti-pattern-suppress";
+		case "unrelated": return "none";
+	}
+}
+function directiveFocusPriority(directive, executionMode) {
+	if (executionMode === "suppress") return "critical";
+	if (executionMode === "deviation-noted") return directive.weight === "critical" || directive.prescription === "must" ? "critical" : "high";
+	if (directive.weight === "critical") return "high";
+	if (directive.prescription === "must") return "normal";
+	return "low";
 }
 function buildContextInfluences(decisions) {
 	return decisions.flatMap((decision) => decision.contextApplied.map((context) => {

@@ -23,6 +23,8 @@ export type {
   GovernanceIRBundle,
   GovernanceIRVersion,
   HostProposalIR,
+  HostSemanticRelationProposal,
+  HostSemanticRelationProposalPayload,
   IRFingerprintSet,
   LayerIR,
   ObservationIR,

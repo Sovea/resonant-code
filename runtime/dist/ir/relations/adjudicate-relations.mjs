@@ -1,17 +1,20 @@
 //#region src/ir/relations/adjudicate-relations.ts
-const SUPPRESS_CONFIDENCE_THRESHOLD = .75;
-const BROAD_SCOPE_CONFIDENCE_THRESHOLD = .7;
 function adjudicateSemanticRelations(relations, bundle) {
+	const directiveById = new Map(bundle.directives.map((directive) => [directive.id, directive]));
 	const observationById = new Map(bundle.observations.map((observation) => [observation.id, observation]));
 	return relations.map((relation) => {
+		const directive = directiveById.get(relation.directiveId);
 		const observation = observationById.get(relation.observationId);
+		if (!directive) return rejectRelation(relation, "directive is missing from the IR bundle");
 		if (!observation) return rejectRelation(relation, "observation is missing from the IR bundle");
 		if (observation.lifecycle.status === "superseded") return rejectRelation(relation, "observation lifecycle is superseded and must not influence current execution");
 		if (observation.lifecycle.status === "stale") return downgradeRelation(relation, "observation lifecycle is stale, so it can only provide ambient context");
 		if (observation.verification.disposition === "demote-to-ambient") return downgradeRelation(relation, "verify gate demoted the observation, so it can only provide ambient context");
-		if (isWeakBroadScope(observation)) return downgradeRelation(relation, "broad-scope observation lacks enough verification confidence for directive execution");
 		switch (relation.relation) {
-			case "suppress": return adjudicateSuppressRelation(relation, observation);
+			case "suppress": return adjudicateSuppressRelation(relation, {
+				directiveKind: directive.kind,
+				observationAntiPattern: observation.traits.antiPattern
+			});
 			case "tension":
 			case "reinforce": return adjudicateDirectionalRelation(relation);
 			case "ambient-only": return acceptRelation(relation, "ambient-only relation is valid contextual input");
@@ -19,21 +22,27 @@ function adjudicateSemanticRelations(relations, bundle) {
 		}
 	});
 }
-function adjudicateSuppressRelation(relation, observation) {
-	if (!observation.traits.antiPattern && relation.conflictClass !== "anti-pattern") return rejectRelation(relation, "suppression requires an anti-pattern observation or conflict class");
-	if (relation.confidence < SUPPRESS_CONFIDENCE_THRESHOLD) return downgradeRelation(relation, "anti-pattern suppression requires stronger verification confidence");
-	if (!relation.basis.scope || !relation.basis.semanticKey && !relation.basis.category) return rejectRelation(relation, "suppression requires task scope plus semantic or category basis");
-	return acceptRelation(relation, "anti-pattern suppression accepted after verification and scope checks");
+function adjudicateSuppressRelation(relation, context) {
+	if (!relation.basis.scope) return rejectRelation(relation, "suppression is outside the task scope");
+	if (!hasSemanticBasis(relation)) return rejectRelation(relation, "suppression lacks semantic basis");
+	if (!hasAntiPatternBasis(relation, context)) return rejectRelation(relation, "suppression requires an anti-pattern directive, anti-pattern observation, or anti-pattern conflict class");
+	if (!relation.basis.evidence) return downgradeRelation(relation, "suppression lacks verified observation evidence");
+	return acceptRelation(relation, acceptedReason(relation, "suppression"));
 }
 function adjudicateDirectionalRelation(relation) {
 	if (!relation.basis.scope) return rejectRelation(relation, "directional relation is outside the task scope");
-	if (!relation.basis.semanticKey && !relation.basis.category) return rejectRelation(relation, "directional relation lacks semantic-key or trait/category basis");
-	if (!relation.basis.evidence && relation.confidence < BROAD_SCOPE_CONFIDENCE_THRESHOLD) return downgradeRelation(relation, "directional relation lacks verified evidence and sufficient confidence");
-	return acceptRelation(relation, `${relation.relation} relation accepted by deterministic Runtime adjudication`);
+	if (!hasSemanticBasis(relation)) return rejectRelation(relation, "directional relation lacks semantic basis");
+	if (!relation.basis.evidence) return downgradeRelation(relation, "directional relation lacks verified observation evidence");
+	return acceptRelation(relation, acceptedReason(relation, relation.relation));
 }
-function isWeakBroadScope(observation) {
-	const confidence = Math.max(observation.verification.evidenceConfidence, observation.verification.inductionConfidence);
-	return observation.support.scopeBasis === "cross-root" && confidence < BROAD_SCOPE_CONFIDENCE_THRESHOLD;
+function hasSemanticBasis(relation) {
+	return relation.basis.hostReasoning || relation.basis.feedback || relation.basis.semanticKey || relation.basis.category || relation.signals.some((signal) => signal.kind === "host-proposal" || signal.kind === "semantic-key");
+}
+function hasAntiPatternBasis(relation, context) {
+	return context.directiveKind === "anti-pattern" || context.observationAntiPattern || relation.conflictClass === "anti-pattern";
+}
+function acceptedReason(relation, label) {
+	return `${label} relation accepted from ${relation.proposedBy === "multi-source" ? "merged semantic relation sources" : relation.proposedBy} after scope, lifecycle, and verification adjudication`;
 }
 function acceptRelation(relation, reason) {
 	return {

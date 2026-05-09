@@ -31,7 +31,7 @@ export async function buildGovernanceIR(input: CompileInput, sources?: CompileSo
     directives: directivesToIR(loadedSources.allDirectives, loadedSources.local),
     observations: observationsToIR(loadedSources.rccl?.observations ?? [], input.rcclPath),
     feedback: feedbackToIR(input.lockfilePath),
-    hostProposals: [],
+    hostProposals: input.hostProposals ?? [],
     sourceManifest: {
       builtinRoot: input.builtinRoot,
       selectedLayers: loadedSources.selectedLayerIds,
