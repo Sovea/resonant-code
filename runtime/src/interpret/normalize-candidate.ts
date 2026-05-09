@@ -1,10 +1,25 @@
 import { inferTargetLayer } from '../intent/parse-intent.ts';
+import {
+  COMPATIBILITY_REQUIREMENTS,
+  INTERFACE_SENSITIVITIES,
+  MIGRATION_PHASES,
+  OPERATIONS,
+  OPTIMIZATION_TARGETS,
+  PROJECT_STAGES,
+  REFACTOR_TOLERANCES,
+  REVIEW_GOALS,
+  RISK_LEVELS,
+  SCOPE_SIZES,
+  TASK_KINDS,
+} from '../intent/schema.ts';
 import type { CompileTaskInput, ContextProfile, Operation, ResolveTaskRequest, ResolvedTaskOutput, TaskIntent, TaskKind } from '../types.ts';
 import { DeterministicInterpretationProvider } from './deterministic-extractor.ts';
 import type {
   CandidateField,
   CandidateListField,
   CandidateSummary,
+  ContextDecisionInput,
+  DiscardedInterpretationInput,
   InputProvenance,
   InterpretationConflict,
   ParsedTaskCandidate,
@@ -14,11 +29,13 @@ import type {
 } from './types.ts';
 
 const deterministicProvider = new DeterministicInterpretationProvider();
+const MIN_ASSISTIVE_CONTEXT_CONFIDENCE = 0.5;
 
 export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
   const deterministicCandidate = deterministicProvider.interpret(input.task);
   const candidates = [...(input.candidates ?? []), deterministicCandidate];
   const conflicts: InterpretationConflict[] = [];
+  const discardedInputs: DiscardedInterpretationInput[] = [];
 
   const taskKindResolution = resolveField<TaskKind>({
     field: 'intent.task_kind',
@@ -27,7 +44,9 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     fallbackValue: deterministicCandidate.intent.task_kind?.value ?? 'code',
     defaultSource: 'deterministic',
     defaultConfidence: deterministicCandidate.intent.task_kind?.confidence ?? 0.85,
+    allowedValues: TASK_KINDS,
     conflicts,
+    discardedInputs,
   });
 
   const operationResolution = resolveField<Operation>({
@@ -37,7 +56,9 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     fallbackValue: deterministicCandidate.intent.operation?.value ?? 'modify',
     defaultSource: 'deterministic',
     defaultConfidence: deterministicCandidate.intent.operation?.confidence ?? 0.5,
+    allowedValues: OPERATIONS,
     conflicts,
+    discardedInputs,
   });
 
   const targetFileResolution = resolveField<string>({
@@ -48,6 +69,7 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     defaultSource: 'deterministic',
     defaultConfidence: deterministicCandidate.intent.target_file?.confidence ?? 0.65,
     conflicts,
+    discardedInputs,
   });
 
   const changedFilesResolution = resolveListField<string>({
@@ -87,7 +109,9 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     fallbackValue: deterministicCandidate.context.project_stage?.value,
     defaultSource: 'deterministic',
     defaultConfidence: deterministicCandidate.context.project_stage?.confidence ?? 0.5,
+    allowedValues: PROJECT_STAGES,
     conflicts,
+    discardedInputs,
   });
 
   const optimizationTargetResolution = resolveField<ContextProfile['optimization_target']>({
@@ -97,7 +121,9 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     fallbackValue: deterministicCandidate.context.optimization_target?.value,
     defaultSource: 'deterministic',
     defaultConfidence: deterministicCandidate.context.optimization_target?.confidence ?? 0.55,
+    allowedValues: OPTIMIZATION_TARGETS,
     conflicts,
+    discardedInputs,
   });
 
   const hardConstraintsResolution = resolveListField<string>({
@@ -130,6 +156,97 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     conflicts,
   });
 
+  const riskLevelResolution = resolveField<ContextProfile['risk_level']>({
+    field: 'context.risk_level',
+    explicitValue: input.task.riskLevel,
+    candidates: candidates.map((candidate) => candidate.context.risk_level),
+    fallbackValue: deterministicCandidate.context.risk_level?.value ?? 'medium',
+    defaultSource: 'deterministic',
+    defaultConfidence: deterministicCandidate.context.risk_level?.confidence ?? 0.65,
+    allowedValues: RISK_LEVELS,
+    minimumCandidateConfidence: MIN_ASSISTIVE_CONTEXT_CONFIDENCE,
+    conflicts,
+    discardedInputs,
+  });
+
+  const scopeSizeResolution = resolveField<ContextProfile['scope_size']>({
+    field: 'context.scope_size',
+    explicitValue: input.task.scopeSize,
+    candidates: candidates.map((candidate) => candidate.context.scope_size),
+    fallbackValue: deterministicCandidate.context.scope_size?.value ?? 'unknown',
+    defaultSource: 'deterministic',
+    defaultConfidence: deterministicCandidate.context.scope_size?.confidence ?? 0.35,
+    allowedValues: SCOPE_SIZES,
+    minimumCandidateConfidence: MIN_ASSISTIVE_CONTEXT_CONFIDENCE,
+    conflicts,
+    discardedInputs,
+  });
+
+  const compatibilityRequirementResolution = resolveField<ContextProfile['compatibility_requirement']>({
+    field: 'context.compatibility_requirement',
+    explicitValue: input.task.compatibilityRequirement,
+    candidates: candidates.map((candidate) => candidate.context.compatibility_requirement),
+    fallbackValue: deterministicCandidate.context.compatibility_requirement?.value ?? 'none',
+    defaultSource: 'deterministic',
+    defaultConfidence: deterministicCandidate.context.compatibility_requirement?.confidence ?? 0.5,
+    allowedValues: COMPATIBILITY_REQUIREMENTS,
+    minimumCandidateConfidence: MIN_ASSISTIVE_CONTEXT_CONFIDENCE,
+    conflicts,
+    discardedInputs,
+  });
+
+  const interfaceSensitivityResolution = resolveField<ContextProfile['interface_sensitivity']>({
+    field: 'context.interface_sensitivity',
+    explicitValue: input.task.interfaceSensitivity,
+    candidates: candidates.map((candidate) => candidate.context.interface_sensitivity),
+    fallbackValue: deterministicCandidate.context.interface_sensitivity?.value ?? 'unknown',
+    defaultSource: 'deterministic',
+    defaultConfidence: deterministicCandidate.context.interface_sensitivity?.confidence ?? 0.35,
+    allowedValues: INTERFACE_SENSITIVITIES,
+    minimumCandidateConfidence: MIN_ASSISTIVE_CONTEXT_CONFIDENCE,
+    conflicts,
+    discardedInputs,
+  });
+
+  const refactorToleranceResolution = resolveField<ContextProfile['refactor_tolerance']>({
+    field: 'context.refactor_tolerance',
+    explicitValue: input.task.refactorTolerance,
+    candidates: candidates.map((candidate) => candidate.context.refactor_tolerance),
+    fallbackValue: deterministicCandidate.context.refactor_tolerance?.value ?? 'local-only',
+    defaultSource: 'deterministic',
+    defaultConfidence: deterministicCandidate.context.refactor_tolerance?.confidence ?? 0.65,
+    allowedValues: REFACTOR_TOLERANCES,
+    minimumCandidateConfidence: MIN_ASSISTIVE_CONTEXT_CONFIDENCE,
+    conflicts,
+    discardedInputs,
+  });
+
+  const migrationPhaseResolution = resolveField<ContextProfile['migration_phase']>({
+    field: 'context.migration_phase',
+    explicitValue: input.task.migrationPhase,
+    candidates: candidates.map((candidate) => candidate.context.migration_phase),
+    fallbackValue: deterministicCandidate.context.migration_phase?.value ?? 'none',
+    defaultSource: 'deterministic',
+    defaultConfidence: deterministicCandidate.context.migration_phase?.confidence ?? 0.45,
+    allowedValues: MIGRATION_PHASES,
+    minimumCandidateConfidence: MIN_ASSISTIVE_CONTEXT_CONFIDENCE,
+    conflicts,
+    discardedInputs,
+  });
+
+  const reviewGoalResolution = resolveField<ContextProfile['review_goal']>({
+    field: 'context.review_goal',
+    explicitValue: input.task.reviewGoal,
+    candidates: candidates.map((candidate) => candidate.context.review_goal),
+    fallbackValue: deterministicCandidate.context.review_goal?.value ?? 'maintainability',
+    defaultSource: 'deterministic',
+    defaultConfidence: deterministicCandidate.context.review_goal?.confidence ?? 0.65,
+    allowedValues: REVIEW_GOALS,
+    minimumCandidateConfidence: MIN_ASSISTIVE_CONTEXT_CONFIDENCE,
+    conflicts,
+    discardedInputs,
+  });
+
   const task: CompileTaskInput = {
     description: input.task.description,
     taskKind: taskKindResolution.value,
@@ -143,6 +260,13 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     hardConstraints: hardConstraintsResolution.values,
     allowedTradeoffs: allowedTradeoffsResolution.values,
     avoid: avoidResolution.values,
+    riskLevel: riskLevelResolution.value,
+    scopeSize: scopeSizeResolution.value,
+    compatibilityRequirement: compatibilityRequirementResolution.value,
+    interfaceSensitivity: interfaceSensitivityResolution.value,
+    refactorTolerance: refactorToleranceResolution.value,
+    migrationPhase: migrationPhaseResolution.value,
+    reviewGoal: reviewGoalResolution.value,
   };
 
   const resolvedTargetFile = targetFileResolution.value;
@@ -163,6 +287,13 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     hard_constraints: unique(hardConstraintsResolution.values),
     allowed_tradeoffs: unique(allowedTradeoffsResolution.values),
     avoid: unique(avoidResolution.values),
+    risk_level: riskLevelResolution.value,
+    scope_size: scopeSizeResolution.value,
+    compatibility_requirement: compatibilityRequirementResolution.value,
+    interface_sensitivity: interfaceSensitivityResolution.value,
+    refactor_tolerance: refactorToleranceResolution.value,
+    migration_phase: migrationPhaseResolution.value,
+    review_goal: reviewGoalResolution.value,
   };
 
   const provenance = buildProvenance(input, {
@@ -177,9 +308,16 @@ export function resolveTask(input: ResolveTaskRequest): ResolvedTaskOutput {
     hard_constraints: hardConstraintsResolution,
     allowed_tradeoffs: allowedTradeoffsResolution,
     avoid: avoidResolution,
-  });
+    risk_level: riskLevelResolution,
+    scope_size: scopeSizeResolution,
+    compatibility_requirement: compatibilityRequirementResolution,
+    interface_sensitivity: interfaceSensitivityResolution,
+    refactor_tolerance: refactorToleranceResolution,
+    migration_phase: migrationPhaseResolution,
+    review_goal: reviewGoalResolution,
+  }, conflicts);
   const trace = buildTrace(input, candidates, provenance, conflicts);
-  const diagnostics = buildDiagnostics(input, candidates, provenance, conflicts);
+  const diagnostics = buildDiagnostics(input, candidates, provenance, conflicts, discardedInputs);
 
   return {
     task,
@@ -216,7 +354,10 @@ function resolveField<T>({
   fallbackValue,
   defaultSource,
   defaultConfidence,
+  allowedValues,
+  minimumCandidateConfidence = 0,
   conflicts,
+  discardedInputs,
 }: {
   field: string;
   explicitValue: T | undefined;
@@ -224,12 +365,34 @@ function resolveField<T>({
   fallbackValue: T | undefined;
   defaultSource: CandidateField<T>['source'];
   defaultConfidence: number;
+  allowedValues?: readonly T[];
+  minimumCandidateConfidence?: number;
   conflicts: InterpretationConflict[];
+  discardedInputs: DiscardedInterpretationInput[];
 }): ScalarResolution<T> {
-  const resolvedCandidates = candidates.filter((candidate): candidate is CandidateField<T> => candidate !== undefined && candidate.status === 'resolved' && candidate.value !== undefined);
+  const resolvedCandidates = candidates.filter((candidate): candidate is CandidateField<T> => {
+    if (candidate === undefined || candidate.status !== 'resolved') return false;
+    if (candidate.value === undefined) {
+      recordDiscarded(discardedInputs, field, '', candidate.source, 'missing-value', fallbackValue);
+      return false;
+    }
+    if (candidate.confidence < minimumCandidateConfidence) {
+      recordDiscarded(discardedInputs, field, candidate.value, candidate.source, 'below-confidence-threshold', fallbackValue);
+      return false;
+    }
+    if (allowedValues && !allowedValues.includes(candidate.value)) {
+      recordDiscarded(discardedInputs, field, candidate.value, candidate.source, 'invalid-enum', fallbackValue);
+      return false;
+    }
+    return true;
+  });
   if (explicitValue !== undefined) {
-    registerConflict(field, 'explicit', resolvedCandidates.map((candidate) => candidate.source), conflicts, 'explicit task input takes precedence');
-    return { value: explicitValue, source: 'explicit', confidence: 1, status: 'resolved' };
+    if (allowedValues && !allowedValues.includes(explicitValue)) {
+      recordDiscarded(discardedInputs, field, explicitValue, 'explicit', 'invalid-enum', fallbackValue);
+    } else {
+      registerConflict(field, 'explicit', resolvedCandidates.map((candidate) => candidate.source), conflicts, 'explicit task input takes precedence');
+      return { value: explicitValue, source: 'explicit', confidence: 1, status: 'resolved' };
+    }
   }
   if (resolvedCandidates.length > 0) {
     const winner = resolvedCandidates[0];
@@ -289,7 +452,15 @@ function buildProvenance(
     hard_constraints: ListResolution<string>;
     allowed_tradeoffs: ListResolution<string>;
     avoid: ListResolution<string>;
+    risk_level: ScalarResolution<ContextProfile['risk_level']>;
+    scope_size: ScalarResolution<ContextProfile['scope_size']>;
+    compatibility_requirement: ScalarResolution<ContextProfile['compatibility_requirement']>;
+    interface_sensitivity: ScalarResolution<ContextProfile['interface_sensitivity']>;
+    refactor_tolerance: ScalarResolution<ContextProfile['refactor_tolerance']>;
+    migration_phase: ScalarResolution<ContextProfile['migration_phase']>;
+    review_goal: ScalarResolution<ContextProfile['review_goal']>;
   },
+  conflicts: InterpretationConflict[],
 ): InputProvenance {
   const resolved_fields = [
     summarizeScalarField('intent.task_kind', resolved.task_kind),
@@ -303,6 +474,13 @@ function buildProvenance(
     summarizeListField('context.hard_constraints', resolved.hard_constraints),
     summarizeListField('context.allowed_tradeoffs', resolved.allowed_tradeoffs),
     summarizeListField('context.avoid', resolved.avoid),
+    summarizeScalarField('context.risk_level', resolved.risk_level),
+    summarizeScalarField('context.scope_size', resolved.scope_size),
+    summarizeScalarField('context.compatibility_requirement', resolved.compatibility_requirement),
+    summarizeScalarField('context.interface_sensitivity', resolved.interface_sensitivity),
+    summarizeScalarField('context.refactor_tolerance', resolved.refactor_tolerance),
+    summarizeScalarField('context.migration_phase', resolved.migration_phase),
+    summarizeScalarField('context.review_goal', resolved.review_goal),
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   const unresolved_fields = [
@@ -313,6 +491,7 @@ function buildProvenance(
   return {
     resolved_fields,
     unresolved_fields,
+    context_resolution: buildContextResolution(resolved, conflicts),
     interpretation_mode: input.interpretationMode ?? (input.candidates?.length ? 'assistive-ai' : 'deterministic-only'),
     resolution_quality: determineResolutionQuality(resolved_fields),
   };
@@ -337,27 +516,160 @@ function buildTrace(
   };
 }
 
+function buildContextResolution(
+  resolved: {
+    project_stage: ScalarResolution<ContextProfile['project_stage'] | undefined>;
+    optimization_target: ScalarResolution<ContextProfile['optimization_target']>;
+    hard_constraints: ListResolution<string>;
+    allowed_tradeoffs: ListResolution<string>;
+    avoid: ListResolution<string>;
+    risk_level: ScalarResolution<ContextProfile['risk_level']>;
+    scope_size: ScalarResolution<ContextProfile['scope_size']>;
+    compatibility_requirement: ScalarResolution<ContextProfile['compatibility_requirement']>;
+    interface_sensitivity: ScalarResolution<ContextProfile['interface_sensitivity']>;
+    refactor_tolerance: ScalarResolution<ContextProfile['refactor_tolerance']>;
+    migration_phase: ScalarResolution<ContextProfile['migration_phase']>;
+    review_goal: ScalarResolution<ContextProfile['review_goal']>;
+  },
+  conflicts: InterpretationConflict[],
+): ContextDecisionInput[] {
+  return [
+    contextScalar('context.project_stage', resolved.project_stage, conflicts),
+    contextScalar('context.optimization_target', resolved.optimization_target, conflicts),
+    contextList('context.hard_constraints', resolved.hard_constraints, conflicts),
+    contextList('context.allowed_tradeoffs', resolved.allowed_tradeoffs, conflicts),
+    contextList('context.avoid', resolved.avoid, conflicts),
+    contextScalar('context.risk_level', resolved.risk_level, conflicts),
+    contextScalar('context.scope_size', resolved.scope_size, conflicts),
+    contextScalar('context.compatibility_requirement', resolved.compatibility_requirement, conflicts),
+    contextScalar('context.interface_sensitivity', resolved.interface_sensitivity, conflicts),
+    contextScalar('context.refactor_tolerance', resolved.refactor_tolerance, conflicts),
+    contextScalar('context.migration_phase', resolved.migration_phase, conflicts),
+    contextScalar('context.review_goal', resolved.review_goal, conflicts),
+  ];
+}
+
+function contextScalar<T>(
+  field: string,
+  resolved: ScalarResolution<T | undefined>,
+  conflicts: InterpretationConflict[],
+): ContextDecisionInput {
+  const value = resolved.value === undefined ? '' : String(resolved.value);
+  return {
+    field,
+    value,
+    source: resolved.source,
+    confidence: resolved.confidence,
+    status: contextResolutionStatus(field, resolved.source, resolved.value === undefined, conflicts),
+    influence: contextInfluenceHints(field, value),
+  };
+}
+
+function contextList(
+  field: string,
+  resolved: ListResolution<string>,
+  conflicts: InterpretationConflict[],
+): ContextDecisionInput {
+  return {
+    field,
+    value: resolved.values,
+    source: resolved.source,
+    confidence: resolved.confidence,
+    status: contextResolutionStatus(field, resolved.source, resolved.values.length === 0, conflicts),
+    influence: contextInfluenceHints(field, resolved.values.join(',')),
+  };
+}
+
+function contextResolutionStatus(
+  field: string,
+  source: CandidateField<unknown>['source'],
+  unresolved: boolean,
+  conflicts: InterpretationConflict[],
+): ContextDecisionInput['status'] {
+  if (conflicts.some((conflict) => conflict.field === field)) return 'conflicted';
+  if (unresolved) return 'unresolved';
+  return source === 'deterministic' || source === 'repo-default' ? 'defaulted' : 'resolved';
+}
+
+function contextInfluenceHints(field: string, value: string): string[] {
+  switch (field) {
+    case 'context.risk_level':
+      return value === 'high' || value === 'critical' ? ['review-focus-priority', 'must-guidance-preservation'] : [];
+    case 'context.scope_size':
+      return value === 'single-file' ? ['broad-guidance-ambient'] : [];
+    case 'context.compatibility_requirement':
+      return value && value !== 'none' && value !== 'breaking-allowed' ? ['compatibility-tension'] : [];
+    case 'context.interface_sensitivity':
+      return value && value !== 'internal' && value !== 'unknown' ? ['review-focus-priority'] : [];
+    case 'context.refactor_tolerance':
+      return value === 'none' || value === 'local-only' ? ['broad-guidance-ambient'] : [];
+    case 'context.migration_phase':
+      return value === 'dual-run' || value === 'cutover' ? ['migration-tension'] : [];
+    case 'context.review_goal':
+      return value === 'security' || value === 'regression-risk' ? ['review-focus-priority'] : [];
+    default:
+      return [];
+  }
+}
+
 function buildDiagnostics(
   input: ResolveTaskInput,
   candidates: ParsedTaskCandidate[],
   provenance: InputProvenance,
   conflicts: InterpretationConflict[],
+  discardedInputs: DiscardedInterpretationInput[],
 ): RuntimeDiagnostics {
   const ambiguity_reasons = [
     ...candidates.flatMap((candidate) => candidate.uncertainties ?? []),
     ...provenance.unresolved_fields.map((item) => `${item} unresolved`),
     ...conflicts.map((conflict) => `conflicting candidates for ${conflict.field}`),
   ];
+  const discarded = uniqueDiscardedInputs(discardedInputs);
 
   return {
-    warnings: ambiguity_reasons.map((item) => `interpretation warning: ${item}`),
+    warnings: [
+      ...ambiguity_reasons.map((item) => `interpretation warning: ${item}`),
+      ...discarded.map((item) => `interpretation discarded ${item.source} ${item.field}=${item.value || '(empty)'}: ${item.reason}`),
+    ],
     fallback_usage: {
       used_deterministic_interpretation: provenance.resolved_fields.some((field) => field.source === 'deterministic'),
       used_candidate_normalization: Boolean(input.candidates?.length),
     },
     clarification_recommended: ambiguity_reasons.length > 0 && (!input.candidates?.length || conflicts.length > 0),
     ambiguity_reasons,
+    discarded_inputs: discarded,
   };
+}
+
+function recordDiscarded(
+  discardedInputs: DiscardedInterpretationInput[],
+  field: string,
+  value: unknown,
+  source: DiscardedInterpretationInput['source'],
+  reason: DiscardedInterpretationInput['reason'],
+  fallbackValue: unknown,
+): void {
+  if (source === 'deterministic') return;
+  discardedInputs.push({
+    field,
+    value: value === undefined ? '' : String(value),
+    source,
+    reason,
+    action: 'discarded',
+    ...(fallbackValue === undefined ? {} : { fallback: String(fallbackValue) }),
+  });
+}
+
+function uniqueDiscardedInputs(items: DiscardedInterpretationInput[]): DiscardedInterpretationInput[] {
+  const seen = new Set<string>();
+  const result: DiscardedInterpretationInput[] = [];
+  for (const item of items) {
+    const key = `${item.field}:${item.value}:${item.source}:${item.reason}:${item.fallback ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
 }
 
 function summarizeCandidate(candidate: ParsedTaskCandidate): CandidateSummary {
@@ -369,6 +681,13 @@ function summarizeCandidate(candidate: ParsedTaskCandidate): CandidateSummary {
     ['context.project_stage', candidate.context.project_stage],
     ['context.change_type', candidate.context.change_type],
     ['context.optimization_target', candidate.context.optimization_target],
+    ['context.risk_level', candidate.context.risk_level],
+    ['context.scope_size', candidate.context.scope_size],
+    ['context.compatibility_requirement', candidate.context.compatibility_requirement],
+    ['context.interface_sensitivity', candidate.context.interface_sensitivity],
+    ['context.refactor_tolerance', candidate.context.refactor_tolerance],
+    ['context.migration_phase', candidate.context.migration_phase],
+    ['context.review_goal', candidate.context.review_goal],
   ] as const;
   const listFields = [
     ['intent.tech_stack', candidate.intent.tech_stack],
@@ -406,6 +725,13 @@ function summarizeCandidate(candidate: ParsedTaskCandidate): CandidateSummary {
     candidate.context.hard_constraints?.confidence,
     candidate.context.allowed_tradeoffs?.confidence,
     candidate.context.avoid?.confidence,
+    candidate.context.risk_level?.confidence,
+    candidate.context.scope_size?.confidence,
+    candidate.context.compatibility_requirement?.confidence,
+    candidate.context.interface_sensitivity?.confidence,
+    candidate.context.refactor_tolerance?.confidence,
+    candidate.context.migration_phase?.confidence,
+    candidate.context.review_goal?.confidence,
   ].filter((value): value is number => typeof value === 'number');
   const confidence = confidenceValues.length
     ? Number((confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length).toFixed(2))
@@ -431,7 +757,7 @@ function summarizeListField<T>(field: string, resolved: ListResolution<T>) {
 
 function determineResolutionQuality(resolvedFields: InputProvenance['resolved_fields']): InputProvenance['resolution_quality'] {
   if (resolvedFields.every((field) => field.source === 'explicit')) return 'explicit';
-  if (resolvedFields.some((field) => field.source === 'assistive-ai')) return 'ai-assisted';
+  if (resolvedFields.some((field) => field.source === 'host-agent' || field.source === 'assistive-ai')) return 'ai-assisted';
   if (resolvedFields.some((field) => field.source === 'deterministic')) return 'deterministic';
   return 'degraded';
 }

@@ -7,6 +7,7 @@ function evaluateGuidance(input) {
 	const followed = new Set(input.followedDirectiveIds ?? trackedDirectiveIds);
 	const ignored = new Set(input.ignoredDirectiveIds ?? []);
 	const taskType = input.ego.taskIntent.operation;
+	const taskProfile = taskProfileKey(input);
 	const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 	const now = (/* @__PURE__ */ new Date()).toISOString();
 	const modeCounts = summarizeExecutionModes(input);
@@ -14,6 +15,7 @@ function evaluateGuidance(input) {
 	const observedRccl = getObservedRccl(input);
 	existing.governance_summary.total_tasks += 1;
 	existing.governance_summary.by_task_type[taskType] = (existing.governance_summary.by_task_type[taskType] ?? 0) + 1;
+	existing.governance_summary.by_task_profile[taskProfile] = (existing.governance_summary.by_task_profile[taskProfile] ?? 0) + 1;
 	existing.governance_summary.last_execution_modes = modeCounts;
 	existing.governance_summary.last_tension_count = tensionCount;
 	existing.governance_summary.last_observation_count = observedRccl.size;
@@ -26,9 +28,14 @@ function evaluateGuidance(input) {
 			followed: 0,
 			ignored: 0
 		};
+		const profileCounts = entry.quality_signal.by_task_profile[taskProfile] ?? {
+			followed: 0,
+			ignored: 0
+		};
 		if (ignored.has(directiveId)) {
 			entry.quality_signal.overall.ignored += 1;
 			counts.ignored += 1;
+			profileCounts.ignored += 1;
 			const ignoredReason = validIgnoredReason(input.ignoredDirectiveReasons?.[directiveId]) ? input.ignoredDirectiveReasons[directiveId] : void 0;
 			if (ignoredReason) {
 				entry.quality_signal.ignored_reasons[ignoredReason] = (entry.quality_signal.ignored_reasons[ignoredReason] ?? 0) + 1;
@@ -37,8 +44,10 @@ function evaluateGuidance(input) {
 		} else if (followed.has(directiveId)) {
 			entry.quality_signal.overall.followed += 1;
 			counts.followed += 1;
+			profileCounts.followed += 1;
 		}
 		entry.quality_signal.by_task_type[taskType] = counts;
+		entry.quality_signal.by_task_profile[taskProfile] = profileCounts;
 		entry.quality_signal.overall.follow_rate = computeFollowRate(entry);
 		entry.quality_signal.overall.trend = computeTrend(entry);
 		entry.quality_signal.signal_confidence = resolveSignalConfidence(input, ignored.has(directiveId));
@@ -64,13 +73,19 @@ function loadLockfile(filePath) {
 		directives: normalizeDirectiveEntries(parsed.directives),
 		observations: normalizeObservationEntries(parsed.observations),
 		tensions: normalizeTensionEntries(parsed.tensions),
-		governance_summary: parsed.governance_summary
+		governance_summary: {
+			...parsed.governance_summary,
+			by_task_profile: parsed.governance_summary.by_task_profile ?? {}
+		}
 	};
 }
 function isLockfileDocument(value) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 	const candidate = value;
-	return candidate.version === "1.0" && isRecord(candidate.directives) && isRecord(candidate.observations) && isRecord(candidate.tensions) && Boolean(candidate.governance_summary) && typeof candidate.governance_summary === "object";
+	return isLockfileVersion(candidate.version) && isRecord(candidate.directives) && isRecord(candidate.observations) && isRecord(candidate.tensions) && Boolean(candidate.governance_summary) && typeof candidate.governance_summary === "object";
+}
+function isLockfileVersion(value) {
+	return value === "1.0" || value === 1 || value === 1;
 }
 function isRecord(value) {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -96,6 +111,7 @@ function normalizeDirectiveEntries(entries) {
 					...entry.quality_signal?.overall
 				},
 				by_task_type: entry.quality_signal?.by_task_type ?? {},
+				by_task_profile: entry.quality_signal?.by_task_profile ?? {},
 				ignored_reasons: normalizeIgnoredReasons(entry.quality_signal?.ignored_reasons),
 				...validIgnoredReason(entry.quality_signal?.last_ignored_reason) ? { last_ignored_reason: entry.quality_signal.last_ignored_reason } : {},
 				signal_confidence: validSignalConfidence(entry.quality_signal?.signal_confidence) ? entry.quality_signal.signal_confidence : "implicit",
@@ -181,6 +197,7 @@ function createDocument() {
 		governance_summary: {
 			total_tasks: 0,
 			by_task_type: {},
+			by_task_profile: {},
 			last_execution_modes: emptyModeCounts(),
 			last_tension_count: 0,
 			last_observation_count: 0,
@@ -198,6 +215,7 @@ function createEntry() {
 				trend: "stable"
 			},
 			by_task_type: {},
+			by_task_profile: {},
 			ignored_reasons: {},
 			signal_confidence: "implicit",
 			last_seen: ""
@@ -236,6 +254,15 @@ function computeTrend(entry) {
 	if (rate >= .9) return "stable";
 	if (rate >= .75) return "improving";
 	return "degrading";
+}
+function taskProfileKey(input) {
+	const context = input.packet.interpretation.resolved.context_profile;
+	return [
+		input.ego.taskIntent.operation,
+		context.risk_level ?? "medium",
+		context.scope_size ?? "unknown",
+		context.compatibility_requirement ?? "none"
+	].join("|");
 }
 function resolveSignalConfidence(input, ignored) {
 	if (validSignalConfidence(input.signalConfidence)) return input.signalConfidence;

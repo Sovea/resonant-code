@@ -13,6 +13,7 @@ import type {
 import type { ExecutionDecisionIR, SemanticRelationIR } from '../types.ts';
 import { semanticRelationsIRToPublic } from '../relations/public-mapping.ts';
 import { semanticRelationPolicyTraceRecord } from '../relations/policy.ts';
+import { contextInfluenceEffect, contextReviewPriorityBoost } from '../execution/context-policy.ts';
 
 export function projectIRSemanticMergeToPublic(
   directives: Directive[],
@@ -93,6 +94,7 @@ function projectExecutionDecision(
     reason: decision.reason,
     decision_basis: publicDecisionBasis(decision.basis),
     context_applied: decision.contextApplied,
+    context_rule_ids: decision.contextRulesApplied,
     feedback_applied: decision.feedbackApplied,
   };
 }
@@ -167,7 +169,7 @@ function buildReviewFocus(
         kind: 'compatibility-boundary',
         directive_id: directive.id,
         reason: decision.reason,
-        priority: directiveFocusPriority(directive, decision.execution_mode),
+        priority: directiveFocusPriority(directive, decision),
         relation_id: decision.relation_summaries[0]?.relation_id,
         group_id: decision.relation_summaries[0]?.group_id,
       });
@@ -181,7 +183,7 @@ function buildReviewFocus(
         kind: 'high-priority-directive',
         directive_id: directive.id,
         reason: `Review whether ${directive.id} was respected under ${decision.execution_mode} execution mode.`,
-        priority: directiveFocusPriority(directive, decision.execution_mode),
+        priority: directiveFocusPriority(directive, decision),
         relation_id: decision.relation_summaries[0]?.relation_id,
         group_id: decision.relation_summaries[0]?.group_id,
       });
@@ -311,8 +313,11 @@ function publicRelationKind(relation: SemanticRelationIR['adjudication']['finalR
 
 function directiveFocusPriority(
   directive: Directive,
-  executionMode: ExecutionMode,
+  decision: SemanticMergeDirectiveLink,
 ): ReviewFocusSeed['priority'] {
+  const executionMode = decision.execution_mode;
+  const contextBoost = contextReviewPriorityBoost(decision.context_applied);
+  if (contextBoost) return contextBoost;
   if (executionMode === 'suppress') return 'critical';
   if (executionMode === 'deviation-noted') return directive.weight === 'critical' || directive.prescription === 'must' ? 'critical' : 'high';
   if (directive.weight === 'critical') return 'high';
@@ -352,30 +357,18 @@ function publicContextField(field: string): ContextInfluenceRecord['field'] {
     case 'hard_constraints':
     case 'allowed_tradeoffs':
     case 'avoid':
+    case 'risk_level':
+    case 'scope_size':
+    case 'compatibility_requirement':
+    case 'interface_sensitivity':
+    case 'refactor_tolerance':
+    case 'migration_phase':
+    case 'review_goal':
     case 'feedback':
       return field;
     default:
       return 'project_stage';
   }
-}
-
-function contextInfluenceEffect(context: string, mode: ExecutionMode): string {
-  if (context.startsWith('optimization_target:')) {
-    return `adjusted execution to ${mode} for the task optimization target`;
-  }
-  if (context.startsWith('hard_constraints:')) {
-    return `adjusted execution to ${mode} for explicit task constraints`;
-  }
-  if (context.startsWith('allowed_tradeoffs:')) {
-    return `adjusted execution to ${mode} for allowed task tradeoffs`;
-  }
-  if (context.startsWith('avoid:')) {
-    return `adjusted execution to ${mode} for task avoidance guidance`;
-  }
-  if (context.startsWith('feedback:')) {
-    return `recorded feedback influence while resolving execution to ${mode}`;
-  }
-  return `adjusted execution to ${mode} for task context`;
 }
 
 function buildTensionResolution(

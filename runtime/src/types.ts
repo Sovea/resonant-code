@@ -21,6 +21,13 @@ export type RcclLifecycleStatus = 'active' | 'stale' | 'superseded';
 export type ExecutionMode = 'enforce' | 'deviation-noted' | 'ambient' | 'suppress';
 export type IgnoredReason = 'not-applicable' | 'conflicts-with-task' | 'too-broad' | 'repo-reality' | 'false-positive' | 'user-corrected' | 'other';
 export type FeedbackSignalConfidence = 'implicit' | 'explicit' | 'review-confirmed' | 'user-corrected';
+export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+export type ScopeSize = 'single-file' | 'module' | 'cross-cutting' | 'unknown';
+export type CompatibilityRequirement = 'none' | 'preserve-behavior' | 'preserve-api' | 'migration-compatible' | 'breaking-allowed';
+export type InterfaceSensitivity = 'internal' | 'public-api' | 'persistence' | 'external-integration' | 'auth-security' | 'unknown';
+export type RefactorTolerance = 'none' | 'local-only' | 'bounded' | 'broad';
+export type MigrationPhase = 'none' | 'preparation' | 'dual-run' | 'cutover' | 'cleanup';
+export type ReviewGoal = 'correctness' | 'regression-risk' | 'architecture-fit' | 'maintainability' | 'security' | 'performance';
 
 export interface DirectiveExampleSide {
   code: string;
@@ -105,6 +112,13 @@ export interface ContextProfile {
   hard_constraints: string[];
   allowed_tradeoffs: string[];
   avoid: string[];
+  risk_level: RiskLevel;
+  scope_size: ScopeSize;
+  compatibility_requirement: CompatibilityRequirement;
+  interface_sensitivity: InterfaceSensitivity;
+  refactor_tolerance: RefactorTolerance;
+  migration_phase: MigrationPhase;
+  review_goal: ReviewGoal;
 }
 
 export interface LocalOverride {
@@ -169,6 +183,13 @@ export interface BaseTaskInput {
   hardConstraints?: string[];
   allowedTradeoffs?: string[];
   avoid?: string[];
+  riskLevel?: RiskLevel;
+  scopeSize?: ScopeSize;
+  compatibilityRequirement?: CompatibilityRequirement;
+  interfaceSensitivity?: InterfaceSensitivity;
+  refactorTolerance?: RefactorTolerance;
+  migrationPhase?: MigrationPhase;
+  reviewGoal?: ReviewGoal;
 }
 
 export interface CompileTaskInput extends BaseTaskInput {
@@ -395,7 +416,7 @@ export interface SemanticMergeContextFocus {
 export interface SemanticMergeTensionRecord extends TensionRecord {}
 
 export interface ContextInfluenceRecord {
-  field: 'optimization_target' | 'hard_constraints' | 'allowed_tradeoffs' | 'avoid' | 'project_stage' | 'feedback';
+  field: 'optimization_target' | 'hard_constraints' | 'allowed_tradeoffs' | 'avoid' | 'project_stage' | 'risk_level' | 'scope_size' | 'compatibility_requirement' | 'interface_sensitivity' | 'refactor_tolerance' | 'migration_phase' | 'review_goal' | 'feedback';
   value: string;
   directive_id?: string;
   effect: string;
@@ -411,6 +432,7 @@ export interface SemanticMergeDirectiveLink {
   reason: string;
   decision_basis: 'default' | 'observed-conflict' | 'anti-pattern' | 'rccl-immune' | 'context-adjusted';
   context_applied: string[];
+  context_rule_ids: string[];
   feedback_applied: string[];
 }
 
@@ -504,6 +526,35 @@ export interface PrepareInterpretationOutput {
   interpretationPrompt: string;
   taskSchema: string;
   ambiguityHints: string[];
+  recommendation: {
+    shouldUseHostCandidate: boolean;
+    reason: string;
+    nextStep: string;
+  };
+  candidateArtifact: {
+    suggestedPath: string;
+    format: 'json' | 'yaml';
+    usage: string;
+  };
+  clarificationHints: string[];
+  contract: {
+    contractVersion: 'ai-contract/v1';
+    kind: 'task-interpretation';
+    schemaId: string;
+    schemaVersion: '1.0';
+    prompt: string;
+    schema: unknown;
+    artifact: {
+      suggestedPath: string;
+      format: 'json' | 'yaml';
+      usage: string;
+    };
+    provenance: {
+      owner: 'runtime';
+      deterministic: true;
+    };
+    cacheKeyMaterial?: unknown;
+  };
 }
 
 export interface RuntimeSessionRecord {
@@ -638,6 +689,7 @@ export interface LockfileDirectiveEntry {
   quality_signal: {
     overall: LockfileSignal;
     by_task_type: Record<string, { followed: number; ignored: number }>;
+    by_task_profile: Record<string, { followed: number; ignored: number }>;
     ignored_reasons: Partial<Record<IgnoredReason, number>>;
     last_ignored_reason?: IgnoredReason;
     signal_confidence: FeedbackSignalConfidence;
@@ -656,6 +708,7 @@ export interface LockfileDocument {
   governance_summary: {
     total_tasks: number;
     by_task_type: Record<string, number>;
+    by_task_profile: Record<string, number>;
     last_execution_modes: Record<ExecutionMode, number>;
     last_tension_count: number;
     last_observation_count: number;

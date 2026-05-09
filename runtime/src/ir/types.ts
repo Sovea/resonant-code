@@ -346,6 +346,7 @@ export interface ExecutionDecisionIR {
   basis: 'prescription' | 'semantic-relation' | 'verification' | 'task-context' | 'feedback' | 'anti-pattern';
   relationIds: string[];
   contextApplied: string[];
+  contextRulesApplied: string[];
   feedbackApplied: string[];
   reason: string;
 }

@@ -1,4 +1,18 @@
 import { buildContextProfile, inferTargetLayer, parseIntent } from '../intent/parse-intent.ts';
+import {
+  COMPATIBILITY_REQUIREMENTS,
+  INTERFACE_SENSITIVITIES,
+  MIGRATION_PHASES,
+  OPERATIONS,
+  OPTIMIZATION_TARGETS,
+  PROJECT_STAGES,
+  REFACTOR_TOLERANCES,
+  REVIEW_GOALS,
+  RISK_LEVELS,
+  SCOPE_SIZES,
+  TASK_KINDS,
+  hasEnumValue,
+} from '../intent/schema.ts';
 import type { CompileTaskInput } from '../types.ts';
 import type { TaskInterpretationProvider } from './provider.ts';
 import type { ParsedTaskCandidate } from './types.ts';
@@ -9,11 +23,22 @@ export class DeterministicInterpretationProvider implements TaskInterpretationPr
   interpret(task: CompileTaskInput): ParsedTaskCandidate {
     const intent = parseIntent(task);
     const context = buildContextProfile(task, intent);
+    const explicitTaskKind = hasEnumValue(task.taskKind, TASK_KINDS);
+    const explicitOperation = hasEnumValue(task.operation, OPERATIONS);
+    const explicitProjectStage = hasEnumValue(task.projectStage, PROJECT_STAGES);
+    const explicitOptimizationTarget = hasEnumValue(task.optimizationTarget, OPTIMIZATION_TARGETS);
+    const explicitRiskLevel = hasEnumValue(task.riskLevel, RISK_LEVELS);
+    const explicitScopeSize = hasEnumValue(task.scopeSize, SCOPE_SIZES);
+    const explicitCompatibilityRequirement = hasEnumValue(task.compatibilityRequirement, COMPATIBILITY_REQUIREMENTS);
+    const explicitInterfaceSensitivity = hasEnumValue(task.interfaceSensitivity, INTERFACE_SENSITIVITIES);
+    const explicitRefactorTolerance = hasEnumValue(task.refactorTolerance, REFACTOR_TOLERANCES);
+    const explicitMigrationPhase = hasEnumValue(task.migrationPhase, MIGRATION_PHASES);
+    const explicitReviewGoal = hasEnumValue(task.reviewGoal, REVIEW_GOALS);
 
     return {
       intent: {
-        task_kind: toField(intent.task_kind, task.taskKind ? 'explicit' : 'deterministic', task.taskKind ? 1 : 0.85, task.taskKind ? 'provided directly via task input' : 'derived from operation and task shape'),
-        operation: toField(intent.operation, task.operation ? 'explicit' : 'deterministic', task.operation ? 1 : 0.5, task.operation ? 'provided directly via task input' : 'neutral deterministic default applied because no explicit operation was provided'),
+        task_kind: toField(intent.task_kind, explicitTaskKind ? 'explicit' : 'deterministic', explicitTaskKind ? 1 : 0.85, explicitTaskKind ? 'provided directly via task input' : 'derived from operation and task shape'),
+        operation: toField(intent.operation, explicitOperation ? 'explicit' : 'deterministic', explicitOperation ? 1 : 0.5, explicitOperation ? 'provided directly via task input' : 'neutral deterministic default applied because no explicit operation was provided'),
         target_layer: toField(intent.target_layer, task.targetFile ? 'explicit' : 'deterministic', task.targetFile ? 1 : 0.6, task.targetFile ? 'derived from explicit target file path' : 'fallback module-level layer because no target file was provided'),
         tech_stack: toListField(intent.tech_stack, task.techStack?.length ? 'explicit' : 'deterministic', task.techStack?.length ? 1 : intent.tech_stack.length ? 0.55 : 0.2, task.techStack?.length ? 'provided directly via task input' : 'derived from explicit target file extension when available'),
         target_file: intent.target_file
@@ -24,13 +49,20 @@ export class DeterministicInterpretationProvider implements TaskInterpretationPr
       },
       context: {
         project_stage: context.project_stage
-          ? toField(context.project_stage, task.projectStage ? 'explicit' : 'deterministic', task.projectStage ? 1 : 0.5, task.projectStage ? 'provided directly via task input' : 'not inferred strongly; carried through when available')
-          : unresolvedField(task.projectStage ? 'explicit' : 'deterministic', 'project stage not resolved'),
-        change_type: toField(context.change_type, task.operation ? 'explicit' : 'deterministic', task.operation ? 1 : 0.5, task.operation ? 'provided directly via task input' : 'mirrors the neutral deterministic operation default'),
-        optimization_target: toField(context.optimization_target, task.optimizationTarget ? 'explicit' : 'deterministic', task.optimizationTarget ? 1 : 0.55, task.optimizationTarget ? 'provided directly via task input' : 'stable fallback derived from resolved operation, not free-text policy extraction'),
+          ? toField(context.project_stage, explicitProjectStage ? 'explicit' : 'deterministic', explicitProjectStage ? 1 : 0.5, explicitProjectStage ? 'provided directly via task input' : 'not inferred strongly; carried through when available')
+          : unresolvedField(explicitProjectStage ? 'explicit' : 'deterministic', 'project stage not resolved'),
+        change_type: toField(context.change_type, explicitOperation ? 'explicit' : 'deterministic', explicitOperation ? 1 : 0.5, explicitOperation ? 'provided directly via task input' : 'mirrors the neutral deterministic operation default'),
+        optimization_target: toField(context.optimization_target, explicitOptimizationTarget ? 'explicit' : 'deterministic', explicitOptimizationTarget ? 1 : 0.55, explicitOptimizationTarget ? 'provided directly via task input' : 'stable fallback derived from resolved operation, not free-text policy extraction'),
         hard_constraints: toListField(context.hard_constraints, task.hardConstraints?.length ? 'explicit' : 'deterministic', task.hardConstraints?.length ? 1 : 0, task.hardConstraints?.length ? 'provided directly via task input' : 'left unresolved unless explicit constraints are provided'),
         allowed_tradeoffs: toListField(context.allowed_tradeoffs, task.allowedTradeoffs?.length ? 'explicit' : 'deterministic', task.allowedTradeoffs?.length ? 1 : 0, task.allowedTradeoffs?.length ? 'provided directly via task input' : 'left unresolved unless explicit tradeoffs are provided'),
         avoid: toListField(context.avoid, task.avoid?.length ? 'explicit' : 'deterministic', task.avoid?.length ? 1 : 0, task.avoid?.length ? 'provided directly via task input' : 'left unresolved unless explicit avoid guidance is provided'),
+        risk_level: toField(context.risk_level, explicitRiskLevel ? 'explicit' : 'deterministic', explicitRiskLevel ? 1 : 0.65, explicitRiskLevel ? 'provided directly via task input' : 'derived from project stage, constraints, optimization target, and task text'),
+        scope_size: toField(context.scope_size, explicitScopeSize ? 'explicit' : 'deterministic', explicitScopeSize ? 1 : context.scope_size === 'unknown' ? 0.35 : 0.8, explicitScopeSize ? 'provided directly via task input' : 'derived from target and changed-file spread'),
+        compatibility_requirement: toField(context.compatibility_requirement, explicitCompatibilityRequirement ? 'explicit' : 'deterministic', explicitCompatibilityRequirement ? 1 : context.compatibility_requirement === 'none' ? 0.5 : 0.75, explicitCompatibilityRequirement ? 'provided directly via task input' : 'derived from compatibility and migration language in task constraints'),
+        interface_sensitivity: toField(context.interface_sensitivity, explicitInterfaceSensitivity ? 'explicit' : 'deterministic', explicitInterfaceSensitivity ? 1 : context.interface_sensitivity === 'unknown' ? 0.35 : 0.7, explicitInterfaceSensitivity ? 'provided directly via task input' : 'derived from target paths and tags'),
+        refactor_tolerance: toField(context.refactor_tolerance, explicitRefactorTolerance ? 'explicit' : 'deterministic', explicitRefactorTolerance ? 1 : 0.65, explicitRefactorTolerance ? 'provided directly via task input' : 'derived from operation and narrow-change constraints'),
+        migration_phase: toField(context.migration_phase, explicitMigrationPhase ? 'explicit' : 'deterministic', explicitMigrationPhase ? 1 : context.migration_phase === 'none' ? 0.45 : 0.7, explicitMigrationPhase ? 'provided directly via task input' : 'derived from migration phase language in the task'),
+        review_goal: toField(context.review_goal, explicitReviewGoal ? 'explicit' : 'deterministic', explicitReviewGoal ? 1 : 0.65, explicitReviewGoal ? 'provided directly via task input' : 'derived from operation, optimization target, and task risk terms'),
       },
       uncertainties: [
         ...(context.project_stage ? [] : ['project_stage unresolved']),

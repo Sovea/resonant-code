@@ -83,8 +83,19 @@ async function compile(input) {
 			`hard_constraints: ${contextProfile.hard_constraints.join(", ") || "(none)"}`,
 			`allowed_tradeoffs: ${contextProfile.allowed_tradeoffs.join(", ") || "(none)"}`,
 			`avoid: ${contextProfile.avoid.join(", ") || "(none)"}`,
-			`project_stage: ${contextProfile.project_stage ?? "(none)"}`
+			`project_stage: ${contextProfile.project_stage ?? "(none)"}`,
+			`risk_level: ${contextProfile.risk_level}`,
+			`scope_size: ${contextProfile.scope_size}`,
+			`compatibility_requirement: ${contextProfile.compatibility_requirement}`,
+			`interface_sensitivity: ${contextProfile.interface_sensitivity}`,
+			`refactor_tolerance: ${contextProfile.refactor_tolerance}`,
+			`migration_phase: ${contextProfile.migration_phase}`,
+			`review_goal: ${contextProfile.review_goal}`
 		]
+	});
+	traceSteps.push({
+		stage: "Context Profile Resolution",
+		lines: resolved.input_provenance.context_resolution.length ? resolved.input_provenance.context_resolution.map((item) => `${item.field}: ${formatContextValue(item.value)} source=${item.source} confidence=${item.confidence} status=${item.status} influence=${item.influence.join(", ") || "(none)"}`) : ["no context profile resolution records"]
 	});
 	const sources = await loadCompileSources(normalizedInput);
 	const governanceIR = await buildGovernanceIR(normalizedInput, sources);
@@ -158,6 +169,7 @@ async function compile(input) {
 			`semantic_relation_policy: ${formatPolicy(semanticMergeResult.merge_summary.policy)}`,
 			`review_focus_by_priority: ${formatRecordCounts(semanticMergeResult.merge_summary.review_priority_counts)}`,
 			`semantic_relation_mode_changes: ${semanticRelationModeChanges(semanticMergeResult).join(", ") || "(none)"}`,
+			`context_policy_rules: ${formatListCounts(executionDecisionsIR.flatMap((decision) => decision.contextRulesApplied))}`,
 			`context_tensions: ${semanticMergeResult.context_tensions.length}`,
 			`review_focus: ${focus.review_focus.length}`,
 			`context_influences: ${semanticMergeResult.context_influences.length}`
@@ -275,6 +287,14 @@ function semanticRelationModeChanges(semanticMergeResult) {
 function formatRecordCounts(counts) {
 	const entries = Object.entries(counts).filter(([, count]) => count > 0);
 	return entries.length ? entries.sort(([left], [right]) => left.localeCompare(right)).map(([key, count]) => `${key}=${count}`).join(", ") : "(none)";
+}
+function formatListCounts(values) {
+	const counts = {};
+	for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+	return formatRecordCounts(counts);
+}
+function formatContextValue(value) {
+	return Array.isArray(value) ? value.join(",") || "(none)" : value || "(none)";
 }
 function formatPolicy(policy) {
 	return [

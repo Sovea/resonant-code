@@ -223,6 +223,10 @@ function parseYaml(text) {
 			nextIndex: index
 		};
 		const currentIndent = lineIndent(index);
+		if (currentIndent < indent) return {
+			value: {},
+			nextIndex: index
+		};
 		if (lines[index].trim().startsWith("- ") && currentIndent >= indent) return parseSequence(index, currentIndent);
 		return parseMap(index, currentIndent);
 	}

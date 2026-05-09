@@ -235,6 +235,7 @@ export function parseYaml(text: string): YamlValue {
     const index = skipEmpty(startIndex);
     if (index >= lines.length) return { value: {}, nextIndex: index };
     const currentIndent = lineIndent(index);
+    if (currentIndent < indent) return { value: {}, nextIndex: index };
     const trimmed = lines[index].trim();
     if (trimmed.startsWith('- ') && currentIndent >= indent) {
       return parseSequence(index, currentIndent);

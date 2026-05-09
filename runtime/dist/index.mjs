@@ -1,4 +1,5 @@
 import { activatedDirectiveIdsIR, resolveActivationDecisionsIR } from "./ir/activation/resolve-activation.mjs";
+import { TASK_INPUT_ENUMS, TASK_INTERPRETATION_ENUMS, TASK_INTERPRETATION_SOURCES } from "./intent/schema.mjs";
 import { DeterministicInterpretationProvider } from "./interpret/deterministic-extractor.mjs";
 import { resolveTask, resolveTaskInput } from "./interpret/normalize-candidate.mjs";
 import { buildGovernanceIR } from "./ir/build-ir.mjs";
@@ -9,4 +10,6 @@ import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
 import { semanticRelationIRToPublic, semanticRelationsIRToPublic } from "./ir/relations/public-mapping.mjs";
 import { compile } from "./compile.mjs";
 import { evaluateGuidance } from "./feedback.mjs";
-export { DeterministicInterpretationProvider, activatedDirectiveIdsIR, adjudicateSemanticRelations, buildGovernanceIR, buildSemanticRelationsIR, compile, evaluateGuidance, proposeSemanticRelations, resolveActivationDecisionsIR, resolveExecutionDecisionsIR, resolveTask, resolveTaskInput, semanticRelationIRToPublic, semanticRelationsIRToPublic };
+import { parseTaskInterpretationCandidatePayload, prepareTaskInterpretationContract } from "./ai-contracts/task-interpretation.mjs";
+import { loadSemanticCandidateProposalPayload, loadSemanticRelationProposalPayload, prepareSemanticCandidateContract, prepareSemanticRelationContract } from "./ai-contracts/semantic-relations.mjs";
+export { DeterministicInterpretationProvider, TASK_INPUT_ENUMS, TASK_INTERPRETATION_ENUMS, TASK_INTERPRETATION_SOURCES, activatedDirectiveIdsIR, adjudicateSemanticRelations, buildGovernanceIR, buildSemanticRelationsIR, compile, evaluateGuidance, loadSemanticCandidateProposalPayload, loadSemanticRelationProposalPayload, parseTaskInterpretationCandidatePayload, prepareSemanticCandidateContract, prepareSemanticRelationContract, prepareTaskInterpretationContract, proposeSemanticRelations, resolveActivationDecisionsIR, resolveExecutionDecisionsIR, resolveTask, resolveTaskInput, semanticRelationIRToPublic, semanticRelationsIRToPublic };

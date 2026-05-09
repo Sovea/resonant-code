@@ -1,8 +1,8 @@
 import type { CompileTaskInput, ContextProfile, Operation, TaskIntent, TaskKind } from '../types.ts';
 
-export type InterpretationSource = 'explicit' | 'deterministic' | 'assistive-ai' | 'repo-default' | 'derived';
+export type InterpretationSource = 'explicit' | 'deterministic' | 'host-agent' | 'assistive-ai' | 'repo-default' | 'derived';
 export type ResolutionStatus = 'resolved' | 'unresolved';
-export type InterpretationMode = 'explicit-only' | 'deterministic-only' | 'assistive-ai' | 'clarified-retry';
+export type InterpretationMode = 'explicit-only' | 'deterministic-only' | 'host-agent' | 'assistive-ai' | 'clarified-retry';
 export type ResolutionQuality = 'explicit' | 'ai-assisted' | 'deterministic' | 'degraded';
 
 export interface CandidateField<T> {
@@ -38,6 +38,13 @@ export interface ParsedTaskCandidate {
     hard_constraints?: CandidateListField<string>;
     allowed_tradeoffs?: CandidateListField<string>;
     avoid?: CandidateListField<string>;
+    risk_level?: CandidateField<ContextProfile['risk_level']>;
+    scope_size?: CandidateField<ContextProfile['scope_size']>;
+    compatibility_requirement?: CandidateField<ContextProfile['compatibility_requirement']>;
+    interface_sensitivity?: CandidateField<ContextProfile['interface_sensitivity']>;
+    refactor_tolerance?: CandidateField<ContextProfile['refactor_tolerance']>;
+    migration_phase?: CandidateField<ContextProfile['migration_phase']>;
+    review_goal?: CandidateField<ContextProfile['review_goal']>;
   };
   uncertainties: string[];
 }
@@ -63,8 +70,18 @@ export interface InputProvenance {
     confidence: number;
   }>;
   unresolved_fields: string[];
+  context_resolution: ContextDecisionInput[];
   interpretation_mode: InterpretationMode;
   resolution_quality: ResolutionQuality;
+}
+
+export interface ContextDecisionInput {
+  field: string;
+  value: string | string[];
+  source: InterpretationSource;
+  confidence: number;
+  status: 'resolved' | 'defaulted' | 'unresolved' | 'conflicted';
+  influence: string[];
 }
 
 export interface RuntimeDiagnostics {
@@ -75,6 +92,16 @@ export interface RuntimeDiagnostics {
   };
   clarification_recommended: boolean;
   ambiguity_reasons: string[];
+  discarded_inputs: DiscardedInterpretationInput[];
+}
+
+export interface DiscardedInterpretationInput {
+  field: string;
+  value: string;
+  source: InterpretationSource;
+  reason: 'invalid-enum' | 'below-confidence-threshold' | 'missing-value';
+  action: 'discarded';
+  fallback?: string;
 }
 
 export interface CandidateSummary {

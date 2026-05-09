@@ -1,4 +1,5 @@
 import { SEMANTIC_RELATION_POLICY } from "../relations/policy.mjs";
+import { applyContextExecutionPolicy } from "./context-policy.mjs";
 //#region src/ir/execution/resolve-execution.ts
 function resolveExecutionDecisionsIR(bundle, relations) {
 	const relationsByDirective = groupEffectiveRelations(relations);
@@ -15,6 +16,7 @@ function resolveExecutionDecisionsIR(bundle, relations) {
 			basis: decision.basis,
 			relationIds: linkedRelations.map((relation) => relation.id),
 			contextApplied: decision.contextApplied,
+			contextRulesApplied: decision.contextRulesApplied,
 			feedbackApplied: feedbackEffects.labels,
 			reason: decision.reason
 		};
@@ -36,82 +38,52 @@ function deriveDirectiveDecision(directive, relations) {
 		mode: "suppress",
 		reason: "directive is classified as an anti-pattern and should suppress matching behavior",
 		basis: "anti-pattern",
-		contextApplied: []
+		contextApplied: [],
+		contextRulesApplied: []
 	};
 	if (directive.traits.rcclImmune) return {
 		mode: "enforce",
 		reason: "directive is marked rccl_immune and should not be downgraded by repository observations",
 		basis: "verification",
-		contextApplied: []
+		contextApplied: [],
+		contextRulesApplied: []
 	};
 	const hasTension = relations.some((relation) => relation.adjudication.finalRelation === "tension");
 	if (relations.some((relation) => relation.adjudication.finalRelation === "suppress")) return {
 		mode: "suppress",
 		reason: "anti-pattern observations materially overlap this directive and should suppress matching behavior",
 		basis: "anti-pattern",
-		contextApplied: []
+		contextApplied: [],
+		contextRulesApplied: []
 	};
 	if (!hasTension) return {
 		mode: directive.prescription === "must" ? "enforce" : "ambient",
 		reason: "no strong repository tension matched this directive, so default execution behavior applies",
 		basis: "prescription",
-		contextApplied: []
+		contextApplied: [],
+		contextRulesApplied: []
 	};
 	return {
 		mode: directive.prescription === "must" ? "deviation-noted" : "ambient",
 		reason: "repository observations materially overlap this directive, so execution is adjusted to reflect current repository reality",
 		basis: "semantic-relation",
-		contextApplied: []
+		contextApplied: [],
+		contextRulesApplied: []
 	};
 }
 function applyContextAdjustments(directive, relations, defaultDecision, context) {
-	let decision = {
-		...defaultDecision,
-		contextApplied: [...defaultDecision.contextApplied]
-	};
-	const hasTension = relations.some((relation) => relation.adjudication.finalRelation === "tension");
-	if (context.optimization_target === "safety" && directive.prescription === "should" && defaultDecision.mode === "ambient" && hasTension && isCompatibilitySensitiveDirective(directive)) decision = {
-		mode: "deviation-noted",
-		reason: `${defaultDecision.reason} Safety-focused context promotes compatibility-sensitive guidance from ambient to deviation-noted when repository reality conflicts with it.`,
-		basis: "task-context",
-		contextApplied: [...decision.contextApplied, "optimization_target:safety"]
-	};
-	else if (context.optimization_target === "safety" && directive.prescription === "must" && defaultDecision.mode === "deviation-noted") decision = {
-		...decision,
-		reason: `${defaultDecision.reason} Safety-focused context preserves stricter enforcement intent even though repository compatibility still requires a deviation-noted posture.`,
-		basis: "task-context",
-		contextApplied: [...decision.contextApplied, "optimization_target:safety"]
-	};
-	if (hasConstraint(context.hard_constraints, [
-		"preserve compatibility",
-		"avoid breaking changes",
-		"preserve public api"
-	]) && directive.prescription === "must" && decision.mode === "enforce" && hasTension) decision = {
-		mode: "deviation-noted",
-		reason: `${decision.reason} Explicit compatibility constraints shift execution to deviation-noted because legacy or migration realities must be preserved at touched interfaces.`,
-		basis: "task-context",
-		contextApplied: [...decision.contextApplied, "hard_constraints:compatibility"]
-	};
-	if (hasConstraint(context.allowed_tradeoffs, ["prefer narrow change scope"]) && directive.prescription === "should" && directive.traits.broadScope) decision = {
-		...decision,
-		mode: "ambient",
-		reason: `${decision.reason} Narrow-scope tradeoff guidance keeps broad architectural guidance ambient for this task.`,
-		basis: "task-context",
-		contextApplied: [...decision.contextApplied, "allowed_tradeoffs:prefer narrow change scope"]
-	};
-	if (hasConstraint(context.avoid, ["broad rewrites", "overengineering"]) && directive.prescription === "should" && directive.traits.broadScope) decision = {
-		...decision,
-		mode: "ambient",
-		reason: `${decision.reason} Avoiding broad rewrites or overengineering keeps expansive guidance ambient unless it is already a must-level requirement.`,
-		basis: "task-context",
-		contextApplied: [...decision.contextApplied, "avoid:broad rewrites"]
-	};
-	return decision;
+	return applyContextExecutionPolicy({
+		directive,
+		relations,
+		defaultDecision,
+		context
+	});
 }
 function applyFeedbackAdjustments(directive, decision, effects) {
 	let result = {
 		...decision,
-		contextApplied: [...decision.contextApplied]
+		contextApplied: [...decision.contextApplied],
+		contextRulesApplied: [...decision.contextRulesApplied]
 	};
 	if (effects.recurringTension && directive.prescription === "must") result = {
 		...result,
@@ -136,20 +108,14 @@ function applyFeedbackAdjustments(directive, decision, effects) {
 	};
 	return result;
 }
-function isCompatibilitySensitiveDirective(directive) {
-	return directive.traits.compatibilitySensitive || directive.traits.rcclImmune || directive.prescription === "must";
-}
-function hasConstraint(values, expected) {
-	return expected.some((item) => values.includes(item));
-}
 function feedbackSignalsForDirective(bundle, directive, relations) {
 	const labels = [];
 	const directiveSignal = bundle.feedback.directiveSignals.find((signal) => signal.directiveId === directive.id);
-	const frequentlyIgnored = Boolean(directiveSignal) && directiveSignal.ignored >= SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredMinIgnored && directiveSignal.followRate < SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredFollowRate;
+	const frequentlyIgnored = directiveSignal !== void 0 && directiveSignal.ignored >= SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredMinIgnored && directiveSignal.followRate < SEMANTIC_RELATION_POLICY.feedback.frequentlyIgnoredFollowRate;
 	const recurringTension = relations.some((relation) => relation.basis.feedback && relation.adjudication.status !== "rejected" && relation.adjudication.finalRelation === "tension");
 	const noisyObservation = relations.some((relation) => {
 		const signal = bundle.feedback.observationSignals.find((item) => item.observationId === relation.observationId);
-		return Boolean(signal) && signal.relationCount >= SEMANTIC_RELATION_POLICY.feedback.noisyObservationRelationCount && signal.lastDisposition === "demote-to-ambient";
+		return signal !== void 0 && signal.relationCount >= SEMANTIC_RELATION_POLICY.feedback.noisyObservationRelationCount && signal.lastDisposition === "demote-to-ambient";
 	});
 	if (frequentlyIgnored) labels.push("feedback:frequently-ignored");
 	if (frequentlyIgnored && directive.prescription === "must") labels.push("feedback:frequently-ignored-must-review");

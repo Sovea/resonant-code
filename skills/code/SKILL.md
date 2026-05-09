@@ -19,11 +19,14 @@ If the user is asking for actual code changes, this is the skill that should be 
 Its primary job is coding. Runtime integration exists to guide that coding work, not to
 replace it.
 
-This skill is a thin Runtime consumer.
+This skill is a thin Runtime workflow consumer. Runtime owns task interpretation, semantic proposal schemas, prompt contracts, validation, adjudication, EGO assembly, Decision Trace, and lockfile feedback. The public skill command only orchestrates those contracts and applies the compiled result during implementation.
 
 Do not read or merge playbook files manually.
 Do not reconstruct EGO logic in the skill.
 Do not use raw playbook YAML as the primary prompt input.
+Do not create ad hoc host-agent schemas or prompts in this skill.
+
+Use Runtime to emit AI contract artifacts for host Claude when semantic assistance is useful. Host Claude may fulfill those contracts by writing JSON artifacts, but Runtime remains authoritative for normalization, validation, and final deterministic decisions.
 
 Use the Runtime to compile guidance for the current coding task, then use the
 compiled `ego` while actually implementing the requested code change.
@@ -38,9 +41,9 @@ First, when the task is semantically ambiguous, run:
 node <this-skill-directory>/scripts/code.mjs prepare-interpretation <project-root> --task "<user task>" [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
 ```
 
-This prints a Runtime-owned interpretation prompt, candidate schema, normalized task input, ambiguity hints, a suggested candidate artifact path, and a structured recommendation for whether AI-assisted interpretation is worth using. Use host Claude to produce a JSON candidate file when that recommendation says it is useful.
+This prints a Runtime-owned task-interpretation AI contract: prompt, schema, normalized task input, ambiguity hints, a suggested candidate artifact path, contract metadata, and a structured recommendation for whether AI-assisted interpretation is worth using. Use host Claude to produce a JSON candidate file when that recommendation says it is useful.
 
-`prepare-interpretation` is the preferred first step when the task leaves room for semantic interpretation, because it gives you a standard candidate path plus clarification hints instead of ad hoc host-side guessing.
+`prepare-interpretation` is the preferred first step when the task leaves room for semantic interpretation, because it gives you a standard Runtime contract and candidate path instead of ad hoc host-side guessing.
 
 Then run:
 
@@ -48,20 +51,29 @@ Then run:
 node <this-skill-directory>/scripts/code.mjs prepare-relations <project-root> --task "<user task>" [--candidate-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
 ```
 
-This prints Runtime-owned task context, active directive summaries, RCCL observation summaries, a proposal prompt, a proposal schema, and a suggested semantic relation artifact path. Use host Claude to write a JSON `HostSemanticRelationProposalPayload` at that path. The host proposal should use only listed directive and observation ids, and should only connect pairs whose task-level semantic relation is justified by the provided summaries.
+This prints a Runtime-owned semantic-relation AI contract: resolved task context, active directive summaries, RCCL observation summaries, proposal prompt, proposal schema, allowed ids, and a suggested semantic relation artifact path. Use host Claude to write a JSON `HostSemanticRelationProposalPayload` at that path. The host proposal should use only listed directive and observation ids, and should only connect pairs whose task-level semantic relation is justified by the provided summaries.
+
+When you want a lighter semantic shortlist before explicit relation adjudication, run:
+
+```sh
+node <this-skill-directory>/scripts/code.mjs prepare-semantic-candidates <project-root> --task "<user task>" [--candidate-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
+```
+
+This prints a Runtime-owned semantic-candidate AI contract. Host Claude may write a JSON `HostSemanticCandidateProposalPayload`, and Runtime will deterministically validate, filter, downgrade, or ignore candidates during compile.
 
 Then run:
 
 ```sh
-node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<user task>" [--candidate-file <path>] [--host-proposal-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
+node <this-skill-directory>/scripts/code.mjs prepare <project-root> --task "<user task>" [--candidate-file <path>] [--host-proposal-file <path>] [--semantic-proposal-file <path>] [--target-file <path>] [--changed-file <path>] [--tech <name>] [--tag <name>] [--operation <create|modify|bugfix|refactor>]
 ```
 
 Pass `--changed-file` for each known changed or directly relevant file.
 Pass `--tech` only when there is a strong hint not already obvious from the target file.
-Pass `--candidate-file` only when host Claude produced a structured interpretation candidate.
+Pass `--candidate-file` only when host Claude produced a structured interpretation candidate from the Runtime task-interpretation contract.
 Pass `--host-proposal-file` when host Claude produced a structured semantic relation proposal from `prepare-relations`.
-If `prepare-interpretation` recommended AI assistance, use its suggested candidate path so the flow stays consistent across `prepare-interpretation`, `prepare-relations`, and `prepare`.
-Do not infer semantic relations manually from raw YAML or recreate EGO logic in the skill; use `prepare-relations` and pass the host proposal artifact back into Runtime.
+Pass `--semantic-proposal-file` when host Claude produced a structured semantic candidate proposal from `prepare-semantic-candidates`.
+If `prepare-interpretation` recommended AI assistance, use its suggested candidate path so the flow stays consistent across `prepare-interpretation`, `prepare-relations`, `prepare-semantic-candidates`, and `prepare`.
+Do not infer semantic relations manually from raw YAML or recreate EGO logic in the skill; use Runtime contract outputs and pass host proposal artifacts back into Runtime.
 
 The script prints JSON:
 
