@@ -1,6 +1,6 @@
-import { resolveTask } from '../interpret/normalize-candidate.ts';
+import { resolveCompileTask } from '../compile-input.ts';
 import { loadCompileSources } from '../load/compile-sources.ts';
-import type { CompileInput, ResolvedCompileInput } from '../types.ts';
+import type { CompileInput } from '../types.ts';
 import type { CompileSources } from '../load/compile-sources.ts';
 import { feedbackToIR } from './adapters/feedback.ts';
 import { directivesToIR } from './adapters/playbook.ts';
@@ -10,18 +10,8 @@ import { buildIRFingerprints } from './fingerprint.ts';
 import { stableHash } from '../utils/hash.ts';
 import type { GovernanceIRBundle } from './types.ts';
 
-function hasResolvedTask(input: CompileInput): input is ResolvedCompileInput {
-  return 'resolvedTask' in input;
-}
-
 export async function buildGovernanceIR(input: CompileInput, sources?: CompileSources): Promise<GovernanceIRBundle> {
-  const resolvedTask = hasResolvedTask(input)
-    ? input.resolvedTask
-    : resolveTask({
-        task: input.task,
-        candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
-        interpretationMode: input.interpretationMode,
-      });
+  const resolvedTask = resolveCompileTask(input);
 
   const loadedSources = sources ?? await loadCompileSources(input);
 
@@ -55,6 +45,12 @@ export async function buildGovernanceIR(input: CompileInput, sources?: CompileSo
           fingerprint: stableHash(loadedSources.rccl.observations.map((observation) => observation.lifecycle?.content_fingerprint ?? observation.id)),
         }] : []),
         ...(input.lockfilePath ? [{ kind: 'lockfile' as const, id: 'playbook.lock', path: input.lockfilePath }] : []),
+        ...(input.hostProposals ?? []).map((proposal) => ({
+          kind: 'host-proposal' as const,
+          id: proposal.source.id,
+          path: proposal.source.path,
+          fingerprint: stableHash([proposal.kind, proposal.source.id, proposal.payload]),
+        })),
       ],
     },
   };

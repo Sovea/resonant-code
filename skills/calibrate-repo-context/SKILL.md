@@ -197,4 +197,6 @@ For quick compatibility checks, the old one-shot prepare command remains availab
 node <this-skill-directory>/scripts/calibrate-repo-context.mjs prepare <project-root> [--scope <glob>]
 ```
 
+The one-shot prepare output includes the legacy prompt plus an RCCL-owned `contract` envelope and `candidateArtifact` metadata for the `rccl-observation-generation` host artifact. Host Claude may write candidate YAML to that suggested path, but `commit` remains the only deterministic parse, verification, and write boundary.
+
 Prefer the staged workflow for real calibration because it separates semantic discovery, critique, and synthesis before the deterministic commit boundary.

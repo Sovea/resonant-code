@@ -1,7 +1,13 @@
 import { TASK_INTERPRETATION_ENUMS, TASK_INTERPRETATION_SOURCES } from '../intent/schema.ts';
+import { buildContractPayloadDiagnostics } from './diagnostics.ts';
 import type { ParsedTaskCandidate } from '../interpret/types.ts';
 import type { CompileTaskInput } from '../types.ts';
-import type { TaskInterpretationContractInput, TaskInterpretationContractOutput } from './types.ts';
+import type {
+  ContractPayloadDiagnosticEntry,
+  TaskInterpretationCandidateParseResult,
+  TaskInterpretationContractInput,
+  TaskInterpretationContractOutput,
+} from './types.ts';
 
 export function prepareTaskInterpretationContract(input: TaskInterpretationContractInput): TaskInterpretationContractOutput {
   const { task, candidatePath } = input;
@@ -43,9 +49,61 @@ export function prepareTaskInterpretationContract(input: TaskInterpretationContr
   };
 }
 
+export function parseTaskInterpretationCandidatePayloadWithDiagnostics(raw: unknown): TaskInterpretationCandidateParseResult {
+  const values = raw === undefined || raw === null ? [] : Array.isArray(raw) ? raw : [raw];
+  const entries: ContractPayloadDiagnosticEntry[] = [];
+  const candidates: ParsedTaskCandidate[] = [];
+
+  values.forEach((value, index) => {
+    const path = Array.isArray(raw) ? `candidates[${index}]` : 'candidate';
+    if (!isParsedTaskCandidate(value)) {
+      entries.push({
+        status: 'rejected',
+        reason: value === undefined || value === null ? 'empty-payload' : 'malformed-payload',
+        path,
+        message: 'Task interpretation candidate must include intent, context, and uncertainties fields.',
+      });
+      return;
+    }
+    candidates.push(value);
+    entries.push({
+      status: 'accepted',
+      reason: 'accepted',
+      path,
+      message: 'Task interpretation candidate accepted for Runtime adjudication.',
+    });
+  });
+
+  if (!values.length) {
+    entries.push({
+      status: 'unused',
+      reason: 'empty-payload',
+      path: 'candidate',
+      message: 'No task interpretation candidate payload was provided.',
+    });
+  }
+
+  return {
+    candidates,
+    diagnostics: buildContractPayloadDiagnostics('task-interpretation', entries),
+  };
+}
+
 export function parseTaskInterpretationCandidatePayload(raw: unknown): ParsedTaskCandidate[] {
-  if (!raw) return [];
-  return Array.isArray(raw) ? raw as ParsedTaskCandidate[] : [raw as ParsedTaskCandidate];
+  return parseTaskInterpretationCandidatePayloadWithDiagnostics(raw).candidates;
+}
+
+function isParsedTaskCandidate(value: unknown): value is ParsedTaskCandidate {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Partial<ParsedTaskCandidate>;
+  return isRecord(candidate.intent)
+    && isRecord(candidate.context)
+    && Array.isArray(candidate.uncertainties)
+    && candidate.uncertainties.every((item) => typeof item === 'string');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function buildTaskCandidateSchema(): unknown {

@@ -323,8 +323,35 @@ export interface RcclCalibrationStats {
   windows: number;
 }
 
+export type RcclAIContractVersion = 'ai-contract/v1';
+export type RcclAIContractKind = 'rccl-observation-generation';
+export type RcclAIContractSchemaVersion = '1.0';
+
+export interface RcclAIContractArtifact {
+  suggestedPath: string;
+  format: 'yaml';
+  usage: string;
+}
+
+export interface RcclAIContractEnvelope {
+  contractVersion: RcclAIContractVersion;
+  kind: RcclAIContractKind;
+  schemaId: string;
+  schemaVersion: RcclAIContractSchemaVersion;
+  prompt: string;
+  schema: string;
+  artifact: RcclAIContractArtifact;
+  provenance: {
+    owner: 'rccl';
+    deterministic: true;
+  };
+  cacheKeyMaterial?: unknown;
+}
+
 export interface PrepareRcclResult {
   prompt: string;
+  contract: RcclAIContractEnvelope;
+  candidateArtifact: RcclAIContractArtifact;
   metadata: {
     scope: string;
     stats: RcclCalibrationStats;

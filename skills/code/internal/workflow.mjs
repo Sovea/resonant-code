@@ -54,85 +54,14 @@ export async function prepareRelations(options) {
   const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
   const runtime = await loadRuntime(paths.runtimeEntry);
   const task = normalizeTaskInput(options, paths.projectRoot, runtime);
-  const candidates = loadCandidateFile(options.candidateFile, runtime);
-  const interpretationMode = candidates.length ? 'host-agent' : 'deterministic-only';
+  const candidateArtifact = loadCandidateArtifact(options.candidateFile, runtime);
+  const interpretationMode = candidateArtifact.candidates.length ? 'host-agent' : 'deterministic-only';
   const resolvedTask = runtime.resolveTask({
     task,
-    candidates,
+    candidates: candidateArtifact.candidates,
     interpretationMode,
   });
-  const {
-    directiveSummaries,
-    observationSummaries,
-  } = await prepareSemanticProposalContext(paths, runtime, resolvedTask);
   const artifactPath = buildRelationProposalPath(paths.projectRoot, task);
-  const contractOutput = runtime.prepareSemanticRelationContract({
-    resolvedTask,
-    directives: directiveSummaries,
-    observations: observationSummaries,
-    artifactPath,
-  });
-
-  return {
-    task: {
-      input: task,
-      resolved: {
-        task_intent: resolvedTask.task_intent,
-        context_profile: resolvedTask.context_profile,
-      },
-      interpretation: {
-        mode: interpretationMode,
-        diagnostics: resolvedTask.diagnostics,
-      },
-    },
-    directives: directiveSummaries,
-    observations: observationSummaries,
-    ...contractOutput,
-  };
-}
-
-export async function prepareSemanticCandidates(options) {
-  const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
-  const runtime = await loadRuntime(paths.runtimeEntry);
-  const task = normalizeTaskInput(options, paths.projectRoot, runtime);
-  const candidates = loadCandidateFile(options.candidateFile, runtime);
-  const interpretationMode = candidates.length ? 'host-agent' : 'deterministic-only';
-  const resolvedTask = runtime.resolveTask({
-    task,
-    candidates,
-    interpretationMode,
-  });
-  const {
-    directiveSummaries,
-    observationSummaries,
-  } = await prepareSemanticProposalContext(paths, runtime, resolvedTask);
-  const artifactPath = buildSemanticCandidatePath(paths.projectRoot, task);
-  const contractOutput = runtime.prepareSemanticCandidateContract({
-    resolvedTask,
-    directives: directiveSummaries,
-    observations: observationSummaries,
-    artifactPath,
-  });
-
-  return {
-    task: {
-      input: task,
-      resolved: {
-        task_intent: resolvedTask.task_intent,
-        context_profile: resolvedTask.context_profile,
-      },
-      interpretation: {
-        mode: interpretationMode,
-        diagnostics: resolvedTask.diagnostics,
-      },
-    },
-    directives: directiveSummaries,
-    observations: observationSummaries,
-    ...contractOutput,
-  };
-}
-
-async function prepareSemanticProposalContext(paths, runtime, resolvedTask) {
   const compileInput = {
     builtinRoot: paths.builtinRoot,
     localAugmentPath: paths.localAugmentPath,
@@ -141,13 +70,79 @@ async function prepareSemanticProposalContext(paths, runtime, resolvedTask) {
     projectRoot: paths.projectRoot,
     resolvedTask,
   };
-  const governanceIR = await runtime.buildGovernanceIR(compileInput);
-  const activationDecisions = runtime.resolveActivationDecisionsIR(governanceIR);
-  const activatedDirectiveIds = runtime.activatedDirectiveIdsIR(activationDecisions);
-  const activeDirectives = governanceIR.directives.filter((directive) => activatedDirectiveIds.has(directive.id));
+  const contractOutput = await runtime.prepareSemanticRelationContractBundle({
+    compileInput,
+    artifactPath,
+  });
+
   return {
-    directiveSummaries: activeDirectives.map(summarizeDirectiveForProposal),
-    observationSummaries: governanceIR.observations.map(summarizeObservationForProposal),
+    task: {
+      input: task,
+      resolved: {
+        task_intent: resolvedTask.task_intent,
+        context_profile: resolvedTask.context_profile,
+      },
+      interpretation: {
+        mode: interpretationMode,
+        diagnostics: resolvedTask.diagnostics,
+      },
+    },
+    fulfillment: buildFulfillmentDiagnostics({
+      candidate: candidateArtifact,
+      relation: buildAbsentArtifact('semantic-relation', artifactPath),
+      semanticCandidate: buildAbsentArtifact('semantic-candidate'),
+    }),
+    directives: contractOutput.directives,
+    observations: contractOutput.observations,
+    ...contractOutput,
+  };
+}
+
+export async function prepareSemanticCandidates(options) {
+  const paths = resolveRuntimePaths(options.projectRoot, options.pluginRoot);
+  const runtime = await loadRuntime(paths.runtimeEntry);
+  const task = normalizeTaskInput(options, paths.projectRoot, runtime);
+  const candidateArtifact = loadCandidateArtifact(options.candidateFile, runtime);
+  const interpretationMode = candidateArtifact.candidates.length ? 'host-agent' : 'deterministic-only';
+  const resolvedTask = runtime.resolveTask({
+    task,
+    candidates: candidateArtifact.candidates,
+    interpretationMode,
+  });
+  const artifactPath = buildSemanticCandidatePath(paths.projectRoot, task);
+  const compileInput = {
+    builtinRoot: paths.builtinRoot,
+    localAugmentPath: paths.localAugmentPath,
+    rcclPath: paths.rcclPath,
+    lockfilePath: paths.lockfilePath,
+    projectRoot: paths.projectRoot,
+    resolvedTask,
+  };
+  const contractOutput = await runtime.prepareSemanticCandidateContractBundle({
+    compileInput,
+    artifactPath,
+  });
+
+  return {
+    task: {
+      input: task,
+      resolved: {
+        task_intent: resolvedTask.task_intent,
+        context_profile: resolvedTask.context_profile,
+      },
+      interpretation: {
+        mode: interpretationMode,
+        diagnostics: resolvedTask.diagnostics,
+      },
+    },
+    fulfillment: buildFulfillmentDiagnostics({
+      candidate: candidateArtifact,
+      relation: buildAbsentArtifact('semantic-relation'),
+      semanticCandidate: buildAbsentArtifact('semantic-candidate', artifactPath),
+    }),
+    directives: contractOutput.directives,
+    observations: contractOutput.observations,
+    ...contractOutput,
   };
 }
 
@@ -161,17 +156,44 @@ export async function prepareCodeTask(options) {
   if (!paths.localAugmentPath) warnings.push('Local augment not found; using built-in playbook layers only.');
   if (!paths.rcclPath) warnings.push('RCCL not found; proceeding without repository calibration signals.');
 
+  let candidateArtifact = {
+    ...buildAbsentArtifact('task-interpretation'),
+    candidates: [],
+  };
+  let relationArtifact = buildAbsentArtifact('semantic-relation');
+  let semanticCandidateArtifact = buildAbsentArtifact('semantic-candidate');
+
   try {
-    const candidates = loadCandidateFile(options.candidateFile, runtime);
-    const hostProposals = [
-      ...loadHostProposalFile(options.hostProposalFile, 'code-skill-semantic-relations', runtime),
-      ...loadHostSemanticCandidateFile(options.semanticProposalFile, 'code-skill-semantic-candidates', runtime),
-    ];
-    const interpretationMode = candidates.length ? 'host-agent' : 'deterministic-only';
+    candidateArtifact = loadCandidateArtifact(options.candidateFile, runtime);
+    const interpretationMode = candidateArtifact.candidates.length ? 'host-agent' : 'deterministic-only';
     const resolvedTask = runtime.resolveTask({
       task,
-      candidates,
+      candidates: candidateArtifact.candidates,
       interpretationMode,
+    });
+    const hasSemanticArtifacts = Boolean(options.hostProposalFile || options.semanticProposalFile);
+    const allowedIds = hasSemanticArtifacts
+      ? buildAllowedIds(await runtime.prepareSemanticContractContext({
+          compileInput: {
+            builtinRoot: paths.builtinRoot,
+            localAugmentPath: paths.localAugmentPath,
+            rcclPath: paths.rcclPath,
+            lockfilePath: paths.lockfilePath,
+            projectRoot: paths.projectRoot,
+            resolvedTask,
+          },
+        }))
+      : undefined;
+    relationArtifact = loadHostProposalArtifact(options.hostProposalFile, 'code-skill-semantic-relations', runtime, allowedIds);
+    semanticCandidateArtifact = loadHostSemanticCandidateArtifact(options.semanticProposalFile, 'code-skill-semantic-candidates', runtime, allowedIds);
+    const hostProposals = [
+      ...artifactProposalList(relationArtifact),
+      ...artifactProposalList(semanticCandidateArtifact),
+    ];
+    const fulfillment = buildFulfillmentDiagnostics({
+      candidate: candidateArtifact,
+      relation: relationArtifact,
+      semanticCandidate: semanticCandidateArtifact,
     });
     const compileInput = {
       builtinRoot: paths.builtinRoot,
@@ -180,6 +202,7 @@ export async function prepareCodeTask(options) {
       lockfilePath: paths.lockfilePath,
       projectRoot: paths.projectRoot,
       resolvedTask,
+      hostFulfillment: fulfillment,
       ...(hostProposals.length ? { hostProposals } : {}),
     };
     const output = await runtime.compile(compileInput);
@@ -203,6 +226,7 @@ export async function prepareCodeTask(options) {
         diagnostics: output.packet.interpretation.diagnostics,
         trace: output.packet.interpretation.trace,
       },
+      fulfillment,
       compileInput,
       compileOutput: output,
       warnings,
@@ -225,11 +249,14 @@ export async function prepareCodeTask(options) {
         nextStep: buildPrepareNextStep(interpretationMode, options.candidateFile, output.packet.interpretation.diagnostics, suggestedCandidatePath),
       },
       hostProposals: summarizeHostProposals(hostProposals),
+      fulfillment,
     };
   } catch (error) {
     const message = formatError(error);
-    const interpretationMode = options.candidateFile ? 'host-agent' : 'deterministic-only';
-    const candidateSnapshot = loadCandidateFile(options.candidateFile, runtime);
+    const candidateSnapshot = candidateArtifact;
+    const relationSnapshot = relationArtifact;
+    const semanticCandidateSnapshot = semanticCandidateArtifact;
+    const interpretationMode = candidateSnapshot.candidates.length ? 'host-agent' : 'deterministic-only';
     const suggestedCandidatePath = buildCandidatePath(paths.projectRoot, task);
     const interpretationContract = runtime.prepareTaskInterpretationContract({
       task,
@@ -248,8 +275,13 @@ export async function prepareCodeTask(options) {
       taskInput: task,
       interpretation: {
         mode: interpretationMode,
-        candidates: candidateSnapshot,
+        candidates: candidateSnapshot.candidates,
       },
+      fulfillment: buildFulfillmentDiagnostics({
+        candidate: candidateSnapshot,
+        relation: relationSnapshot,
+        semanticCandidate: semanticCandidateSnapshot,
+      }),
       compileInput: {
         builtinRoot: paths.builtinRoot,
         localAugmentPath: paths.localAugmentPath,
@@ -278,9 +310,14 @@ export async function prepareCodeTask(options) {
         mode: interpretationMode,
         candidateFile: options.candidateFile ? resolve(options.candidateFile) : null,
         diagnostics: failureDiagnostics,
-        summary: summarizeInterpretationFlow(interpretationMode, options.candidateFile, failureDiagnostics, candidateSnapshot.length),
+        summary: summarizeInterpretationFlow(interpretationMode, options.candidateFile, failureDiagnostics, candidateSnapshot.candidates.length),
         nextStep: 'Fix the Runtime compile error and re-run prepare.',
       },
+      fulfillment: buildFulfillmentDiagnostics({
+        candidate: candidateSnapshot,
+        relation: relationSnapshot,
+        semanticCandidate: semanticCandidateSnapshot,
+      }),
     };
   }
 }
@@ -313,6 +350,7 @@ export async function completeCodeTask(options) {
       ignoredDirectiveIds,
       ignoredDirectiveReasons: options.ignoredDirectiveReasons,
       signalConfidence: options.signalConfidence,
+      hostFulfillment: session.fulfillment,
     });
     return {
       status: 'updated',
@@ -421,32 +459,127 @@ function normalizeProjectFile(filePath, projectRoot) {
   return rel.startsWith('..') ? filePath.replace(/\\/g, '/') : rel;
 }
 
-function loadCandidateFile(candidateFile, runtime) {
-  if (!candidateFile) return [];
-  const payload = JSON.parse(readFileSync(resolve(candidateFile), 'utf-8'));
-  return runtime.parseTaskInterpretationCandidatePayload(payload);
+function loadCandidateArtifact(candidateFile, runtime) {
+  if (!candidateFile) {
+    return {
+      ...buildAbsentArtifact('task-interpretation'),
+      candidates: [],
+    };
+  }
+  const path = resolve(candidateFile);
+  const payload = JSON.parse(readFileSync(path, 'utf-8'));
+  const result = runtime.parseTaskInterpretationCandidatePayloadWithDiagnostics(payload);
+  return {
+    kind: 'task-interpretation',
+    provided: true,
+    path,
+    status: summarizeDiagnosticStatus(result.diagnostics),
+    diagnostics: result.diagnostics,
+    candidates: result.candidates,
+  };
 }
 
-function loadHostProposalFile(hostProposalFile, sourceId, runtime) {
-  if (!hostProposalFile) return [];
-  const payload = JSON.parse(readFileSync(resolve(hostProposalFile), 'utf-8'));
-  return [
-    runtime.loadSemanticRelationProposalPayload(payload, {
+function loadHostProposalArtifact(hostProposalFile, sourceId, runtime, allowedIds) {
+  if (!hostProposalFile) return buildAbsentArtifact('semantic-relation');
+  const path = resolve(hostProposalFile);
+  const payload = JSON.parse(readFileSync(path, 'utf-8'));
+  const result = runtime.validateSemanticRelationProposalPayload({
+    raw: payload,
+    source: {
       id: sourceId,
-      path: resolve(hostProposalFile),
-    }),
-  ];
+      path,
+    },
+    ...allowedIds,
+  });
+  return {
+    kind: 'semantic-relation',
+    provided: true,
+    path,
+    status: summarizeDiagnosticStatus(result.diagnostics),
+    diagnostics: result.diagnostics,
+    proposal: result.proposal,
+  };
 }
 
-function loadHostSemanticCandidateFile(semanticProposalFile, sourceId, runtime) {
-  if (!semanticProposalFile) return [];
-  const payload = JSON.parse(readFileSync(resolve(semanticProposalFile), 'utf-8'));
-  return [
-    runtime.loadSemanticCandidateProposalPayload(payload, {
+function loadHostSemanticCandidateArtifact(semanticProposalFile, sourceId, runtime, allowedIds) {
+  if (!semanticProposalFile) return buildAbsentArtifact('semantic-candidate');
+  const path = resolve(semanticProposalFile);
+  const payload = JSON.parse(readFileSync(path, 'utf-8'));
+  const result = runtime.validateSemanticCandidateProposalPayload({
+    raw: payload,
+    source: {
       id: sourceId,
-      path: resolve(semanticProposalFile),
-    }),
-  ];
+      path,
+    },
+    ...allowedIds,
+  });
+  return {
+    kind: 'semantic-candidate',
+    provided: true,
+    path,
+    status: summarizeDiagnosticStatus(result.diagnostics),
+    diagnostics: result.diagnostics,
+    proposal: result.proposal,
+  };
+}
+
+function artifactProposalList(artifact) {
+  return artifact.proposal ? [artifact.proposal] : [];
+}
+
+function buildAllowedIds(contractContext) {
+  return {
+    allowedDirectiveIds: contractContext.directives.map((directive) => directive.id),
+    allowedObservationIds: contractContext.observations.map((observation) => observation.id),
+  };
+}
+
+function buildAbsentArtifact(kind, recommendedPath) {
+  return {
+    kind,
+    provided: false,
+    path: null,
+    recommendedPath: recommendedPath ?? null,
+    status: 'absent',
+    diagnostics: null,
+  };
+}
+
+function buildFulfillmentDiagnostics({ candidate, relation, semanticCandidate }) {
+  return {
+    status: summarizeFulfillmentStatus([candidate, relation, semanticCandidate]),
+    taskInterpretation: summarizeArtifact(candidate),
+    semanticRelation: summarizeArtifact(relation),
+    semanticCandidate: summarizeArtifact(semanticCandidate),
+  };
+}
+
+function summarizeArtifact(artifact) {
+  return {
+    kind: artifact.kind,
+    provided: artifact.provided,
+    path: artifact.path,
+    ...(artifact.recommendedPath ? { recommendedPath: artifact.recommendedPath } : {}),
+    status: artifact.status,
+    diagnostics: artifact.diagnostics,
+  };
+}
+
+function summarizeDiagnosticStatus(diagnostics) {
+  if (!diagnostics) return 'absent';
+  if (diagnostics.summary.accepted > 0 && diagnostics.summary.rejected === 0 && diagnostics.summary.unused === 0) return 'accepted';
+  if (diagnostics.summary.accepted > 0) return 'partially-accepted';
+  if (diagnostics.summary.rejected > 0) return 'rejected';
+  return 'unused';
+}
+
+function summarizeFulfillmentStatus(artifacts) {
+  const provided = artifacts.filter((artifact) => artifact.provided);
+  if (!provided.length) return 'absent';
+  if (provided.some((artifact) => artifact.status === 'partially-accepted')) return 'partially-accepted';
+  if (provided.some((artifact) => artifact.status === 'accepted')) return 'accepted';
+  if (provided.some((artifact) => artifact.status === 'rejected')) return 'rejected';
+  return 'unused';
 }
 
 function summarizeHostProposals(hostProposals) {
@@ -474,7 +607,7 @@ function buildSessionPath(projectRoot, task) {
     }))
     .digest('hex')
     .slice(0, 10);
-  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17);
   return join(projectRoot, '.resonant-code', 'context', 'runtime-sessions', 'code', `${stamp}-${digest}.json`);
 }
 
@@ -513,41 +646,6 @@ function buildSemanticCandidatePath(projectRoot, task) {
 function writeSession(sessionPath, session) {
   mkdirSync(dirname(sessionPath), { recursive: true });
   writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf-8');
-}
-
-function summarizeDirectiveForProposal(directive) {
-  return {
-    id: directive.id,
-    semanticKey: directive.semanticKey,
-    kind: directive.kind,
-    prescription: directive.prescription,
-    weight: directive.weight,
-    layer: directive.layer.id,
-    scope: directive.scope.path,
-    description: directive.body.description,
-    rationale: directive.body.rationale,
-    traits: directive.traits,
-  };
-}
-
-function summarizeObservationForProposal(observation) {
-  return {
-    id: observation.id,
-    semanticKey: observation.semanticKey,
-    category: observation.category,
-    scope: observation.scope.path,
-    pattern: observation.pattern,
-    adherence: observation.adherence,
-    verification: observation.verification,
-    lifecycle: observation.lifecycle,
-    traits: observation.traits,
-    evidenceRefs: observation.evidence.map((evidence) => `${evidence.file}:${evidence.line_range[0]}-${evidence.line_range[1]}`),
-    evidence: observation.evidence.map((evidence) => ({
-      file: evidence.file,
-      line_range: evidence.line_range,
-      snippet: evidence.snippet,
-    })),
-  };
 }
 
 function unique(values) {

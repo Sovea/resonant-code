@@ -1,5 +1,5 @@
 //#region src/prompt/build-slice-prompt.ts
-const RCCL_SCHEMA = `
+const RCCL_CANDIDATE_SCHEMA = `
 version: "1.0"
 generated_at: <auto-filled>
 git_ref: <auto-filled>
@@ -35,7 +35,7 @@ function buildSlicePrompt(input) {
 	lines.push("");
 	lines.push("## Output schema");
 	lines.push("```yaml");
-	lines.push(RCCL_SCHEMA);
+	lines.push(RCCL_CANDIDATE_SCHEMA);
 	lines.push("```");
 	lines.push("");
 	lines.push("## Hard rules");
@@ -79,4 +79,4 @@ function buildSlicePrompt(input) {
 	return lines.join("\n");
 }
 //#endregion
-export { buildSlicePrompt };
+export { RCCL_CANDIDATE_SCHEMA, buildSlicePrompt };

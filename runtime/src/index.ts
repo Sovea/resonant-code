@@ -2,13 +2,19 @@ export { compile, resolveTask } from './compile.ts';
 export { evaluateGuidance } from './feedback.ts';
 export {
   parseTaskInterpretationCandidatePayload,
+  parseTaskInterpretationCandidatePayloadWithDiagnostics,
   prepareTaskInterpretationContract,
 } from './ai-contracts/task-interpretation.ts';
 export {
   loadSemanticCandidateProposalPayload,
   loadSemanticRelationProposalPayload,
   prepareSemanticCandidateContract,
+  prepareSemanticCandidateContractBundle,
+  prepareSemanticContractContext,
   prepareSemanticRelationContract,
+  prepareSemanticRelationContractBundle,
+  validateSemanticCandidateProposalPayload,
+  validateSemanticRelationProposalPayload,
 } from './ai-contracts/semantic-relations.ts';
 export { resolveActivationDecisionsIR, activatedDirectiveIdsIR } from './ir/activation/resolve-activation.ts';
 export { buildGovernanceIR } from './ir/build-ir.ts';
@@ -31,13 +37,25 @@ export type {
   AIContractKind,
   AIContractSchemaVersion,
   AIContractVersion,
+  ContractPayloadDiagnosticEntry,
+  ContractPayloadDiagnosticReason,
+  ContractPayloadDiagnostics,
+  ContractPayloadDiagnosticStatus,
   HostProposalNormalizer,
   HostProposalSourceInput,
+  SemanticCandidateContractBundleOutput,
   SemanticCandidateContractOutput,
+  SemanticContractBundleInput,
+  SemanticContractContextInput,
+  SemanticContractContextOutput,
   SemanticContractInput,
   SemanticProposalDirectiveSummary,
   SemanticProposalObservationSummary,
+  SemanticProposalValidationInput,
+  SemanticProposalValidationResult,
+  SemanticRelationContractBundleOutput,
   SemanticRelationContractOutput,
+  TaskInterpretationCandidateParseResult,
   TaskInterpretationContractInput,
   TaskInterpretationContractOutput,
   TaskInterpretationRecommendation,

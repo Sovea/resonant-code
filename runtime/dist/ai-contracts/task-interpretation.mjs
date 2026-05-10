@@ -1,4 +1,5 @@
 import { TASK_INTERPRETATION_ENUMS, TASK_INTERPRETATION_SOURCES } from "../intent/schema.mjs";
+import { buildContractPayloadDiagnostics } from "./diagnostics.mjs";
 //#region src/ai-contracts/task-interpretation.ts
 function prepareTaskInterpretationContract(input) {
 	const { task, candidatePath } = input;
@@ -38,9 +39,50 @@ function prepareTaskInterpretationContract(input) {
 		}
 	};
 }
+function parseTaskInterpretationCandidatePayloadWithDiagnostics(raw) {
+	const values = raw === void 0 || raw === null ? [] : Array.isArray(raw) ? raw : [raw];
+	const entries = [];
+	const candidates = [];
+	values.forEach((value, index) => {
+		const path = Array.isArray(raw) ? `candidates[${index}]` : "candidate";
+		if (!isParsedTaskCandidate(value)) {
+			entries.push({
+				status: "rejected",
+				reason: value === void 0 || value === null ? "empty-payload" : "malformed-payload",
+				path,
+				message: "Task interpretation candidate must include intent, context, and uncertainties fields."
+			});
+			return;
+		}
+		candidates.push(value);
+		entries.push({
+			status: "accepted",
+			reason: "accepted",
+			path,
+			message: "Task interpretation candidate accepted for Runtime adjudication."
+		});
+	});
+	if (!values.length) entries.push({
+		status: "unused",
+		reason: "empty-payload",
+		path: "candidate",
+		message: "No task interpretation candidate payload was provided."
+	});
+	return {
+		candidates,
+		diagnostics: buildContractPayloadDiagnostics("task-interpretation", entries)
+	};
+}
 function parseTaskInterpretationCandidatePayload(raw) {
-	if (!raw) return [];
-	return Array.isArray(raw) ? raw : [raw];
+	return parseTaskInterpretationCandidatePayloadWithDiagnostics(raw).candidates;
+}
+function isParsedTaskCandidate(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const candidate = value;
+	return isRecord(candidate.intent) && isRecord(candidate.context) && Array.isArray(candidate.uncertainties) && candidate.uncertainties.every((item) => typeof item === "string");
+}
+function isRecord(value) {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function buildTaskCandidateSchema() {
 	const candidateSchema = buildSingleTaskCandidateSchema();
@@ -191,4 +233,4 @@ function buildAmbiguityHints(task) {
 	return hints;
 }
 //#endregion
-export { parseTaskInterpretationCandidatePayload, prepareTaskInterpretationContract };
+export { parseTaskInterpretationCandidatePayload, parseTaskInterpretationCandidatePayloadWithDiagnostics, prepareTaskInterpretationContract };

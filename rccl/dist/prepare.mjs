@@ -1,7 +1,7 @@
 import { buildRepoIndex } from "./indexing/build-repo-index.mjs";
 import { buildRepresentation } from "./represent/build-representation.mjs";
 import { planSlices } from "./slicing/plan-slices.mjs";
-import { buildSlicePrompt } from "./prompt/build-slice-prompt.mjs";
+import { RCCL_CANDIDATE_SCHEMA, buildSlicePrompt } from "./prompt/build-slice-prompt.mjs";
 import { buildDiscoveryPrompt } from "./prompt/build-discovery-prompt.mjs";
 import { buildCritiquePrompt } from "./prompt/build-critique-prompt.mjs";
 import { buildSynthesisPrompt } from "./prompt/build-synthesis-prompt.mjs";
@@ -24,9 +24,13 @@ function prepareRccl(projectRootInput, options = {}) {
 		contextMeta: context.contextMeta,
 		stats: context.stats
 	});
+	const candidateArtifact = buildObservationGenerationArtifact(context.projectRoot, context.scope);
+	const contract = buildObservationGenerationContract(context, prompt, candidateArtifact);
 	const debugArtifacts = buildDebugArtifacts(context, prompt, "calibration-prompts", options.debugArtifacts);
 	return {
 		prompt,
+		contract,
+		candidateArtifact,
 		metadata: {
 			scope: context.scope,
 			stats: context.stats
@@ -130,6 +134,48 @@ function buildDebugArtifacts(context, prompt, promptFolder, debugArtifacts, seed
 			...seed
 		})
 	} : { enabled: false };
+}
+function buildObservationGenerationArtifact(projectRoot, scope) {
+	return {
+		suggestedPath: suggestedObservationCandidatePath(projectRoot, scope),
+		format: "yaml",
+		usage: "Write candidate RCCL observations to this YAML path, then pass it to calibrate-repo-context commit with --input."
+	};
+}
+function buildObservationGenerationContract(context, prompt, artifact) {
+	return {
+		contractVersion: "ai-contract/v1",
+		kind: "rccl-observation-generation",
+		schemaId: "rccl.observation-generation-candidate",
+		schemaVersion: "1.0",
+		prompt,
+		schema: RCCL_CANDIDATE_SCHEMA,
+		artifact,
+		provenance: {
+			owner: "rccl",
+			deterministic: true
+		},
+		cacheKeyMaterial: {
+			scope: context.scope,
+			stats: context.stats,
+			slices: context.slices.map((slice) => ({
+				id: slice.id,
+				files: slice.files,
+				windows: slice.windows.map((window) => ({
+					file: window.file,
+					start_line: window.start_line,
+					end_line: window.end_line,
+					purpose: window.purpose
+				}))
+			}))
+		}
+	};
+}
+function suggestedObservationCandidatePath(projectRoot, scope) {
+	return join(projectRoot, ".resonant-code", "context", "rccl-candidates", `${createHash("sha1").update(JSON.stringify({
+		kind: "rccl-observation-generation",
+		scope
+	})).digest("hex").slice(0, 10)}.yaml`);
 }
 function suggestedWorkflowArtifactPath(projectRoot, stage, scope) {
 	return join(projectRoot, ".resonant-code", "context", "rccl-workflow", `${stage}-${createHash("sha1").update(JSON.stringify({

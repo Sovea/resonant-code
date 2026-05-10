@@ -5,6 +5,7 @@ import type {
   RuntimeDiagnostics,
   TaskInterpretationTrace,
 } from './interpret/types.ts';
+import type { ContractPayloadDiagnostics } from './ai-contracts/types.ts';
 
 export type TaskKind = 'code' | 'review' | 'analysis' | 'migration';
 export type Operation = 'create' | 'modify' | 'review' | 'refactor' | 'bugfix';
@@ -208,6 +209,38 @@ export interface ReviewTaskInput extends BaseTaskInput {
 
 export interface ResolveTaskInput extends RuntimeResolveTaskInput {}
 
+export type HostFulfillmentStatus = 'absent' | 'accepted' | 'partially-accepted' | 'rejected' | 'unused';
+
+export interface HostFulfillmentArtifactSummary {
+  kind: 'task-interpretation' | 'semantic-relation' | 'semantic-candidate';
+  provided: boolean;
+  path: string | null;
+  recommendedPath?: string | null;
+  status: HostFulfillmentStatus;
+  diagnostics: ContractPayloadDiagnostics | null;
+}
+
+export interface HostFulfillmentSummary {
+  status: HostFulfillmentStatus;
+  taskInterpretation: HostFulfillmentArtifactSummary;
+  semanticRelation: HostFulfillmentArtifactSummary;
+  semanticCandidate: HostFulfillmentArtifactSummary;
+}
+
+export interface HostFulfillmentFeedbackSummary {
+  interpretation_mode: InputProvenance['interpretation_mode'];
+  completion_signal: FeedbackSignalConfidence;
+  completion_source: 'default-approximation' | 'explicit-directives';
+  artifacts: Record<'task-interpretation' | 'semantic-relation' | 'semantic-candidate', {
+    provided: boolean;
+    status: HostFulfillmentStatus;
+    accepted: number;
+    rejected: number;
+    downgraded: number;
+    unused: number;
+  }>;
+}
+
 export interface CompileInputBase {
   builtinRoot: string;
   localAugmentPath?: string;
@@ -215,6 +248,7 @@ export interface CompileInputBase {
   projectRoot: string;
   lockfilePath?: string;
   hostProposals?: import('./ir/types.ts').HostProposalIR[];
+  hostFulfillment?: HostFulfillmentSummary;
 }
 
 export interface RawCompileInput extends CompileInputBase {
@@ -368,6 +402,7 @@ export interface DecisionTrace {
     directive_ids: string[];
   }>;
   context_influences: ContextInfluenceRecord[];
+  host_fulfillment?: HostFulfillmentSummary;
 }
 
 export type RelationKind = 'reinforce' | 'tension' | 'anti-pattern-suppress' | 'ambient-only' | 'none';
@@ -589,6 +624,7 @@ export interface RuntimeSessionRecord {
     parsedTaskCandidate?: ParsedTaskCandidate;
     interpretationMode?: InputProvenance['interpretation_mode'];
     hostProposals?: import('./ir/types.ts').HostProposalIR[];
+    hostFulfillment?: HostFulfillmentSummary;
     hostProposalFile?: string;
     semanticProposalFile?: string;
   };
@@ -648,6 +684,7 @@ export interface EvaluateInput {
   ignoredDirectiveIds?: string[];
   ignoredDirectiveReasons?: Partial<Record<string, IgnoredReason>>;
   signalConfidence?: FeedbackSignalConfidence;
+  hostFulfillment?: HostFulfillmentSummary;
 }
 
 export interface LockfileSignal {
@@ -712,6 +749,7 @@ export interface LockfileDocument {
     last_execution_modes: Record<ExecutionMode, number>;
     last_tension_count: number;
     last_observation_count: number;
+    last_host_fulfillment?: HostFulfillmentFeedbackSummary;
     last_updated_at: string;
   };
 }

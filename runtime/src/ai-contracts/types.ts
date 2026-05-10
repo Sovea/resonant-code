@@ -1,4 +1,4 @@
-import type { CompileTaskInput, ResolvedTaskOutput } from '../types.ts';
+import type { CompileInput, CompileTaskInput, ResolvedTaskOutput } from '../types.ts';
 import type { HostProposalIR } from '../ir/types.ts';
 
 export type AIContractVersion = 'ai-contract/v1';
@@ -90,6 +90,20 @@ export interface SemanticContractInput {
   artifactPath: string;
 }
 
+export interface SemanticContractContextInput {
+  compileInput: CompileInput;
+}
+
+export interface SemanticContractContextOutput {
+  resolvedTask: ResolvedTaskOutput;
+  directives: SemanticProposalDirectiveSummary[];
+  observations: SemanticProposalObservationSummary[];
+}
+
+export interface SemanticContractBundleInput extends SemanticContractContextInput {
+  artifactPath: string;
+}
+
 export interface SemanticRelationContractOutput {
   proposalPrompt: string;
   proposalSchema: string;
@@ -104,9 +118,64 @@ export interface SemanticCandidateContractOutput {
   contract: AIContractEnvelope;
 }
 
+export interface SemanticRelationContractBundleOutput extends SemanticContractContextOutput, SemanticRelationContractOutput {}
+
+export interface SemanticCandidateContractBundleOutput extends SemanticContractContextOutput, SemanticCandidateContractOutput {}
+
 export interface HostProposalSourceInput {
   id: string;
   path?: string;
+}
+
+export type ContractPayloadDiagnosticStatus = 'accepted' | 'rejected' | 'downgraded' | 'unused';
+export type ContractPayloadDiagnosticReason =
+  | 'accepted'
+  | 'empty-payload'
+  | 'invalid-id'
+  | 'low-confidence'
+  | 'malformed-payload'
+  | 'missing-required-field'
+  | 'unsupported-value'
+  | 'capped-by-policy';
+
+export interface ContractPayloadDiagnosticEntry {
+  status: ContractPayloadDiagnosticStatus;
+  reason: ContractPayloadDiagnosticReason;
+  path: string;
+  message: string;
+  directiveId?: string;
+  observationId?: string;
+  confidence?: number;
+}
+
+export interface ContractPayloadDiagnostics {
+  kind: 'task-interpretation' | 'semantic-relation' | 'semantic-candidate';
+  source?: HostProposalSourceInput;
+  summary: {
+    total: number;
+    accepted: number;
+    rejected: number;
+    downgraded: number;
+    unused: number;
+  };
+  entries: ContractPayloadDiagnosticEntry[];
+}
+
+export interface TaskInterpretationCandidateParseResult {
+  candidates: import('../interpret/types.ts').ParsedTaskCandidate[];
+  diagnostics: ContractPayloadDiagnostics;
+}
+
+export interface SemanticProposalValidationInput {
+  raw: unknown;
+  source: HostProposalSourceInput;
+  allowedDirectiveIds?: readonly string[];
+  allowedObservationIds?: readonly string[];
+}
+
+export interface SemanticProposalValidationResult {
+  proposal: HostProposalIR;
+  diagnostics: ContractPayloadDiagnostics;
 }
 
 export type HostProposalNormalizer = (raw: unknown, source: HostProposalSourceInput) => HostProposalIR;

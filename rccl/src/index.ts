@@ -42,6 +42,11 @@ export type {
   CalibrationWindow,
   PrepareRcclResult,
   PrepareRcclWorkflowStageResult,
+  RcclAIContractArtifact,
+  RcclAIContractEnvelope,
+  RcclAIContractKind,
+  RcclAIContractSchemaVersion,
+  RcclAIContractVersion,
   SamplingPolicy,
   VerificationPolicy,
 } from './types.ts';

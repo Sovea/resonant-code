@@ -1,6 +1,7 @@
+import { resolveTask } from "./interpret/normalize-candidate.mjs";
+import { toResolvedCompileInput } from "./compile-input.mjs";
 import { projectIRActivationToPublic } from "./ir/activation/public-adapter.mjs";
 import { activatedDirectiveIdsIR, resolveActivationDecisionsIR } from "./ir/activation/resolve-activation.mjs";
-import { resolveTask } from "./interpret/normalize-candidate.mjs";
 import { loadCompileSources } from "./load/compile-sources.mjs";
 import { stableHash } from "./utils/hash.mjs";
 import { buildGovernanceIR } from "./ir/build-ir.mjs";
@@ -10,25 +11,6 @@ import { buildSemanticRelationsIR } from "./ir/relations/build-relations.mjs";
 import { projectIRSemanticMergeToPublic } from "./ir/semantic-merge/public-adapter.mjs";
 import { readFileSync } from "node:fs";
 //#region src/compile.ts
-function hasResolvedTask(input) {
-	return "resolvedTask" in input;
-}
-function toResolvedCompileInput(input) {
-	if (hasResolvedTask(input)) return input;
-	return {
-		builtinRoot: input.builtinRoot,
-		localAugmentPath: input.localAugmentPath,
-		rcclPath: input.rcclPath,
-		projectRoot: input.projectRoot,
-		lockfilePath: input.lockfilePath,
-		hostProposals: input.hostProposals,
-		resolvedTask: resolveTask({
-			task: input.task,
-			candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
-			interpretationMode: input.interpretationMode
-		})
-	};
-}
 function buildInterpretationPacket(resolved) {
 	return {
 		candidates: resolved.candidates,
@@ -69,6 +51,7 @@ async function compile(input) {
 	const traceSteps = [];
 	const intent = resolved.task_intent;
 	const contextProfile = resolved.context_profile;
+	const hostFulfillment = normalizedInput.hostFulfillment;
 	traceSteps.push({
 		stage: "Intent Parse",
 		lines: [
@@ -109,8 +92,13 @@ async function compile(input) {
 			`observations_fingerprint: ${governanceIR.fingerprints.observations}`,
 			`feedback_fingerprint: ${governanceIR.fingerprints.feedback}`,
 			`host_proposals_fingerprint: ${governanceIR.fingerprints.hostProposals}`,
+			`host_proposal_sources: ${formatRecordCounts(countSourceIds(governanceIR.hostProposals.map((proposal) => proposal.source.id)))}`,
 			`selected_layers: ${governanceIR.sourceManifest.selectedLayers.join(", ") || "(none)"}`
 		]
+	});
+	traceSteps.push({
+		stage: "Host Fulfillment",
+		lines: summarizeHostFulfillment(hostFulfillment)
 	});
 	const activationDecisionsIR = resolveActivationDecisionsIR(governanceIR);
 	const irActivatedDirectiveIds = activatedDirectiveIdsIR(activationDecisionsIR);
@@ -195,7 +183,8 @@ async function compile(input) {
 		review_focus: focus.review_focus,
 		directive_decisions: semanticMergeResult.directive_modes,
 		observation_links: semanticMergeResult.observation_links,
-		context_influences: semanticMergeResult.context_influences
+		context_influences: semanticMergeResult.context_influences,
+		...hostFulfillment ? { host_fulfillment: hostFulfillment } : {}
 	};
 	const cache = buildCacheKeys({
 		builtinRoot: normalizedInput.builtinRoot,
@@ -283,6 +272,24 @@ function buildFocusTitle(kind, directiveDescription, directiveId, observationId)
 }
 function semanticRelationModeChanges(semanticMergeResult) {
 	return semanticMergeResult.directive_modes.filter((item) => item.relation_ids.length > 0 && item.execution_mode !== item.default_execution_mode).map((item) => `${item.directive_id}:${item.default_execution_mode}->${item.execution_mode}`);
+}
+function countSourceIds(sourceIds) {
+	const counts = {};
+	for (const sourceId of sourceIds) counts[sourceId] = (counts[sourceId] ?? 0) + 1;
+	return counts;
+}
+function summarizeHostFulfillment(hostFulfillment) {
+	if (!hostFulfillment) return ["no host fulfillment summary provided"];
+	return [
+		`status: ${hostFulfillment.status}`,
+		formatHostFulfillmentArtifact("task_interpretation", hostFulfillment.taskInterpretation),
+		formatHostFulfillmentArtifact("semantic_relation", hostFulfillment.semanticRelation),
+		formatHostFulfillmentArtifact("semantic_candidate", hostFulfillment.semanticCandidate)
+	];
+}
+function formatHostFulfillmentArtifact(label, artifact) {
+	const diagnostics = artifact.diagnostics?.summary;
+	return `${label}: provided=${artifact.provided} status=${artifact.status} accepted=${diagnostics?.accepted ?? 0} rejected=${diagnostics?.rejected ?? 0} downgraded=${diagnostics?.downgraded ?? 0} unused=${diagnostics?.unused ?? 0}`;
 }
 function formatRecordCounts(counts) {
 	const entries = Object.entries(counts).filter(([, count]) => count > 0);

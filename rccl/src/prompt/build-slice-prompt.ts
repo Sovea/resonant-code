@@ -1,6 +1,6 @@
 import type { CalibrationSlice } from '../types.ts';
 
-const RCCL_SCHEMA = `
+export const RCCL_CANDIDATE_SCHEMA = `
 version: "1.0"
 generated_at: <auto-filled>
 git_ref: <auto-filled>
@@ -42,7 +42,7 @@ export function buildSlicePrompt(input: {
   lines.push('');
   lines.push('## Output schema');
   lines.push('```yaml');
-  lines.push(RCCL_SCHEMA);
+  lines.push(RCCL_CANDIDATE_SCHEMA);
   lines.push('```');
   lines.push('');
   lines.push('## Hard rules');

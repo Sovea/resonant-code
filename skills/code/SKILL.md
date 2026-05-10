@@ -90,16 +90,29 @@ The script prints JSON:
     "summary": ["..."],
     "nextStep": "..."
   },
-  "hostProposals": {
-    "provided": true,
-    "file": "<path-or-null>",
-    "proposalCount": 1,
-    "relationCount": 3
+  "fulfillment": {
+    "status": "accepted",
+    "taskInterpretation": {
+      "provided": true,
+      "path": "<path-or-null>",
+      "status": "accepted",
+      "diagnostics": {
+        "summary": {
+          "accepted": 1,
+          "rejected": 0,
+          "downgraded": 0,
+          "unused": 0
+        }
+      }
+    },
+    "semanticRelation": { "provided": true, "path": "<path-or-null>", "status": "accepted" },
+    "semanticCandidate": { "provided": false, "path": null, "status": "absent" }
   }
 }
 ```
 
 Read `interpretation.summary` and `interpretation.nextStep` first when you want to understand whether the current prepare run was strong enough or whether you should generate and pass a candidate file.
+Read `fulfillment` to see whether host artifacts were absent, accepted, partially accepted, rejected, or unused. Artifact diagnostics are deterministic Runtime validation summaries; use them to repair malformed, invalid-id, low-confidence, or capped proposals before implementing.
 
 If `status` is `ok`:
 - Use `ego.guidance.must_follow` as the operational constraints for implementation.

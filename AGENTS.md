@@ -26,9 +26,25 @@ Common failure modes this project tries to reduce:
 - review output with too much noise and weak judgment
 - weak decision transparency before and during code generation
 
+
+## Design Philosophy
+
+The product philosophy is contract-first deterministic governance.
+
+resonant-code should let capable host agents contribute judgment, interpretation, and semantic matching, but only through explicit Runtime/RCCL-owned contracts. Host agents may propose; Runtime and RCCL validate, normalize, adjudicate, trace, and write bounded feedback.
+
+The important distinction is:
+
+- Host agents provide assistive structured artifacts.
+- Runtime/RCCL own the schema, allowed IDs, validation rules, merge policy, verification gates, diagnostics, and feedback writes.
+- Skills orchestrate the lifecycle but must not become alternative policy engines.
+- Developers inspect structural outputs, not raw prompt improvisation.
+
+The long-term target is not merely more AI. The target is more useful host-agent capability with stable boundaries: the host agent can help more completely, while deterministic systems remain accountable for every decision that affects guidance.
+
 ## Core Architecture
 
-The technical solution is organized around five cooperating parts:
+The product is organized around five cooperating parts:
 
 1. Built-in playbook
 2. Local project augment
@@ -36,12 +52,28 @@ The technical solution is organized around five cooperating parts:
 4. Runtime
 5. Lockfile feedback loop
 
+The implementation is governed by a four-layer execution architecture:
+
+1. Deterministic Core
+   - Runtime and RCCL compile, verify, merge, adjudicate, trace, and write bounded feedback.
+   - This layer owns all authoritative decisions.
+2. AI Contract Layer
+   - Runtime/RCCL expose typed contracts, schemas, allowed IDs, artifact expectations, validation, normalization, and diagnostics.
+   - This layer is the only valid way for host-agent output to enter deterministic processing.
+3. Internal Skill / Host-Agent Workflow Layer
+   - Internal skill code performs orchestration, filesystem IO, session writing, and host handoff sequencing.
+   - It may load artifacts and call Runtime/RCCL APIs, but it must not reconstruct playbook, semantic merge, or verification policy.
+4. Public Skill Layer
+   - Public commands remain stable and thin.
+   - They parse user flags, call internal workflows, and print compatible JSON output.
+
 The system is designed so that:
 
 - `init` prepares local prescriptive guidance
 - `calibrate-repo-context` prepares verified repository observation signals
 - Runtime compiles all relevant inputs into a task-level change decision packet
 - `code`, `review`, and similar skills are runtime consumers, not alternative rule engines
+- host-agent artifacts are accepted only through Runtime/RCCL-owned contracts
 - runtime feedback is written back into a lockfile quality loop
 
 Runtime is not the final artifact.
@@ -53,10 +85,33 @@ Its task-level artifact is a change decision packet whose primary views are:
 
 This framing matters: the system is not trying to hand an agent a pile of text rules. It is trying to compile the right decision context for a specific change before implementation begins.
 
+
+## Host-Agent Contract Lifecycle
+
+Host-agent capability should be used through a full contract fulfillment lifecycle:
+
+1. Runtime or RCCL issues a contract.
+2. The host agent may fulfill the contract by writing a structured artifact.
+3. Runtime or RCCL loads the artifact through a deterministic parser.
+4. The artifact is validated and normalized against Runtime/RCCL-owned expectations.
+5. Invalid, malformed, low-confidence, unsupported, or out-of-policy entries are rejected, downgraded, or marked unused with structured diagnostics.
+6. Accepted entries are still only proposals; deterministic Runtime/RCCL adjudication remains authoritative.
+7. Decision Trace, session records, and output JSON expose bounded diagnostics about what was provided, accepted, rejected, downgraded, or unused.
+8. Feedback writes remain bounded enums/counts/flags and must not persist raw host prose as authoritative truth.
+
+Supported contract families include:
+
+- task interpretation candidates
+- semantic relation proposals
+- semantic candidate shortlists
+- RCCL observation-generation candidates
+
+Host artifacts should be treated as assistive inputs, not policy. A valid artifact can influence deterministic compilation; it cannot bypass deterministic compilation.
+
 ## Playbook Compiler Runtime - Target Design
 
 The target Runtime is a deterministic governance runtime for AI-driven code changes.
-It compiles prescriptive guidance, verified repository observations, and task intent into a task-level change decision packet.
+It compiles prescriptive guidance, verified repository observations, task intent, context profile, host proposal diagnostics, and feedback signals into a task-level change decision packet.
 
 Prescriptive signals and observational signals must remain hard-separated in the data model:
 
@@ -128,6 +183,8 @@ Each observation must contain:
 Verification is a hard requirement for trust.
 LLM self-confidence alone is not trusted.
 
+RCCL prepare may emit a host-agent observation-generation contract, but RCCL commit remains the deterministic parser, consolidation, verification, and write boundary.
+
 ### RCCL Verify Gate
 
 Verify Gate is static and must not call an LLM.
@@ -158,7 +215,9 @@ The target pipeline is:
 Pipeline expectations:
 
 - Runtime owns parsing and merge logic
+- Runtime owns contract validation and proposal normalization
 - skills must not manually interpret raw playbook YAML as a substitute
+- skills must not manually reconstruct semantic merge policy
 - the final output must be deterministic enough to diff and reason about
 
 ### Intent Parse

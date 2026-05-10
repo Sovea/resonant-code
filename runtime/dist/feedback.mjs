@@ -19,6 +19,7 @@ function evaluateGuidance(input) {
 	existing.governance_summary.last_execution_modes = modeCounts;
 	existing.governance_summary.last_tension_count = tensionCount;
 	existing.governance_summary.last_observation_count = observedRccl.size;
+	existing.governance_summary.last_host_fulfillment = summarizeHostFulfillmentFeedback(input);
 	existing.governance_summary.last_updated_at = now;
 	updateObservationFeedback(existing, observedRccl, input, now);
 	updateTensionFeedback(existing, input, now);
@@ -165,6 +166,32 @@ function getObservedRccl(input) {
 	}
 	for (const link of input.packet.governance.semantic_merge.observation_links) if (!counts.has(link.observation_id)) counts.set(link.observation_id, link.directive_ids.length);
 	return counts;
+}
+function summarizeHostFulfillmentFeedback(input) {
+	const source = input.followedDirectiveIds?.length || input.ignoredDirectiveIds?.length ? "explicit-directives" : "default-approximation";
+	const signal = validSignalConfidence(input.signalConfidence) ? input.signalConfidence : source === "explicit-directives" ? "explicit" : "implicit";
+	const fulfillment = input.hostFulfillment ?? input.packet.governance.trace.host_fulfillment;
+	return {
+		interpretation_mode: input.packet.interpretation.input_provenance.interpretation_mode,
+		completion_signal: signal,
+		completion_source: source,
+		artifacts: {
+			"task-interpretation": summarizeArtifactFeedback(fulfillment?.taskInterpretation),
+			"semantic-relation": summarizeArtifactFeedback(fulfillment?.semanticRelation),
+			"semantic-candidate": summarizeArtifactFeedback(fulfillment?.semanticCandidate)
+		}
+	};
+}
+function summarizeArtifactFeedback(artifact) {
+	const summary = artifact?.diagnostics?.summary;
+	return {
+		provided: artifact?.provided ?? false,
+		status: artifact?.status ?? "absent",
+		accepted: summary?.accepted ?? 0,
+		rejected: summary?.rejected ?? 0,
+		downgraded: summary?.downgraded ?? 0,
+		unused: summary?.unused ?? 0
+	};
 }
 function createObservationEntry() {
 	return {

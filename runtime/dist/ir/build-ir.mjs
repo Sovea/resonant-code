@@ -1,4 +1,4 @@
-import { resolveTask } from "../interpret/normalize-candidate.mjs";
+import { resolveCompileTask } from "../compile-input.mjs";
 import { loadCompileSources } from "../load/compile-sources.mjs";
 import { feedbackToIR } from "./adapters/feedback.mjs";
 import { directivesToIR } from "./adapters/playbook.mjs";
@@ -7,15 +7,8 @@ import { stableHash } from "../utils/hash.mjs";
 import { taskToIR } from "./adapters/task.mjs";
 import { buildIRFingerprints } from "./fingerprint.mjs";
 //#region src/ir/build-ir.ts
-function hasResolvedTask(input) {
-	return "resolvedTask" in input;
-}
 async function buildGovernanceIR(input, sources) {
-	const resolvedTask = hasResolvedTask(input) ? input.resolvedTask : resolveTask({
-		task: input.task,
-		candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
-		interpretationMode: input.interpretationMode
-	});
+	const resolvedTask = resolveCompileTask(input);
 	const loadedSources = sources ?? await loadCompileSources(input);
 	const bundleWithoutFingerprints = {
 		irVersion: "governance-ir/v1",
@@ -54,7 +47,17 @@ async function buildGovernanceIR(input, sources) {
 					kind: "lockfile",
 					id: "playbook.lock",
 					path: input.lockfilePath
-				}] : []
+				}] : [],
+				...(input.hostProposals ?? []).map((proposal) => ({
+					kind: "host-proposal",
+					id: proposal.source.id,
+					path: proposal.source.path,
+					fingerprint: stableHash([
+						proposal.kind,
+						proposal.source.id,
+						proposal.payload
+					])
+				}))
 			]
 		}
 	};

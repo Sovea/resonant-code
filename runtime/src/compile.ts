@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { projectIRActivationToPublic } from './ir/activation/public-adapter.ts';
 import { resolveActivationDecisionsIR, activatedDirectiveIdsIR } from './ir/activation/resolve-activation.ts';
+import { toResolvedCompileInput } from './compile-input.ts';
 import { buildGovernanceIR } from './ir/build-ir.ts';
 import { projectIREgoToPublic } from './ir/ego/public-adapter.ts';
 import { resolveExecutionDecisionsIR } from './ir/execution/resolve-execution.ts';
 import { buildSemanticRelationsIR } from './ir/relations/build-relations.ts';
 import { projectIRSemanticMergeToPublic } from './ir/semantic-merge/public-adapter.ts';
-import { resolveTask } from './interpret/normalize-candidate.ts';
 import { loadCompileSources, type CompileSources } from './load/compile-sources.ts';
 import { stableHash } from './utils/hash.ts';
 import type {
@@ -28,27 +28,6 @@ import type {
   TraceStep,
 } from './types.ts';
 import type { SemanticRelationIR } from './ir/types.ts';
-
-function hasResolvedTask(input: CompileInput): input is ResolvedCompileInput {
-  return 'resolvedTask' in input;
-}
-
-function toResolvedCompileInput(input: CompileInput): ResolvedCompileInput {
-  if (hasResolvedTask(input)) return input;
-  return {
-    builtinRoot: input.builtinRoot,
-    localAugmentPath: input.localAugmentPath,
-    rcclPath: input.rcclPath,
-    projectRoot: input.projectRoot,
-    lockfilePath: input.lockfilePath,
-    hostProposals: input.hostProposals,
-    resolvedTask: resolveTask({
-      task: input.task,
-      candidates: input.parsedTaskCandidate ? [input.parsedTaskCandidate] : [],
-      interpretationMode: input.interpretationMode,
-    }),
-  };
-}
 
 function buildInterpretationPacket(resolved: ResolvedTaskOutput): InterpretationPacket {
   return {
@@ -93,6 +72,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
   const traceSteps: TraceStep[] = [];
   const intent = resolved.task_intent;
   const contextProfile = resolved.context_profile;
+  const hostFulfillment = normalizedInput.hostFulfillment;
 
   traceSteps.push({
     stage: 'Intent Parse',
@@ -138,8 +118,13 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
       `observations_fingerprint: ${governanceIR.fingerprints.observations}`,
       `feedback_fingerprint: ${governanceIR.fingerprints.feedback}`,
       `host_proposals_fingerprint: ${governanceIR.fingerprints.hostProposals}`,
+      `host_proposal_sources: ${formatRecordCounts(countSourceIds(governanceIR.hostProposals.map((proposal) => proposal.source.id)))}`,
       `selected_layers: ${governanceIR.sourceManifest.selectedLayers.join(', ') || '(none)'}`,
     ],
+  });
+  traceSteps.push({
+    stage: 'Host Fulfillment',
+    lines: summarizeHostFulfillment(hostFulfillment),
   });
 
   const activationDecisionsIR = resolveActivationDecisionsIR(governanceIR);
@@ -241,6 +226,7 @@ export async function compile(input: CompileInput): Promise<CompileOutput> {
     directive_decisions: semanticMergeResult.directive_modes,
     observation_links: semanticMergeResult.observation_links,
     context_influences: semanticMergeResult.context_influences,
+    ...(hostFulfillment ? { host_fulfillment: hostFulfillment } : {}),
   };
 
   const cache = buildCacheKeys({
@@ -356,6 +342,27 @@ function semanticRelationModeChanges(semanticMergeResult: SemanticMergeResult): 
   return semanticMergeResult.directive_modes
     .filter((item) => item.relation_ids.length > 0 && item.execution_mode !== item.default_execution_mode)
     .map((item) => `${item.directive_id}:${item.default_execution_mode}->${item.execution_mode}`);
+}
+
+function countSourceIds(sourceIds: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const sourceId of sourceIds) counts[sourceId] = (counts[sourceId] ?? 0) + 1;
+  return counts;
+}
+
+function summarizeHostFulfillment(hostFulfillment: CompileInput['hostFulfillment']): string[] {
+  if (!hostFulfillment) return ['no host fulfillment summary provided'];
+  return [
+    `status: ${hostFulfillment.status}`,
+    formatHostFulfillmentArtifact('task_interpretation', hostFulfillment.taskInterpretation),
+    formatHostFulfillmentArtifact('semantic_relation', hostFulfillment.semanticRelation),
+    formatHostFulfillmentArtifact('semantic_candidate', hostFulfillment.semanticCandidate),
+  ];
+}
+
+function formatHostFulfillmentArtifact(label: string, artifact: NonNullable<CompileInput['hostFulfillment']>['taskInterpretation']): string {
+  const diagnostics = artifact.diagnostics?.summary;
+  return `${label}: provided=${artifact.provided} status=${artifact.status} accepted=${diagnostics?.accepted ?? 0} rejected=${diagnostics?.rejected ?? 0} downgraded=${diagnostics?.downgraded ?? 0} unused=${diagnostics?.unused ?? 0}`;
 }
 
 function formatRecordCounts(counts: Record<string, number>): string {
