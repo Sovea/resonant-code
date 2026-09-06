@@ -97,6 +97,32 @@ test('late native result remains historical, and native agent identity cannot bi
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('native intake storage failure does not spend the format repair continuation and exact redelivery recovers', async () => {
+  const root = repository();
+  try {
+    const session = ensureHostSession({ projectRoot: root, adapter: 'codex', sessionId: 'io-recovery' });
+    const began = await beginTask({ projectRoot: root, source: beginInput(), bindingToken: session.bindingToken });
+    const input = { projectRoot: root, taskId: began.taskId, bindingToken: session.bindingToken };
+    await collectTask(input); const report = await reportTask({ ...input, source: reportInput() });
+    const payload = { session_id: 'io-recovery', cwd: root, agent_id: 'child', agent_type: 'stetra-analyzer' };
+    const hook = (event: 'subagent-start' | 'subagent-stop', output?: string) => handleHostHook({ adapter: 'codex', event,
+      payload: { ...payload, hook_event_name: events[event], last_assistant_message: output } });
+    await hook('subagent-start');
+    const lock = join(root, '.stetra/tasks', began.taskId, 'operation.lock');
+    writeFileSync(lock, 'unknown owner data');
+    const raw = JSON.stringify(assessmentInput(report.current.requestId!));
+    const failed = await hook('subagent-stop', raw);
+    assert.equal('decision' in failed, false);
+    assert.match(String(failed.systemMessage), /JSON shape was valid/);
+    assert.match(String(failed.systemMessage), /write may already have published/);
+    rmSync(lock);
+    assert.equal((await hook('subagent-stop', 'not JSON')).decision, 'block');
+    assert.match(String((await hook('subagent-stop', raw)).systemMessage), /assessment-recorded/);
+    assert.match(String((await hook('subagent-stop', raw)).systemMessage), /assessment-reused/);
+    assert.equal(artifacts(loadTask(root, began.taskId).state, 'assessment').length, 1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('child routing creates no task, unrelated profiles are inert, and payload mismatches are rejected', async () => {
   const root = repository(), absent = mkdtempSync(join(tmpdir(), 'stetra-no-install-'));
   try {

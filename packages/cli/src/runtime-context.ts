@@ -17,6 +17,7 @@ export interface PromptStreams {
 export interface RunCliOptions {
   input?: Readable;
   output?: Writable;
+  errorOutput?: Writable;
   interactive?: boolean;
   color?: boolean;
   prompts?: PromptProvider;
@@ -49,6 +50,7 @@ export function hostEnvironmentDisclosure(): HostEnvironmentDisclosure {
 export interface CliRuntimeContext {
   input: Readable;
   output: Writable;
+  errorOutput: Writable;
   interactive: boolean;
   color: boolean;
   prompts: PromptProvider;
@@ -64,6 +66,7 @@ export async function resolveRuntimeContext(
   return {
     input,
     output,
+    errorOutput: options.errorOutput ?? process.stderr,
     interactive: options.interactive ?? (
       inputIsTty
       && outputIsTty

@@ -22,6 +22,13 @@ import { sha256, stableFingerprint } from '../protocol.ts';
 import { captureVerificationInputs } from './execution-inputs.ts';
 
 export const MAX_CHECK_LOG_BYTES = 1024 * 1024;
+export type CheckProgress = {
+  event: 'step-started'; checkKey: string; attempt: number; role: 'preparation' | 'assertion'; step: number; timeoutMs: number;
+} | {
+  event: 'step-finished'; checkKey: string; attempt: number; role: 'preparation' | 'assertion'; step: number;
+  status: CheckStepAttemptFact['status']; termination: CheckStepAttemptFact['termination'];
+};
+export type ProgressObserver = (progress: CheckProgress) => void;
 export interface FrozenCheckExecution {
   definition: VerificationDefinition;
   timeoutMs: number;
@@ -33,6 +40,7 @@ export async function runFrozenChecks(input: {
   executions: FrozenCheckExecution[];
   outputDirectory: string;
   recordedOutputDirectory?: string;
+  onProgress?: ProgressObserver;
 }): Promise<CheckFact[]> {
   const results: CheckFact[] = [];
   for (const execution of input.executions) {
@@ -41,6 +49,7 @@ export async function runFrozenChecks(input: {
       ...execution,
       outputDirectory: input.outputDirectory,
       recordedOutputDirectory: input.recordedOutputDirectory ?? input.outputDirectory,
+      onProgress: input.onProgress,
     }));
   }
   return results;
@@ -53,6 +62,7 @@ async function runFrozenCheck(input: {
   previousAttempts?: CheckAttemptFact[];
   outputDirectory: string;
   recordedOutputDirectory: string;
+  onProgress?: ProgressObserver;
 }): Promise<CheckFact> {
   const { definition } = input;
   if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1) {
@@ -148,6 +158,7 @@ async function runCheckStep(input: {
   recordedOutputDirectory: string;
   attemptNumber: number;
   stepNumber: number;
+  onProgress?: ProgressObserver;
   step: {
     stepId: string;
     role: 'preparation' | 'assertion';
@@ -167,6 +178,8 @@ async function runCheckStep(input: {
   const stderrHash = createHash('sha256');
   const [file, ...args] = step.argv;
   const startedMs = performance.now();
+  const progress = { checkKey: definition.key, attempt: input.attemptNumber, role: step.role, step: input.stepNumber };
+  input.onProgress?.({ ...progress, event: 'step-started', timeoutMs: input.timeoutMs });
   const result = await runStreamingCommand({
     file,
     args,
@@ -214,6 +227,7 @@ async function runCheckStep(input: {
         : status === 'failed'
           ? `Check exited with ${termination.exitCode}.`
           : undefined;
+  input.onProgress?.({ ...progress, event: 'step-finished', status, termination });
   return {
     stepId: step.stepId,
     role: step.role,

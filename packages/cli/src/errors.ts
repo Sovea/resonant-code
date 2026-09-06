@@ -2,6 +2,7 @@ import type { z } from 'zod';
 
 export type CliErrorCode =
   | 'INVALID_INPUT'
+  | 'IO_ERROR'
   | 'PROMPT_CANCELLED'
   | 'UNEXPECTED_ERROR'
   | 'USAGE_ERROR';
@@ -67,6 +68,11 @@ export function normalizeCliError(error: unknown): CliError {
     return new CliError('PROMPT_CANCELLED', 'Interactive input was cancelled.', 130, { cause: error });
   }
   const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof Error && 'errno' in error && typeof error.errno === 'number'
+    && 'code' in error && typeof error.code === 'string') {
+    return new CliError('IO_ERROR', message, 1, { cause: error, issues: [{ code: error.code, path: '$',
+      message: 'An operating-system operation failed.', remediation: 'Resolve the reported filesystem or process error, then inspect retained task state before retrying a mutation.' }] });
+  }
   return new CliError('UNEXPECTED_ERROR', message, 1, { cause: error });
 }
 

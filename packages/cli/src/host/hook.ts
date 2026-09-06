@@ -1,6 +1,7 @@
 import { schemas } from '@sovea/stetra-core';
+import type { z } from 'zod';
 import type { HostAdapter } from '../adapters/definition.ts';
-import { inputError } from '../errors.ts';
+import { inputError, normalizeCliError } from '../errors.ts';
 import { sha256, stableFingerprint } from '../protocol.ts';
 import { readProjectConfig } from '../schemas/config.ts';
 import { parseArtifact } from '../validation.ts';
@@ -48,18 +49,24 @@ export async function handleHostHook(input: { adapter: HostAdapter; event: HostH
       const binding = readAnalysisBinding(projectRoot, session, payload.agent_id);
       if (!binding) return fallback('No exact Analysis Request is bound to this native agent.');
       const raw = payload.last_assistant_message;
+      let source: z.output<typeof schemas.commands.assess>;
       try {
         if (typeof raw !== 'string' || Buffer.byteLength(raw) > MAX_RESULT_BYTES) throw inputError('Analyzer final output is missing or exceeds 262144 bytes.');
-        const source = schemas.commands.assess.parse(JSON.parse(raw));
+        source = schemas.commands.assess.parse(JSON.parse(raw));
         if (source.requestId !== binding.requestId) throw inputError('Analyzer result must name its bound requestId.');
-        const result = submitAssessment({ projectRoot, taskId: binding.taskId, source,
-          origin: { transport: 'host-hook', host: input.adapter, sessionHash: 'sha256:' + session.sessionKeyHash,
-            agentId: payload.agent_id, agentType: 'stetra-analyzer', ...(turnId ? { turnId } : {}), outputDigest: sha256(raw) } });
-        return { systemMessage: `Stetra ${result.status}; ${result.assessmentCurrent ? 'bound to the current request' : 'retained as historical evidence; current work needs its own Assessment'}.` };
       } catch (error) {
         const first = claimDirective({ projectRoot, session, fingerprint: stableFingerprint({ formatRepair: binding.requestId }) });
         const reason = `Stetra could not record this Assessment: ${message(error)} Return one raw JSON object for request ${binding.requestId}; use assessment submit --input-schema --json or the parent-supplied schema. Do not write task files.`;
         return first && !payload.stop_hook_active ? { decision: 'block', reason } : fallback(reason);
+      }
+      try {
+        const result = submitAssessment({ projectRoot, taskId: binding.taskId, source,
+          origin: { transport: 'host-hook', host: input.adapter, sessionHash: 'sha256:' + session.sessionKeyHash,
+            agentId: payload.agent_id, agentType: 'stetra-analyzer', ...(turnId ? { turnId } : {}), outputDigest: sha256(raw!) } });
+        return { systemMessage: `Stetra ${result.status}; ${result.assessmentCurrent ? 'bound to the current request' : 'retained as historical evidence; current work needs its own Assessment'}.` };
+      } catch (cause) {
+        const error = normalizeCliError(cause);
+        return fallback(`Stetra Assessment intake failed (${error.code}): ${message(error)} The JSON shape was valid. Inspect task ${binding.taskId}, request ${binding.requestId}, and the reported reference, storage, or binding error before retrying. A write may already have published; redeliver the same exact native result after recovery. Do not rewrite valid JSON to fix an operational error.`);
       }
     } catch (error) { return fallback(message(error)); }
   }

@@ -121,6 +121,14 @@ Direct Host command execution remains Agent evidence rather than a Runtime Check
 Attempt. No filename, dependency, count, or keyword infers semantic importance.
 
 Ordinary collection reuses unchanged current facts, including failed checks.
+While checks run, each preparation/assertion step reports its start, budget,
+and termination on stderr (JSON lines in `--json` mode). Stdout remains the final
+command result. Progress is ephemeral and is not a retained Check Attempt.
+Failed checks, timeouts, and spawn failures remain distinct Observation facts.
+An operating-system failure uses `IO_ERROR`; interrupted collection also reports
+its stage and whether checks may already have run. Inspect history and live
+currency after recovery before deciding to run commands again. An unpublished
+Observation does not imply that its checks had no effects.
 Repair through the Host and collect again. Two explicit re-execution paths exist:
 
 ```sh
@@ -254,7 +262,11 @@ SessionStart injects admission or exact task recovery. Report with
 requested `stetra-analyzer` identity; child events never admit another task.
 SubagentStop ingests only that child's final raw JSON with a minimal native
 receipt. It does not read transcripts. Invalid results get at most one format
-repair continuation before an explicit fallback. Native receipt proves routing
+repair continuation before an explicit fallback. Valid JSON that fails reference,
+binding, or storage intake permits stop with the exact task/request and failure.
+Repair the reported problem and redeliver the exact native result; do not rewrite
+valid JSON to address an operational failure. Redelivery remains idempotent.
+Native receipt proves routing
 and event identity, not independent reasoning, semantic truth, or isolation.
 
 Main Stop requests at most one continuation for unchanged unfinished state.

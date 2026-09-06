@@ -3,8 +3,8 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAdoption, type ChangedFileFact, type CheckFact, type Observation, type ObservationData,
   type VerificationDefinition, type VerifierMutation } from '@sovea/stetra-core';
-import { inputError, usageError } from '../errors.ts';
-import { runFrozenChecks } from '../facts/checks.ts';
+import { CliError, inputError, normalizeCliError, usageError } from '../errors.ts';
+import { runFrozenChecks, type ProgressObserver } from '../facts/checks.ts';
 import { collectExecutionEnvironment } from '../facts/environment.ts';
 import { captureVerificationInputs, verificationInputSetFingerprint } from '../facts/execution-inputs.ts';
 import { captureGitWorktree, collectGitWorktreeChange, compareGitWorktrees } from '../facts/worktree.ts';
@@ -17,6 +17,7 @@ import { commitTaskCommand, createStaging, loadTask, projectRelativePath,
 export interface CollectOptions {
   projectRoot: string; taskId: string;
   retryTimeout?: { checkKey: string; timeoutMs: number }; refreshReason?: string;
+  onProgress?: ProgressObserver;
 }
 
 export async function collectTask(options: CollectOptions) {
@@ -37,6 +38,7 @@ export async function collectTask(options: CollectOptions) {
     const objects = join(payload, 'worktree-objects');
     const durableObjects = taskArtifactPath(task.taskDirectory, 'worktree-objects');
     mkdirSync(objects, { recursive: true });
+    let stage = 'capture-before-checks';
     try {
       const captureOptions = { objectDirectory: objects, alternateObjectDirectories: [durableObjects] };
       const preCheck = await captureGitWorktree(task.projectRoot, captureOptions);
@@ -47,8 +49,10 @@ export async function collectTask(options: CollectOptions) {
         throw usageError('The worktree or declared inputs changed before re-execution. Collect current facts instead.');
       }
       const files = 'collections/' + operationId;
+      stage = 'execute-checks';
       const checks = await executeChecks(task, plan.definitions, previous, options,
         taskArtifactPath(payload, files + '/checks'), taskArtifactPath(task.taskDirectory, files + '/checks'));
+      stage = 'capture-after-checks';
       const change = await collectGitWorktreeChange(task.projectRoot, baseline, captureOptions);
       const currentExecutionInputs = captureVerificationInputs(task.projectRoot, plan.definitions);
       const patch = change.patch.length ? {
@@ -69,6 +73,7 @@ export async function collectTask(options: CollectOptions) {
         ...(options.retryTimeout ? { retry: { priorObservationId: previous!.id, checkKey: options.retryTimeout.checkKey } } : {}),
         provenance: { collector: 'stetra-cli', cliVersion: PRODUCT_VERSION, coreVersion: PRODUCT_VERSION },
       };
+      stage = 'publish-observation';
       const result = commitTaskCommand({ projectRoot: task.projectRoot, taskId: task.taskId,
         command: { type: 'collect', input: {} }, runtime: { operationId, observation: data },
         expectedRevision: task.state.revision, stagedFiles: payload });
@@ -76,6 +81,14 @@ export async function collectTask(options: CollectOptions) {
         worktreeFingerprint: change.current.fingerprint,
         executionInputsFingerprint: verificationInputSetFingerprint(currentExecutionInputs),
       });
+    } catch (cause) {
+      const error = normalizeCliError(cause);
+      throw new CliError(error.code, error.message, error.exitCode, { cause, issues: [
+        ...(error.issues ?? []), { code: 'COLLECTION_INTERRUPTED', path: stage,
+          message: stage === 'capture-before-checks' ? 'This collection did not start checks.'
+            : 'Checks may have executed or changed files. Only published Observations are retained evidence.',
+          remediation: `Inspect task ${task.taskId} history and live summary before collecting again. Repair the reported operational failure; do not assume re-execution has no effects.` },
+      ] });
     } finally { rmSync(staging, { recursive: true, force: true }); }
   });
 }
@@ -111,10 +124,12 @@ async function executeChecks(task: LoadedTask, definitions: VerificationDefiniti
     const definition = definitions.find((item) => item.key === options.retryTimeout!.checkKey)!;
     const prior = previous!.data.checks.find((item) => item.definitionId === definition.definitionId)!;
     const [retried] = await runFrozenChecks({ projectRoot: task.projectRoot, outputDirectory, recordedOutputDirectory,
+      onProgress: options.onProgress,
       executions: [{ definition, timeoutMs: options.retryTimeout.timeoutMs, previousAttempts: prior.attempts }] });
     return previous!.data.checks.map((check) => check.definitionId === definition.definitionId ? retried : check);
   }
   return runFrozenChecks({ projectRoot: task.projectRoot, outputDirectory, recordedOutputDirectory,
+    onProgress: options.onProgress,
     executions: definitions.map((definition) => ({ definition,
       timeoutMs: options.refreshReason !== undefined
         ? previous!.data.checks.find((check) => check.definitionId === definition.definitionId)!.attempts.at(-1)!.timeoutMs

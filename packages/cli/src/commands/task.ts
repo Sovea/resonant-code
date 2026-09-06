@@ -16,7 +16,7 @@ import { submitAssessment } from '../workflow/assessment.ts';
 import { prepareAdoption, decideAdoption } from '../workflow/adoption.ts';
 import { inspectTask } from '../workflow/inspect.ts';
 import { resumeTask } from '../workflow/resume.ts';
-import type { CommandEnvironment } from './shared.ts';
+import { globalOptions, type CommandEnvironment } from './shared.ts';
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 interface InputOptions { input: string; inputSchema?: boolean; task?: string; bindingToken?: string; package?: string; reassess?: boolean; reason?: string }
@@ -73,6 +73,11 @@ export function registerTaskCommands(program: Command, environment: CommandEnvir
     .action(async (root: string, options: { task: string; retryTimeout?: string; timeoutMs?: string; refreshReason?: string }, source: Command) => {
       if (Boolean(options.retryTimeout) !== Boolean(options.timeoutMs)) throw inputError('Supply --retry-timeout and --timeout-ms together.');
       environment.emit('task collect', await collectTask({ projectRoot: root, taskId: options.task,
+        onProgress(progress) {
+          environment.runtime.errorOutput.write(globalOptions(source).json
+            ? JSON.stringify({ status: 'progress', taskId: options.task, ...progress }) + '\n'
+            : `Stetra check ${progress.checkKey}, attempt ${progress.attempt}, ${progress.role} ${progress.step}: ${progress.event === 'step-started' ? `running (budget ${progress.timeoutMs} ms)` : `${progress.status} (${progress.termination.kind})`}\n`);
+        },
         refreshReason: options.refreshReason, ...(options.retryTimeout ? { retryTimeout: {
           checkKey: options.retryTimeout, timeoutMs: positiveInteger(options.timeoutMs!, '--timeout-ms'),
         } } : {}) }), source);

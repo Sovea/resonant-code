@@ -31,5 +31,7 @@ export function formatCliError(error: CliError, json: boolean, color: boolean): 
     }, null, 2)}\n`;
   }
   const colors = pc.createColors(color);
-  return `${colors.red(colors.bold('error'))}: ${error.message}\n`;
+  const recovery = error.issues?.filter((issue) => issue.remediation).map((issue) =>
+    `${issue.code ?? error.code} (${issue.path}): ${issue.remediation}`) ?? [];
+  return [`${colors.red(colors.bold('error'))} [${error.code}]: ${error.message}`, ...recovery].join('\n') + '\n';
 }
