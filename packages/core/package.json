@@ -1,7 +1,7 @@
 {
   "name": "@sovea/stetra-core",
   "version": "0.0.1",
-  "description": "Deterministic Semantic Contract, Fact Spine, and Cognitive Handoff kernel for Stetra.",
+  "description": "Deterministic Intent, Decision, Observation, Assessment, and Adoption kernel for Stetra.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -42,5 +42,8 @@
     "tsdown": "^0.21.8",
     "tsx": "^4.23.1",
     "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }
