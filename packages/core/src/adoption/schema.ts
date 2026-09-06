@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BasisSchema, ResponseSchema } from '../assessments/schema.ts';
-import { HumanInput, Id, Interpretation, Key, RecordHeader, Text } from '../schemas/primitives.ts';
+import { Digest, HumanInput, Id, Interpretation, Key, RecordHeader, Text } from '../schemas/primitives.ts';
 
 export const RecommendationSchema = z.strictObject({
   action: z.enum(['accept', 'accept-with-limitations', 'request-correction', 'reject', 'defer']),
@@ -17,7 +17,7 @@ export const AttentionSchema = z.strictObject({
 });
 export const AdoptionPackageSchema = z.strictObject({
   ...RecordHeader, kind: z.literal('adoption-package'), basis: BasisSchema,
-  requestId: Id, assessmentId: Id, findingDigest: Id,
+  requestId: Id, assessmentId: Id, findingDigest: Digest,
   input: PrepareInputSchema, attention: z.array(AttentionSchema),
   pendingDecisions: z.array(Key),
 });

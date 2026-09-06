@@ -289,6 +289,9 @@ function validateReexecution(state: TaskState, data: Observation['data'], previo
     && fingerprint(data.preCheckExecutionInputs) === fingerprint(previous.data.currentExecutionInputs),
   'REEXECUTION_INVALID', 'Re-execution must refer to unchanged current facts.');
   if (data.refresh) {
+    requireCondition(data.checks.every((check) => check.attempts.length === 1
+      && check.attempts[0].timeoutMs === previous.data.checks.find((prior) => prior.definitionId === check.definitionId)?.attempts.at(-1)?.timeoutMs),
+    'REFRESH_INVALID', 'Refresh reruns every check at its existing budget in a new Observation.');
     requireCondition(previous.data.checks.some((check) => check.attempts.at(-1)?.status !== 'passed'
       && check.attempts.at(-1)?.termination.kind !== 'timeout'), 'REFRESH_INVALID', 'Refresh requires a non-timeout failure.');
     requireCondition(!records(state, 'observation').some((item) => item.attemptNumber === state.attemptNumber
@@ -301,6 +304,9 @@ function validateReexecution(state: TaskState, data: Observation['data'], previo
     const definition = record(state, 'verification-plan', state.planId).definitions.find((item) => item.key === data.retry!.checkKey);
     const prior = previous.data.checks.find((check) => check.definitionId === definition?.definitionId);
     const next = data.checks.find((check) => check.definitionId === definition?.definitionId);
+    requireCondition(data.checks.filter((check) => check.definitionId !== definition?.definitionId).every((check) =>
+      fingerprint(check) === fingerprint(previous.data.checks.find((prior) => prior.definitionId === check.definitionId))),
+    'RETRY_INVALID', 'A timeout retry must preserve every other Check unchanged.');
     requireCondition(prior && next && prior.attempts.at(-1)?.termination.kind === 'timeout'
       && next.attempts.length === prior.attempts.length + 1
       && fingerprint(next.attempts.slice(0, -1)) === fingerprint(prior.attempts)

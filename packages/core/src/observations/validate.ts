@@ -59,6 +59,9 @@ export function validateObservation(data: ObservationData, baseline: WorktreeSna
     for (const [index, attempt] of check.attempts.entries()) {
       requireCondition(attempt.attempt === index + 1, 'ATTEMPT_ORDER_INVALID', 'Check attempts must be ordered.');
       validateAttempt(attempt, definition);
+      requireCondition(attempt.timeoutMs <= plan.executionPolicy.maxTimeoutMs
+        && attempt.steps.every((step) => step.timeoutMs === attempt.timeoutMs),
+      'TIMEOUT_INVALID', 'Check Attempts must use a single bounded operational budget.');
     }
   }
   for (const mutation of data.verifierMutations) {
@@ -72,6 +75,13 @@ export function validateObservation(data: ObservationData, baseline: WorktreeSna
       || (mutation.selector.kind === 'tree' && path.startsWith(`${mutation.selector.path}/`))),
     'VERIFIER_MUTATION_INVALID', 'Verifier mutation path must match its explicit selector.');
   }
+  const expectedMutations = definitions.flatMap((definition) => definition.verifierRefs.flatMap((selector) =>
+    data.changedFiles.flatMap((file) => ([[file.path, 'current-path'], [file.previousPath, 'previous-path']] as const)
+      .filter(([path]) => path && (path === selector.path || (selector.kind === 'tree' && path.startsWith(selector.path + '/'))))
+      .map(([path, matchedBy]) => ({ verifierId: definition.verifierId, definitionId: definition.definitionId,
+        selector, changedFileId: file.id, changedPath: path, matchedBy })))));
+  requireCondition(fingerprint(data.verifierMutations.map(fingerprint).sort()) === fingerprint(expectedMutations.map(fingerprint).sort()),
+    'VERIFIER_MUTATION_INCOMPLETE', 'Every match of a declared verifier selector must remain visible.');
 }
 
 function validateInputs(snapshot: VerificationInputSnapshot, definition: VerificationDefinition): void {

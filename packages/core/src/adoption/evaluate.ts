@@ -22,9 +22,10 @@ export function evaluateAdoption(state: TaskState, currency?: Currency) {
     && report.observationId === state.observationId && report.decisionDigest === decisionDigest(state));
   const assessmentCurrent = Boolean(reportCurrent && assessment && assessmentIsCurrent(state, assessment));
   const pendingDecisions = decisions(state).filter(({ resolution }) => !resolution).map(({ proposal }) => proposal.input.key);
-  const packageCurrent = Boolean(packet && assessmentCurrent && factsCurrency !== 'stale'
+  const packageBindingsCurrent = Boolean(packet && assessmentCurrent
     && packet.requestId === state.requestId && packet.assessmentId === state.assessmentId
     && fingerprint(packet.basis) === fingerprint(currentBasis(state)) && packet.findingDigest === findingDigest(state));
+  const packageCurrent = packageBindingsCurrent && factsCurrency === 'current';
   const attention: Attention[] = [];
   const add = (code: string, message: string, sourceId?: string) => {
     attention.push({ id: fingerprint({ code, message, sourceId }), code, message, ...(sourceId ? { sourceId } : {}) });
@@ -64,10 +65,10 @@ export function evaluateAdoption(state: TaskState, currency?: Currency) {
   }
   const next = state.closed ? 'complete' : pendingDecisions.length ? 'resolve-decision'
     : factsCurrency === 'absent' ? 'implement' : factsCurrency === 'stale' ? 'collect'
-    : !reportCurrent ? 'report' : !assessmentCurrent ? 'assess' : !packageCurrent ? 'prepare' : 'await-human-decision';
-  const phase = state.closed ? 'complete' : pendingDecisions.length ? 'align' : packageCurrent ? 'decide' : 'work';
+    : !reportCurrent ? 'report' : !assessmentCurrent ? 'assess' : !packageBindingsCurrent ? 'prepare' : 'await-human-decision';
+  const phase = state.closed ? 'complete' : pendingDecisions.length ? 'align' : packageBindingsCurrent && factsCurrency !== 'stale' ? 'decide' : 'work';
   return {
-    phase, next, factsCurrency, reportCurrent, assessmentCurrent, packageCurrent, pendingDecisions, attention,
+    phase, next, factsCurrency, reportCurrent, assessmentCurrent, packageCurrent, packageBindingsCurrent, pendingDecisions, attention,
     acceptanceStructurallyPossible: packageCurrent && factsCurrency === 'current' && pendingDecisions.length === 0,
   } as const;
 }

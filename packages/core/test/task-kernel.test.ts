@@ -235,3 +235,14 @@ test('event replay rejects ordering, mismatched ownership and duplicate artifact
   assert.throws(() => reduceTaskEvent(null, result.event, result.artifacts.slice(1)));
   assert.throws(() => reduceTaskEvent(result.state, result.event, result.artifacts));
 });
+
+test('saved Package bindings do not assert live currency without a new Runtime observation', () => {
+  const h = harness(); h.delivered();
+  h.execute({ type: 'prepare', input: { recommendation: { action: 'accept', rationale: 'The current result is explained.' } } });
+  const saved = evaluateAdoption(h.state);
+  assert.equal(saved.packageBindingsCurrent, true);
+  assert.equal(saved.factsCurrency, 'unobserved');
+  assert.equal(saved.packageCurrent, false);
+  assert.equal(saved.acceptanceStructurallyPossible, false);
+  assert.equal(evaluateAdoption(h.state, currency).packageCurrent, true);
+});
