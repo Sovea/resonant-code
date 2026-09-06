@@ -187,6 +187,22 @@ Current bindings are checked again at result submission. Late results remain
 historical, and their dispositions cannot clear findings for current work.
 Unresolved findings survive omission, changed explanations, and implementer
 claims of repair. Implementer responses preserve disagreement and counterevidence.
+
+Task summaries expose `relatedOperations` with command argv and authoring-schema
+entry points. These are relevant operations, not preapproval or a mandatory
+sequence. After analysis, the Implementer investigates and repairs within the
+existing authorization, then collects, reports, and obtains a new Assessment.
+No intermediate Human correction request is needed to authorize that repair.
+Only a later explicit Analyzer disposition closes an earlier finding; omission
+or an Implementer response does not. Prepare the final recommendation when the
+result is ready, needs new authority, or cannot progress within existing authority.
+Host execution deadlines and coordination stages do not become durable Intent
+constraints unless they are actual Human requirements.
+
+Ordinary command results contain task state and related entry points. Adoption
+preparation, decision, and explicit adoption inspection return the decision brief.
+Detailed evidence inspection omits the repeated current summary; request-selected
+views identify their frozen basis explicitly.
 A later current Assessment must explicitly address, retract, or dispute a prior
 finding. Human acknowledgment accepts a disclosed limitation, not the truth of
 an Agent claim.

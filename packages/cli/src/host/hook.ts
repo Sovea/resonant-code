@@ -99,6 +99,7 @@ function admissionContext(projectRoot: string, bindingToken: string): string {
 function boundContext(projectRoot: string, session: HostSession, context: ReturnType<typeof taskResult>): string {
   const command = `stetra task inspect . --task ${context.taskId}`;
   return [`Stetra task ${context.taskId}: ${context.phase}; next ${context.directive.kind}.`, context.directive.message,
+    'Protocol milestones do not require another Human correction request for repairs already authorized. Choose engineering work through the Host; task inspect returns relatedOperations and their input-schema commands.',
     `Run these commands from the project root: ${JSON.stringify(projectRoot)}.`,
     'This Hook has not re-observed the worktree. Inspect with --live before presenting a Package as current.',
     `Current state: ${command} --section summary --live --json`,

@@ -16,6 +16,9 @@ Use ${host}'s normal engineering loop and conversation. Stetra supplies a local
 Runtime; it does not invoke models. Use CLI commands with \`--json\`. Discover
 each authoring input through that command's \`--input-schema --json\`; IDs and
 facts come from Runtime output. Pass \`--task TASK_ID\` after Begin.
+\`task inspect --section summary --json\` returns current references and related
+operations with schema commands. These are entry points, not preapproval or a
+mandatory action sequence; execution revalidates the actual inputs and facts.
 
 ## Align
 
@@ -56,6 +59,10 @@ interpretation amendment for your own revised understanding; do not relabel it
 as Human text. Revise actual check definitions through \`stetra verification
 revise\`, citing the applicable authority. Original baselines and prior facts
 remain intact.
+Keep Host execution budgets and stage-switch instructions outside durable Intent
+constraints. Correct your own interpretation when needed; preserve every exact
+Human constraint and its authority. Never fabricate a Human correction to repair
+your interpretation.
 
 When ready, call \`stetra task collect\`. Inspect a failed check or bounded log
 with \`task inspect --section check|log --check KEY\`; repair normally. Only an
@@ -90,6 +97,11 @@ erase an Analyzer finding. After repair or a changed explanation, collect as
 needed and report again. To request another assessment of an unchanged report,
 use \`task report --reassess --reason REASON\`. Later Assessments can explicitly
 address, retract, or dispute prior findings; omission never resolves them.
+Continue this investigation and repair loop under existing authority. Do not
+prepare a request-correction Package merely to ask the developer to authorize
+fixes they already requested. Prepare when the result is ready for a Human
+decision, a real new choice is needed, or further progress is blocked and its
+limits must be disclosed. Runtime does not decide which semantic finding is true.
 
 ## Decide
 

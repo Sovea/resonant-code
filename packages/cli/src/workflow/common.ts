@@ -5,6 +5,7 @@ import { captureGitWorktree } from '../facts/worktree.ts';
 import { captureVerificationInputs, verificationInputSetFingerprint } from '../facts/execution-inputs.ts';
 import type { ProjectConfig } from '../schemas/config.ts';
 import type { LoadedTask } from './task-store.ts';
+import { relatedOperations } from './actions.ts';
 
 export function artifact<K extends TaskArtifact['kind']>(state: TaskState, kind: K, id: string | undefined): Extract<TaskArtifact, { kind: K }> {
   const result = state.records.find((item) => item.id === id);
@@ -62,24 +63,25 @@ const NEXT_MESSAGES = {
   collect: 'The observed result changed. Collect current facts before explaining or adopting it.',
   report: 'Explain the actual implementation and evidence. Failed checks remain engineering evidence for repair or disclosed limitations.',
   assess: 'Use the Host Analyzer for the frozen Analysis Request. Submit an explicit unavailable result if analysis cannot run.',
-  prepare: 'Consider the Assessment, respond to findings, and prepare the final adoption recommendation.',
+  prepare: 'Reconcile the Assessment. Investigate, repair, and reassess within existing authority before preparing the final recommendation. Ask only for genuinely new authority or a Human adoption choice.',
   'await-human-decision': 'Present the current Adoption Package and await an exact later Human adoption response.',
   complete: 'The task is closed. Its facts and Human decision remain inspectable.',
 };
 
-export function taskResult(task: LoadedTask, status: string, currency?: Currency) {
+export function taskResult(task: LoadedTask, status: string, currency?: Currency, options: { adoption?: boolean } = {}) {
   const state = task.state, view = evaluateAdoption(state, currency);
   const intent = artifact(state, 'intent', state.intentId);
   const packet = state.packageId ? artifact(state, 'adoption-package', state.packageId) : null;
   return { protocol: schemas.protocol, schemaVersion: schemas.schemaVersion, status,
     taskId: task.taskId, revision: state.revision, phase: view.phase, factsCurrency: view.factsCurrency,
     directive: { kind: view.next, message: NEXT_MESSAGES[view.next] },
+    relatedOperations: relatedOperations(task.taskId, view, state.requestId),
     current: { intentId: state.intentId, observationId: state.observationId, reportId: state.reportId,
       requestId: state.requestId, assessmentId: state.assessmentId, packageId: state.packageId },
     summary: { intendedOutcome: intent.interpretation.desiredOutcome, constraints: intent.interpretation.constraints,
       nonGoals: intent.interpretation.nonGoals, pendingDecisions: view.pendingDecisions,
       observations: observationSummary(state) },
-    ...(packet && view.packageBindingsCurrent ? { adoptionBrief: adoptionBrief(task, packet.id, currency) } : {}),
+    ...(options.adoption && packet && view.packageBindingsCurrent ? { adoptionBrief: adoptionBrief(task, packet.id, currency) } : {}),
   };
 }
 

@@ -11,6 +11,18 @@ export const inputCommandNames: Record<InputKind, string> = {
   'verification-revise': 'verification revise', collect: 'task collect', report: 'task report',
   assess: 'assessment submit', prepare: 'adoption prepare', decide: 'adoption decide',
 };
+export const inputCommandDescriptions: Record<InputKind, string> = {
+  begin: 'Admit exact direction and capture the full dirty Git baseline',
+  amend: 'Preserve a Human correction or an Agent interpretation revision; invalidate prior semantic delivery',
+  propose: 'Record a concrete engineering choice under existing authority or request new Human authority',
+  resolve: 'Bind a resolution to the exact proposal and its actual authority',
+  'verification-revise': 'Freeze an explicitly selected verification plan; preserve earlier checks',
+  collect: 'Observe current changes and execute frozen argv checks; unchanged collected facts are reused',
+  report: 'Explain the current result and freeze its analysis inputs; requires current collected facts',
+  assess: 'Record the exact Host Analyzer result for its request; never substitute the implementer judgment',
+  prepare: 'Prepare a recommendation after reconciliation; repair within existing authority before presenting avoidable defects',
+  decide: 'Record an exact later Human response to the presented Package; acceptance requires current facts and acknowledged limitations',
+};
 export const taskInputExamples = {
   begin: { humanEvent: { content: 'The exact admitted developer request.' }, interpretation,
     verification: { mode: 'checks', checks: [{ key: 'test', argv: ['npm', 'test'] }] } },
@@ -38,6 +50,7 @@ export function taskInputExample(kind: InputKind): string {
 }
 export function describeTaskInput(kind: InputKind) {
   return { status: 'input-schema', command: inputCommandNames[kind],
+    description: inputCommandDescriptions[kind],
     inputSchema: z.toJSONSchema(schemas.commands[kind], { io: 'input' }),
     example: JSON.parse(taskInputExample(kind)) as unknown,
     guidance: [

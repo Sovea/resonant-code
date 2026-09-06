@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import type { z } from 'zod';
 import { schemas } from '@sovea/stetra-core';
 import { CliError, inputError, usageError } from '../errors.ts';
-import { describeTaskInput, inputCommandNames, type InputKind } from '../schemas/task-input.ts';
+import { describeTaskInput, inputCommandDescriptions, inputCommandNames, type InputKind } from '../schemas/task-input.ts';
 import { parseArtifact } from '../validation.ts';
 import { inspectionSections } from '../schemas/inspection.ts';
 import { beginTask } from '../workflow/begin.ts';
@@ -34,18 +34,11 @@ export function registerTaskCommands(program: Command, environment: CommandEnvir
     .action(async (root: string, options: { task: string; bindingToken: string }, source: Command) => {
       environment.emit('task resume', await resumeTask({ projectRoot: root, taskId: options.task, bindingToken: options.bindingToken }), source);
     });
-  const commands: Array<[Command, string, InputKind, string]> = [
-    [task, 'begin', 'begin', 'Admit exact direction and capture the full dirty Git baseline'],
-    [task, 'amend', 'amend', 'Preserve an in-work correction or attributed interpretation revision'],
-    [decision, 'propose', 'propose', 'Present a concrete choice or record an authorized autonomous selection'],
-    [decision, 'resolve', 'resolve', 'Bind a resolution to the exact current proposal'],
-    [verification, 'revise', 'verification-revise', 'Freeze a revised check plan and its authority'],
-    [task, 'report', 'report', 'Freeze an implementation report and analysis inputs'],
-    [assessment, 'submit', 'assess', 'Submit an Assessment for an exact Runtime request'],
-    [adoption, 'prepare', 'prepare', 'Respond to assessment and prepare a current Adoption Package'],
-    [adoption, 'decide', 'decide', 'Record the later exact Human response to a presented Package'],
-  ];
-  for (const [parent, name, kind, description] of commands) {
+  const parents = { task, decision, verification, assessment, adoption };
+  for (const kind of Object.keys(inputCommandNames) as InputKind[]) {
+    if (kind === 'collect') continue;
+    const [parentName, name] = inputCommandNames[kind].split(' ') as [keyof typeof parents, string];
+    const parent = parents[parentName], description = inputCommandDescriptions[kind];
     const command = parent.command(name).description(description).argument('[project-root]', 'Git worktree root', '.')
       .option('--task <id>', 'task ID; required except begin or input-schema discovery')
       .option('--input <path>', 'authoring JSON path outside the worktree, or - for stdin', '-')

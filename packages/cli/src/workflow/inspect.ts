@@ -23,9 +23,11 @@ export async function inspectTask(input: InspectOptions) {
   const request = 'requestId' in options && options.requestId ? artifact(state, 'analysis-request', options.requestId) : undefined;
   const observationId = request?.basis.observationId ?? ('observationId' in options ? options.observationId : undefined) ?? state.observationId;
   const currency = 'live' in options && options.live ? await observeCurrency(task) : undefined;
-  const base = taskResult(task, 'task-inspected', currency);
+  const base = { protocol: schemas.protocol, schemaVersion: schemas.schemaVersion,
+    status: 'task-inspected', taskId: task.taskId, revision: state.revision,
+    ...(request ? { selection: { requestId: request.id, ...request.basis } } : {}) };
   switch (section) {
-    case 'summary': return base;
+    case 'summary': return taskResult(task, 'task-inspected', currency);
     case 'intent': {
       const intent = artifact(state, 'intent', request?.basis.intentId ?? state.intentId);
       return { ...base, intent, humanEvents: intent.humanEventIds.map((id) => artifact(state, 'human-event', id)) };

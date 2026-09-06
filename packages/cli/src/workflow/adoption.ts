@@ -8,7 +8,7 @@ export async function prepareAdoption(options: { projectRoot: string; taskId: st
     const task = loadTask(options.projectRoot, options.taskId), currency = await observeCurrency(task);
     const result = commitTaskCommand({ ...options, command: { type: 'prepare', input: options.source },
       expectedRevision: task.state.revision, runtime: { currency } });
-    return taskResult(result.task, result.changed ? 'adoption-prepared' : 'adoption-unchanged', currency);
+    return taskResult(result.task, result.changed ? 'adoption-prepared' : 'adoption-unchanged', currency, { adoption: true });
   });
 }
 
@@ -18,6 +18,6 @@ export async function decideAdoption(options: { projectRoot: string; taskId: str
     const currency = options.source.action === 'accepted' ? await observeCurrency(task) : undefined;
     const result = commitTaskCommand({ ...options, command: { type: 'decide', input: options.source },
       expectedRevision: task.state.revision, runtime: { currency } });
-    return taskResult(result.task, 'adoption-recorded', currency);
+    return taskResult(result.task, 'adoption-recorded', currency, { adoption: true });
   });
 }
