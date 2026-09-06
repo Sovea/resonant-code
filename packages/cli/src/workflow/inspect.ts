@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { schemas, type CheckStreamFact } from '@sovea/stetra-core';
 import { usageError } from '../errors.ts';
+import { InspectionSchema } from '../schemas/inspection.ts';
+import { parseArtifact } from '../validation.ts';
 import { sha256 } from '../protocol.ts';
 import { readSnapshotSource } from '../facts/worktree.ts';
 import { artifact, artifacts, adoptionBrief, decisionView, observeCurrency, observationSummary, taskResult } from './common.ts';
@@ -11,21 +13,32 @@ export interface InspectOptions {
   packageId?: string; path?: string; snapshot?: 'baseline' | 'current'; checkKey?: string;
   attempt?: number; stream?: 'stdout' | 'stderr'; offset?: number; maxBytes?: number; live?: boolean;
 }
-export async function inspectTask(options: InspectOptions) {
+export async function inspectTask(input: InspectOptions) {
+  const options = parseArtifact(InspectionSchema, {
+    ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
+    section: input.section ?? 'summary',
+  }, 'Inspection selectors');
   const task = loadTask(options.projectRoot, options.taskId), state = task.state;
-  const section = options.section ?? 'summary';
-  if (options.live && !['summary', 'adoption'].includes(section)) throw usageError('Live currency is available only for summary and adoption inspection.');
-  const currency = options.live ? await observeCurrency(task) : undefined;
+  const section = options.section;
+  const request = 'requestId' in options && options.requestId ? artifact(state, 'analysis-request', options.requestId) : undefined;
+  const observationId = request?.basis.observationId ?? ('observationId' in options ? options.observationId : undefined) ?? state.observationId;
+  const currency = 'live' in options && options.live ? await observeCurrency(task) : undefined;
   const base = taskResult(task, 'task-inspected', currency);
   switch (section) {
     case 'summary': return base;
-    case 'intent': return { ...base, intent: artifact(state, 'intent', state.intentId), humanEvents: artifacts(state, 'human-event') };
-    case 'decisions': return { ...base, decisions: decisionView(state) };
+    case 'intent': {
+      const intent = artifact(state, 'intent', request?.basis.intentId ?? state.intentId);
+      return { ...base, intent, humanEvents: intent.humanEventIds.map((id) => artifact(state, 'human-event', id)) };
+    }
+    case 'decisions': return { ...base, decisions: request ? request.decisionRefs.map((item) => ({
+      proposal: artifact(state, 'decision-proposal', item.proposalId),
+      resolution: item.resolutionId ? artifact(state, 'decision-resolution', item.resolutionId) : null,
+    })) : decisionView(state) };
     case 'baseline': return { ...base, baseline: artifact(state, 'baseline', state.baselineId) };
-    case 'verification': return { ...base, verification: artifact(state, 'verification-plan', state.planId) };
+    case 'verification': return { ...base, verification: artifact(state, 'verification-plan', request?.basis.planId ?? state.planId) };
     case 'observations': return { ...base, observations: artifacts(state, 'observation').map((item) => observationSummary(state, item.id)) };
-    case 'observation': return { ...base, observation: artifact(state, 'observation', options.observationId ?? state.observationId) };
-    case 'report': return { ...base, report: artifact(state, 'report', state.reportId) };
+    case 'observation': return { ...base, observation: artifact(state, 'observation', observationId) };
+    case 'report': return { ...base, report: artifact(state, 'report', request?.basis.reportId ?? state.reportId) };
     case 'analysis': {
       const analysis = analysisInput(task, options.requestId ?? state.requestId);
       const bytes = Buffer.from(JSON.stringify(analysis));
@@ -34,7 +47,9 @@ export async function inspectTask(options: InspectOptions) {
       return !page.truncated ? { ...identity, analysis }
         : { ...identity, analysisDocument: { digest: sha256(bytes), ...page } };
     }
-    case 'assessment': return { ...base, assessments: artifacts(state, 'assessment'), currentAssessmentId: state.assessmentId };
+    case 'assessment': return { ...base,
+      assessments: artifacts(state, 'assessment').filter((item) => item.input.requestId === (request?.id ?? state.requestId)),
+      currentAssessmentId: state.assessmentId };
     case 'adoption': return { ...base, adoptionBrief: adoptionBrief(task, options.packageId ?? state.packageId!, currency) };
     case 'history': return { ...base, events: task.events, records: state.records };
     case 'source': {
@@ -48,14 +63,14 @@ export async function inspectTask(options: InspectOptions) {
         ...boundedBytes(bytes, options.offset, options.maxBytes) };
     }
     case 'patch': {
-      const observation = artifact(state, 'observation', options.observationId ?? state.observationId);
+      const observation = artifact(state, 'observation', observationId);
       const patch = observation.data.patch;
       return { status: 'patch-inspected', taskId: task.taskId, observationId: observation.id,
         patch: patch ? { ...patch, ...boundedBytes(readTaskFile(task, patch.path), options.offset, options.maxBytes) } : null };
     }
     case 'check': case 'log': {
       if (!options.checkKey) throw usageError('Check/log inspection requires --check.');
-      const observation = artifact(state, 'observation', options.observationId ?? state.observationId);
+      const observation = artifact(state, 'observation', observationId);
       const plan = artifact(state, 'verification-plan', observation.planId);
       const definition = plan.definitions.find((item) => item.key === options.checkKey);
       const check = observation.data.checks.find((item) => item.definitionId === definition?.definitionId);

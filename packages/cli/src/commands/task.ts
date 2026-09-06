@@ -7,6 +7,7 @@ import { schemas } from '@sovea/stetra-core';
 import { CliError, inputError, usageError } from '../errors.ts';
 import { describeTaskInput, inputCommandNames, type InputKind } from '../schemas/task-input.ts';
 import { parseArtifact } from '../validation.ts';
+import { inspectionSections } from '../schemas/inspection.ts';
 import { beginTask } from '../workflow/begin.ts';
 import { collectTask } from '../workflow/collect.ts';
 import { authorTask } from '../workflow/author.ts';
@@ -77,18 +78,18 @@ export function registerTaskCommands(program: Command, environment: CommandEnvir
     });
   task.command('inspect').description('Read bounded task, source, and evidence views')
     .argument('[project-root]', 'Git worktree root', '.').requiredOption('--task <id>', 'admitted task ID')
-    .option('--section <name>', 'summary, intent, decisions, baseline, verification, observations, observation, report, analysis, assessment, adoption, source, patch, check, log, history', 'summary')
-    .option('--request <id>', 'exact analysis request for frozen input/source inspection')
+    .option('--section <name>', inspectionSections.join(', '), 'summary')
+    .option('--request <id>', 'freeze intent, decisions, verification, observation, report, analysis, assessment, source, patch, check, or log to this request')
     .option('--observation <id>', 'Observation to inspect; defaults to latest')
     .option('--package <id>', 'Adoption Package; defaults to latest')
     .option('--snapshot <side>', 'baseline or current source snapshot')
     .option('--path <path>', 'safe repository-relative source path')
     .option('--check <key>', 'readable check key').option('--attempt <number>', 'Check Attempt number')
-    .option('--stream <name>', 'stdout or stderr').option('--offset <bytes>', 'byte offset', '0')
-    .option('--max-bytes <bytes>', 'maximum source, patch, or log bytes; at most 65536', '16384')
+    .option('--stream <name>', 'stdout or stderr').option('--offset <bytes>', 'byte offset; default 0')
+    .option('--max-bytes <bytes>', 'maximum analysis, source, patch, or log bytes; default 16384, at most 65536')
     .option('--live', 're-observe currency for summary/adoption; frozen Analyzer reads omit this option')
     .action(async (root: string, options: { task: string; section: string; request?: string; observation?: string; package?: string;
-      snapshot?: string; path?: string; check?: string; attempt?: string; stream?: string; offset: string; maxBytes: string; live?: boolean }, source: Command) => {
+      snapshot?: string; path?: string; check?: string; attempt?: string; stream?: string; offset?: string; maxBytes?: string; live?: boolean }, source: Command) => {
       if (options.snapshot && !['baseline', 'current'].includes(options.snapshot)) throw inputError('--snapshot must be baseline or current.');
       if (options.stream && !['stdout', 'stderr'].includes(options.stream)) throw inputError('--stream must be stdout or stderr.');
       environment.emit('task inspect', await inspectTask({ projectRoot: root, taskId: options.task, section: options.section,
@@ -96,7 +97,8 @@ export function registerTaskCommands(program: Command, environment: CommandEnvir
         snapshot: options.snapshot as 'baseline' | 'current' | undefined, path: options.path, checkKey: options.check,
         attempt: options.attempt ? positiveInteger(options.attempt, '--attempt') : undefined,
         stream: options.stream as 'stdout' | 'stderr' | undefined,
-        offset: Number(options.offset), maxBytes: Number(options.maxBytes), live: options.live }), source);
+        offset: options.offset === undefined ? undefined : Number(options.offset),
+        maxBytes: options.maxBytes === undefined ? undefined : Number(options.maxBytes), live: options.live }), source);
     });
 }
 

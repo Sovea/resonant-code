@@ -162,6 +162,13 @@ stetra task inspect . --task <taskId> --section analysis --request <requestId> -
 stetra task inspect . --task <taskId> --section source --request <requestId> --snapshot baseline --path src/example.ts --json
 ```
 
+`--request` also binds intent, decisions, verification, observation, report,
+Assessment, patch, check, and log inspection to that frozen request. Patch,
+check, and log never silently fall back to the latest Observation when a request
+is selected. Use either `--request` or `--observation`, not both. Each section
+rejects unused selectors. Assessment inspection defaults to the current request;
+use an explicit request for an older result or history for the complete journal.
+
 Analysis documents larger than the inspection budget return a serialized
 `analysisDocument` with digest and `nextOffset`; assemble pages using `--offset`
 before analyzing. Source, patch, and log output use bounded byte pages with
