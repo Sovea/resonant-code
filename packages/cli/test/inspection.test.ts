@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { runCli } from '../src/cli.ts';
+import { runCli, formatCliOutput } from '../src/cli.ts';
 import { beginTask } from '../src/workflow/begin.ts';
 import { collectTask } from '../src/workflow/collect.ts';
 import { reportTask } from '../src/workflow/report.ts';
@@ -47,6 +47,10 @@ test('all request-selected evidence remains bound after a correction and another
     assert.equal(current.assessments[0]!.input.requestId, next.current.requestId);
     const cli = await runCli(['task', 'inspect', root, '--task', task.taskId, '--section', 'check', '--request', requestId, '--check', 'content', '--json']);
     assert.equal((cli.output as { observationId: string }).observationId, first.current.observationId);
+    const paged = await runCli(['task', 'inspect', root, '--task', task.taskId, '--section', 'analysis',
+      '--request', requestId, '--max-bytes', '16'], { color: false });
+    assert.match(formatCliOutput(paged), /analysisDocument/);
+    assert.match(formatCliOutput(paged), /"nextOffset": 16/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

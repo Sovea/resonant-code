@@ -20,7 +20,7 @@ export function formatHumanResult(command: string, output: unknown, colors: Colo
   // Explicit inspection must expose its selected detail in text mode as well as JSON.
   for (const [key, value] of Object.entries(output)) {
     if (['intent', 'humanEvents', 'decisions', 'baseline', 'verification', 'observations', 'observation', 'report',
-      'analysis', 'assessments', 'events', 'records', 'patch', 'check', 'definition', 'selectedAttempt', 'log'].includes(key)) {
+      'analysis', 'analysisDocument', 'assessments', 'events', 'records', 'patch', 'check', 'definition', 'selectedAttempt', 'log'].includes(key)) {
       lines.push('', colors.bold(key), JSON.stringify(value, null, 2));
     }
   }
