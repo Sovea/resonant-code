@@ -40,10 +40,11 @@ test('check facts preserve stdout, stderr, exact exit termination, and an outcom
 test('check facts preserve package-manager lifecycle output from a failed script', async () => {
   const root = mkdtempSync(join(tmpdir(), 'stetra-check-package-manager-'));
   try {
+    writeFileSync(join(root, 'verify.cjs'), "process.stdout.write('script-out\\n');process.stderr.write('script-err\\n');process.exit(2)");
     writeFileSync(join(root, 'package.json'), JSON.stringify({
       private: true,
       scripts: {
-        verify: `${JSON.stringify(process.execPath)} -e "process.stdout.write('script-out\\n');process.stderr.write('script-err\\n');process.exit(2)"`,
+        verify: 'node verify.cjs',
       },
     }));
     const check = await run(
@@ -54,7 +55,7 @@ test('check facts preserve package-manager lifecycle output from a failed script
     );
     const attempt = check.attempts[0];
     assert.equal(attempt.status, 'failed');
-    assert.deepEqual(attempt.termination, { kind: 'exit', exitCode: 2 });
+    assert.deepEqual(attempt.termination, { kind: 'exit', exitCode: 2 }, JSON.stringify(attempt));
     assert.match(readFileSync(join(root, attempt.stdout.logPath!), 'utf8'), /script-out/);
     assert.match(readFileSync(join(root, attempt.stderr.logPath!), 'utf8'), /script-err/);
   } finally {

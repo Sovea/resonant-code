@@ -51,7 +51,9 @@ test('IO failure after execution reports possible check effects and preserves re
     } }), (error: unknown) => {
       assert.ok(error instanceof CliError);
       assert.equal(error.code, 'IO_ERROR');
-      assert.equal(error.issues?.at(-1)?.path, 'capture-after-checks');
+      // POSIX detects a non-directory parent while resolving the destination;
+      // Windows can defer that error until publication creates the directory.
+      assert.ok(['capture-after-checks', 'publish-observation'].includes(error.issues?.at(-1)?.path ?? ''));
       assert.match(formatCliError(error, false, false), /inspect|Inspect/);
       assert.match(JSON.stringify(error.issues), /may have executed/);
       return true;
