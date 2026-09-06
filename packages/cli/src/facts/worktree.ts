@@ -3,7 +3,6 @@ import {
   lstatSync,
   mkdtempSync,
   mkdirSync,
-  readFileSync,
   readlinkSync,
   realpathSync,
   rmSync,
@@ -11,10 +10,11 @@ import {
 import { tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 
+import { schemas } from '@sovea/stetra-core';
 import type {
   ChangedFileFact,
   FileContentFact,
-  WorktreeSummary,
+  WorktreeSnapshot,
 } from '@sovea/stetra-core';
 
 import { runBufferedCommand } from '../infrastructure/process.ts';
@@ -30,20 +30,8 @@ const GIT_OUTPUT_LIMIT = 256 * 1024 * 1024;
 const GITLINK_MODE = '160000';
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
-export interface WorktreeEntry {
-  path: string;
-  kind: 'file' | 'symlink' | 'gitlink';
-  contentDigest: string;
-  mode: string;
-}
-
-export interface WorktreeSnapshot {
-  source: 'git-worktree-tree';
-  head: string | null;
-  treeId: string;
-  entries: WorktreeEntry[];
-  fingerprint: string;
-}
+export type { WorktreeSnapshot } from '@sovea/stetra-core';
+type WorktreeEntry = WorktreeSnapshot['entries'][number];
 
 export interface CollectedWorktreeChange {
   current: WorktreeSnapshot;
@@ -75,63 +63,7 @@ export async function captureGitWorktree(
       options.alternateObjectDirectories,
     );
     const head = await readHead(projectRoot);
-    const treeId = await createWorktreeTree(projectRoot, head, objectEnv);
-    const [listed, staged] = await Promise.all([
-      runGitBuffer(projectRoot, [
-        'ls-files',
-        '-z',
-        '--cached',
-        '--others',
-        '--exclude-standard',
-      ]),
-      runGitBuffer(projectRoot, ['ls-files', '-z', '--stage']),
-    ]);
-    const indexEntries = parseIndexEntries(staged);
-    const paths = parseNullSeparatedPaths(listed)
-      .filter((path) => !isWorkflowOutput(path))
-      .sort((left, right) => left.localeCompare(right));
-    const entries: WorktreeEntry[] = [];
-    for (const path of paths) {
-      const indexEntry = indexEntries.get(path);
-      if (indexEntry?.mode === GITLINK_MODE) {
-        const objectId = await readGitlinkObjectId(
-          projectRoot,
-          path,
-          indexEntry.objectId,
-        );
-        entries.push({
-          path,
-          kind: 'gitlink',
-          contentDigest: sha256(objectId),
-          mode: GITLINK_MODE,
-        });
-        continue;
-      }
-      const absolutePath = resolve(projectRoot, path);
-      const stat = lstatSync(absolutePath, { throwIfNoEntry: false });
-      if (!stat) continue;
-      if (stat.isDirectory()) {
-        throw new Error(`Worktree collection encountered a non-Git-link directory at ${path}.`);
-      }
-      if (stat.isSymbolicLink()) {
-        entries.push({
-          path,
-          kind: 'symlink',
-          contentDigest: sha256(Buffer.from(readlinkSync(absolutePath))),
-          mode: '120000',
-        });
-        continue;
-      }
-      if (!stat.isFile()) {
-        throw new Error(`Worktree collection supports only files, symlinks, and Git links: ${path}.`);
-      }
-      entries.push({
-        path,
-        kind: 'file',
-        contentDigest: sha256(readFileSync(absolutePath)),
-        mode: stat.mode & 0o111 ? '100755' : '100644',
-      });
-    }
+    const { treeId, entries } = await createWorktreeTree(projectRoot, objectEnv);
     const projection = { head, treeId, entries };
     return {
       source: 'git-worktree-tree',
@@ -250,26 +182,10 @@ export function compareGitWorktrees(
   ].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-export function summarizeWorktree(snapshot: WorktreeSnapshot): WorktreeSummary {
-  assertWorktreeSnapshot(snapshot, 'worktree');
-  return {
-    head: snapshot.head,
-    fingerprint: snapshot.fingerprint,
-    entryCount: snapshot.entries.length,
-  };
-}
-
 export function assertWorktreeSnapshot(value: unknown, label: string): asserts value is WorktreeSnapshot {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`Invalid ${label} worktree snapshot; rerun prepare.`);
-  }
-  const snapshot = value as WorktreeSnapshot;
-  if (snapshot.source !== 'git-worktree-tree'
-    || (snapshot.head !== null && typeof snapshot.head !== 'string')
-    || !GIT_OBJECT_ID_PATTERN.test(snapshot.treeId)
-    || !Array.isArray(snapshot.entries)) {
-    throw new Error(`Invalid ${label} worktree snapshot; rerun prepare.`);
-  }
+  const parsed = schemas.worktreeSnapshot.safeParse(value);
+  if (!parsed.success) throw new Error(`Invalid ${label} worktree snapshot: ${parsed.error.message}`);
+  const snapshot = parsed.data;
   const ordered = [...snapshot.entries].sort((left, right) => left.path.localeCompare(right.path));
   if (JSON.stringify(ordered) !== JSON.stringify(snapshot.entries)
     || snapshot.fingerprint !== stableFingerprint({
@@ -277,42 +193,102 @@ export function assertWorktreeSnapshot(value: unknown, label: string): asserts v
       treeId: snapshot.treeId,
       entries: snapshot.entries,
     })) {
-    throw new Error(`Invalid ${label} worktree snapshot fingerprint; rerun prepare.`);
+    throw new Error(`Invalid ${label} worktree snapshot fingerprint; collect the task again.`);
   }
 }
 
 async function createWorktreeTree(
   projectRoot: string,
-  head: string | null,
   objectEnv: NodeJS.ProcessEnv,
-): Promise<string> {
+): Promise<{ treeId: string; entries: WorktreeEntry[] }> {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'stetra-index-'));
-  const indexPath = join(temporaryRoot, 'index');
-  const env = { ...objectEnv, GIT_INDEX_FILE: indexPath };
+  const env = { ...objectEnv, GIT_INDEX_FILE: join(temporaryRoot, 'index') };
   try {
-    await runGitBuffer(projectRoot, head ? ['read-tree', head] : ['read-tree', '--empty'], env);
-    await runGitBuffer(projectRoot, ['add', '-A', '--', '.'], env);
-    for (const path of [
-      ...WORKFLOW_OUTPUT_PREFIXES.map((prefix) => prefix.slice(0, -1)),
-      ...WORKFLOW_OUTPUT_FILES,
-    ]) {
-      await runGitBuffer(projectRoot, [
-        'rm',
-        '-r',
-        '--cached',
-        '--ignore-unmatch',
-        '--',
-        path,
-      ], env);
+    const [listed, staged] = await Promise.all([
+      runGitBuffer(projectRoot, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], repositoryGitEnvironment()),
+      runGitBuffer(projectRoot, ['ls-files', '-z', '--stage'], repositoryGitEnvironment()),
+    ]);
+    const indexEntries = parseIndexEntries(staged);
+    const captured: Array<{ path: string; mode: string; kind: WorktreeEntry['kind']; objectId: string }> = [];
+    const regular: Array<{ path: string; mode: string }> = [];
+    for (const path of parseNullSeparatedPaths(listed).filter((path) => !isWorkflowOutput(path)).sort()) {
+      const prior = indexEntries.get(path);
+      const absolute = resolve(projectRoot, path);
+      const stat = lstatSync(absolute, { throwIfNoEntry: false });
+      if (prior?.mode === GITLINK_MODE && (!stat || stat.isDirectory())) {
+        captured.push({ path, mode: GITLINK_MODE, kind: 'gitlink',
+          objectId: await readGitlinkObjectId(projectRoot, path, prior.objectId) });
+      } else if (stat?.isSymbolicLink()) {
+        const bytes = Buffer.from(readlinkSync(absolute));
+        const objectId = (await runGitBuffer(projectRoot, ['hash-object', '-w', '--no-filters', '--stdin'], env, bytes)).toString('ascii').trim();
+        captured.push({ path, mode: '120000', kind: 'symlink', objectId });
+      } else if (stat?.isFile()) {
+        regular.push({ path, mode: stat.mode & 0o111 ? '100755' : '100644' });
+      } else if (stat && !stat.isDirectory()) {
+        throw new Error('Unsupported worktree entry: ' + path);
+      }
     }
+    // Batch by argv bytes, an OS transport budget rather than a semantic classifier.
+    for (let offset = 0; offset < regular.length;) {
+      let end = offset, bytes = 0;
+      while (end < regular.length && (end === offset || bytes + Buffer.byteLength(resolve(projectRoot, regular[end].path)) < 16_384)) {
+        bytes += Buffer.byteLength(resolve(projectRoot, regular[end].path)) + 1; end++;
+      }
+      const batch = regular.slice(offset, end);
+      const ids = (await runGitBuffer(projectRoot, ['hash-object', '-w', '--no-filters', '--',
+        ...batch.map((item) => resolve(projectRoot, item.path))], env)).toString('ascii').trim().split('\n');
+      if (ids.length !== batch.length || ids.some((id) => !GIT_OBJECT_ID_PATTERN.test(id))) {
+        throw new Error('Git returned invalid raw blob identities.');
+      }
+      captured.push(...batch.map((item, index) => ({ ...item, kind: 'file' as const, objectId: ids[index] })));
+      offset = end;
+    }
+    captured.sort((left, right) => left.path.localeCompare(right.path));
+    const entries: WorktreeEntry[] = [];
+    for (let offset = 0; offset < captured.length; offset += 64) {
+      const batch = captured.slice(offset, offset + 64);
+      const ids = [...new Set(batch.filter((item) => item.kind !== 'gitlink').map((item) => item.objectId))];
+      const digests = ids.length ? await blobDigests(projectRoot, ids, env) : new Map<string, string>();
+      entries.push(...batch.map((item) => ({ path: item.path, kind: item.kind, mode: item.mode,
+        contentDigest: item.kind === 'gitlink' ? sha256(item.objectId) : digests.get(item.objectId)! })));
+    }
+    await runGitBuffer(projectRoot, ['read-tree', '--empty'], env);
+    if (captured.length) await runGitBuffer(projectRoot, ['update-index', '-z', '--index-info'], env,
+      Buffer.from(captured.map((item) => item.mode + ' ' + item.objectId + '\t' + item.path + '\0').join('')));
     const treeId = (await runGitBuffer(projectRoot, ['write-tree'], env)).toString('ascii').trim();
-    if (!GIT_OBJECT_ID_PATTERN.test(treeId)) {
-      throw new Error('Git returned an invalid worktree tree identity.');
-    }
-    return treeId;
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    if (!GIT_OBJECT_ID_PATTERN.test(treeId)) throw new Error('Git returned an invalid snapshot tree.');
+    return { treeId, entries };
+  } finally { rmSync(temporaryRoot, { recursive: true, force: true }); }
+}
+
+async function blobDigests(projectRoot: string, ids: string[], env: NodeJS.ProcessEnv): Promise<Map<string, string>> {
+  const output = await runGitBuffer(projectRoot, ['cat-file', '--batch'], env, ids.join('\n') + '\n');
+  const result = new Map<string, string>();
+  let offset = 0;
+  for (const expected of ids) {
+    const end = output.indexOf(10, offset);
+    const header = output.subarray(offset, end).toString('ascii').split(' ');
+    const size = Number(header[2]);
+    if (end < 0 || header[0] !== expected || header[1] !== 'blob' || !Number.isSafeInteger(size) || size < 0
+      || end + 1 + size >= output.length || output[end + 1 + size] !== 10) throw new Error('Invalid Git blob batch output.');
+    const bytes = output.subarray(end + 1, end + 1 + size);
+    result.set(expected, sha256(bytes)); offset = end + 2 + size;
   }
+  if (offset !== output.length) throw new Error('Unexpected trailing Git blob output.');
+  return result;
+}
+
+/** Immutable source read: no index creation, cache repair, filters, or repository edits. */
+export async function readSnapshotSource(projectRoot: string, snapshot: WorktreeSnapshot, objectDirectory: string, path: string): Promise<Buffer> {
+  schemas.repositoryPath.parse(path);
+  assertWorktreeSnapshot(snapshot, 'source');
+  const entry = snapshot.entries.find((item) => item.path === path);
+  if (!entry) throw new Error('Path is absent from the requested snapshot: ' + path);
+  if (entry.kind === 'gitlink') throw new Error('A Git link is an object reference, not a source blob.');
+  const env = await gitObjectEnvironment(projectRoot, objectDirectory, [], false);
+  const bytes = await runGitBuffer(projectRoot, ['cat-file', 'blob', snapshot.treeId + ':' + path], env);
+  if (sha256(bytes) !== entry.contentDigest) throw new Error('Snapshot source digest differs from its retained entry.');
+  return bytes;
 }
 
 function isWorkflowOutput(path: string): boolean {
@@ -372,9 +348,10 @@ async function gitObjectEnvironment(
   projectRoot: string,
   objectDirectoryInput: string,
   additionalAlternates: string[] = [],
+  create = true,
 ): Promise<NodeJS.ProcessEnv> {
   const objectDirectory = realpathOrResolved(objectDirectoryInput);
-  mkdirSync(objectDirectory, { recursive: true });
+  if (create) mkdirSync(objectDirectory, { recursive: true });
   const commonDirectoryValue = (await runGitBuffer(
     projectRoot,
     ['rev-parse', '--git-common-dir'],
@@ -390,6 +367,7 @@ async function gitObjectEnvironment(
   const inheritedAlternates = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
   return {
     ...process.env,
+    GIT_OPTIONAL_LOCKS: '0',
     GIT_OBJECT_DIRECTORY: objectDirectory,
     GIT_ALTERNATE_OBJECT_DIRECTORIES: [
       repositoryObjects,
@@ -460,6 +438,7 @@ async function runGitBuffer(
   projectRoot: string,
   args: string[],
   env?: NodeJS.ProcessEnv,
+  stdin?: Buffer | string,
 ): Promise<Buffer> {
   const result = await runBufferedCommand({
     file: 'git',
@@ -467,6 +446,7 @@ async function runGitBuffer(
     cwd: projectRoot,
     env,
     maxBuffer: GIT_OUTPUT_LIMIT,
+    stdin,
   });
   if (result.failed) {
     const stderr = result.stderr.toString('utf8').trim();

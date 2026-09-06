@@ -34,6 +34,7 @@ export async function runBufferedCommand(input: {
   env?: NodeJS.ProcessEnv;
   file: string;
   maxBuffer: number;
+  stdin?: Buffer | string;
 }): Promise<BufferedCommandResult> {
   const resolution = resolveExecutable(input.file, input.cwd);
   if (resolution.status === 'unavailable') {
@@ -49,9 +50,10 @@ export async function runBufferedCommand(input: {
     env: input.env,
     maxBuffer: input.maxBuffer,
     reject: false,
-    stdin: 'ignore',
+    stdin: input.stdin === undefined ? 'ignore' : 'pipe',
     stripFinalNewline: false,
   });
+  if (input.stdin !== undefined) subprocess.stdin?.end(input.stdin);
   let executionError: NodeJS.ErrnoException | undefined;
   subprocess.once('error', (error: NodeJS.ErrnoException) => {
     executionError = error;

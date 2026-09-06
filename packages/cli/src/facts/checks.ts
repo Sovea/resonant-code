@@ -218,7 +218,7 @@ async function runCheckStep(input: {
     stepId: step.stepId,
     role: step.role,
     ...(step.key ? { key: step.key } : {}),
-    argv: [...step.argv],
+    argv: [step.argv[0], ...step.argv.slice(1)],
     durationMs,
     timeoutMs: input.timeoutMs,
     status,

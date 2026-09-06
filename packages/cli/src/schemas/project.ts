@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 import {
-  DELEGATION_PROTOCOL,
-  DELEGATION_SCHEMA_VERSION,
+  PROTOCOL,
+  SCHEMA_VERSION,
 } from '../protocol.ts';
 
 export const HostAdapterSchema = z.enum(['codex', 'claude']);
@@ -14,8 +14,8 @@ export const ManifestArtifactSchema = z.strictObject({
 });
 
 export const ProjectManifestSchema = z.strictObject({
-  protocol: z.literal(DELEGATION_PROTOCOL),
-  schemaVersion: z.literal(DELEGATION_SCHEMA_VERSION),
+  protocol: z.literal(PROTOCOL),
+  schemaVersion: z.literal(SCHEMA_VERSION),
   adapters: z.array(HostAdapterSchema),
   artifacts: z.array(ManifestArtifactSchema),
 }).superRefine((manifest, context) => {

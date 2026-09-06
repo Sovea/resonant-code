@@ -13,27 +13,27 @@ import test from 'node:test';
 
 import { initializeProject, inspectProjectInstallation } from '../src/project/init.ts';
 
-test('init generates one compact embedded Host surface and schema 2 project configuration', () => {
+test('init generates one compact embedded Host surface and initial schema project configuration', () => {
   const root = mkdtempSync(join(tmpdir(), 'stetra-init-'));
   try {
     const initialized = initializeProject({ projectRoot: root, adapters: ['codex'] });
     assert.equal(initialized.status, 'initialized');
-    assert.equal(initialized.schemaVersion, '2');
+    assert.equal(initialized.schemaVersion, '1');
     const skillPath = join(root, '.agents', 'skills', 'stetra', 'SKILL.md');
     const skill = readFileSync(skillPath, 'utf8');
-    assert.match(skill, /normal conversation/);
+    assert.match(skill, /normal engineering loop and conversation/);
     assert.match(skill, /stetra task begin/);
     assert.match(skill, /stetra task\s+collect/);
-    assert.match(skill, /stetra task handoff/);
-    assert.match(skill, /adoption is pending/);
+    assert.match(skill, /stetra task report/);
+    assert.match(skill, /stetra adoption/);
     assert.doesNotMatch(skill, /hostAction|input reserve|task diagnose|revise-verification|Challenge command/);
-    assert.ok(Buffer.byteLength(skill) < 4_000);
+    assert.ok(Buffer.byteLength(skill) < 7_000);
     assert.equal(existsSync(join(root, '.agents', 'skills', 'stetra', 'references')), false);
 
     const config = JSON.parse(readFileSync(join(root, '.stetra', 'config.json'), 'utf8'));
     assert.deepEqual(config, {
       protocol: 'cognitive-adoption',
-      schemaVersion: '2',
+      schemaVersion: '1',
       admission: 'ask',
       defaultVerificationProfile: null,
       verificationProfiles: {},
@@ -44,9 +44,10 @@ test('init generates one compact embedded Host surface and schema 2 project conf
       },
     });
     const manifest = JSON.parse(readFileSync(join(root, '.stetra', 'manifest.json'), 'utf8'));
-    assert.equal(manifest.schemaVersion, '2');
+    assert.equal(manifest.schemaVersion, '1');
     assert.deepEqual(manifest.artifacts.map((item: { path: string }) => item.path), [
       '.agents/skills/stetra/SKILL.md',
+      '.codex/agents/stetra-analyzer.toml',
       '.codex/hooks.json',
       '.gitignore',
       'AGENTS.md',
@@ -103,7 +104,7 @@ test('generated Hooks coexist with unrelated project Hooks and agents', () => {
   }
 });
 
-test('dry-run writes nothing and schema 1 manifests fail without migration', () => {
+test('dry-run writes nothing and unsupported manifest versions fail', () => {
   const root = mkdtempSync(join(tmpdir(), 'stetra-init-schema-'));
   try {
     writeFileSync(join(root, 'AGENTS.md'), 'Owner instructions\n', 'utf8');
@@ -115,7 +116,7 @@ test('dry-run writes nothing and schema 1 manifests fail without migration', () 
     initializeProject({ projectRoot: root, adapters: ['claude'] });
     const manifestPath = join(root, '.stetra', 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, schemaVersion: '1' })}\n`, 'utf8');
+    writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, schemaVersion: 'unsupported' })}\n`, 'utf8');
     assert.throws(() => initializeProject({ projectRoot: root }), /UNSUPPORTED_SCHEMA_VERSION/);
   } finally {
     rmSync(root, { recursive: true, force: true });

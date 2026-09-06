@@ -50,7 +50,7 @@ export function registerInitCommand(
       ) {
         adapters = await environment.runtime.prompts.selectAdapters({
           choices: ['codex', 'claude'],
-          defaults: ['codex', 'claude'],
+          defaults: ['codex'],
           streams: {
             input: environment.runtime.input,
             output: environment.runtime.output,

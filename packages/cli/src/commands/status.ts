@@ -7,8 +7,8 @@ import { captureGitWorktree } from '../facts/worktree.ts';
 import { inspectProjectInstallation } from '../project/init.ts';
 import { readProjectConfig } from '../schemas/config.ts';
 import {
-  DELEGATION_PROTOCOL,
-  DELEGATION_SCHEMA_VERSION,
+  PROTOCOL,
+  SCHEMA_VERSION,
 } from '../protocol.ts';
 import type { CommandEnvironment } from './shared.ts';
 
@@ -59,8 +59,8 @@ export function registerStatusCommand(
       issues.push({ code: 'git-worktree-unsupported', message });
     }
     environment.emit('status', {
-      protocol: DELEGATION_PROTOCOL,
-      schemaVersion: DELEGATION_SCHEMA_VERSION,
+      protocol: PROTOCOL,
+      schemaVersion: SCHEMA_VERSION,
       status: issues.length ? 'needs-attention' : 'ready',
       command: 'status',
       version: productVersion,
@@ -76,8 +76,8 @@ export function registerStatusCommand(
       worktree,
       controlPlane: {
         kind: 'cli',
-        protocol: DELEGATION_PROTOCOL,
-        schemaVersion: DELEGATION_SCHEMA_VERSION,
+        protocol: PROTOCOL,
+        schemaVersion: SCHEMA_VERSION,
       },
       paths: {
         manifest: join(projectRoot, '.stetra', 'manifest.json'),

@@ -267,10 +267,10 @@ test('check facts separate preparation from assertion and capture declared ignor
 
 async function run(
   root: string,
-  argv: string[],
+  argv: [string, ...string[]],
   timeoutMs: number,
   key = 'check',
-  preparation: Array<{ key: string; argv: string[] }> = [],
+  preparation: Array<{ key: string; argv: [string, ...string[]] }> = [],
   executionInputs: VerificationDefinition['executionInputs'] = [],
 ) {
   const definition: VerificationDefinition = {

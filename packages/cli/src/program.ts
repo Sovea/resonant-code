@@ -71,7 +71,7 @@ contains ANSI formatting.`);
   registerInitCommand(program, environment);
   registerHostCommands(program, environment);
   registerStatusCommand(program, environment, PRODUCT_VERSION);
-  registerTaskCommands(program, environment, PRODUCT_VERSION);
+  registerTaskCommands(program, environment);
   return program;
 }
 

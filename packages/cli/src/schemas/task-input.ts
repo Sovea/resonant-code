@@ -1,53 +1,49 @@
-/** Public input discovery uses the same schemas as command validation. */
+/** Authoring discovery and generated examples use the actual Core validators. */
+import { schemas } from '@sovea/stetra-core';
 import { z } from 'zod';
-import { TaskBeginDocumentSchema, TaskDecisionDocumentSchema, TaskHandoffDocumentSchema } from './task.ts';
 
-export const taskInputSchemas = {
-  begin: TaskBeginDocumentSchema,
-  handoff: TaskHandoffDocumentSchema,
-  decide: TaskDecisionDocumentSchema,
+export type InputKind = keyof typeof schemas.commands;
+const interpretation = { desiredOutcome: 'Describe the requested observable outcome.', constraints: [], nonGoals: [] };
+const report = { behavior: 'Explain the actual changed behavior.', mechanism: ['Explain how the implementation produces it.'] };
+const existingAuthority = { kind: 'existing-authority' as const, basis: ['request'], rationale: 'Explain why existing direction permits this choice.' };
+export const inputCommandNames: Record<InputKind, string> = {
+  begin: 'task begin', amend: 'task amend', propose: 'decision propose', resolve: 'decision resolve',
+  'verification-revise': 'verification revise', collect: 'task collect', report: 'task report',
+  assess: 'assessment submit', prepare: 'adoption prepare', decide: 'adoption decide',
 };
-
 export const taskInputExamples = {
-  begin: {
-    humanEvent: { content: 'Implement the exact developer request.' },
-    interpretation: { desiredOutcome: 'Describe the observable outcome.', constraints: [], nonGoals: [] },
-    assurance: { mode: 'routine' },
-    verification: { mode: 'checks', checks: [{ key: 'test', argv: ['npm', 'test'] }] },
-  },
-  handoff: {
-    actualChange: {
-      behavior: 'Explain the actual changed behavior.',
-      mechanism: ['Explain how the implementation produces that behavior.'],
-    },
-    recommendation: { action: 'accept', rationale: 'Explain why the current evidence supports this advice.' },
-  },
-  decide: {
-    humanEvent: { content: 'The exact later developer decision.' },
-    action: 'accepted',
-    reason: 'Explain the decision expressed by that developer message.',
-  },
-} satisfies { [K in keyof typeof taskInputSchemas]: z.input<(typeof taskInputSchemas)[K]> };
+  begin: { humanEvent: { content: 'The exact admitted developer request.' }, interpretation,
+    verification: { mode: 'checks', checks: [{ key: 'test', argv: ['npm', 'test'] }] } },
+  amend: { kind: 'human-correction', humanEvent: { content: 'The exact developer correction.' }, interpretation },
+  propose: { key: 'storage', question: 'Describe the concrete engineering fork.', requiresHuman: false,
+    options: [{ key: 'local', description: 'Local persistence.', consequences: ['Available on this machine.'] },
+      { key: 'shared', description: 'Shared persistence.', consequences: ['Requires a shared service.'] }],
+    selection: { option: 'local', authority: existingAuthority } },
+  resolve: { decisionKey: 'storage', proposalId: 'runtime-proposal-id', option: 'local',
+    authority: { kind: 'human', humanEvent: { content: 'The exact Human choice of the presented option.' } } },
+  'verification-revise': { verification: { mode: 'checks', checks: [{ key: 'test', argv: ['npm', 'test'] }] }, authority: existingAuthority },
+  collect: {}, report: { report },
+  assess: { kind: 'assessment', requestId: 'runtime-request-id', context: 'separate-context',
+    summary: 'Explain the assessed implementation.', claims: [{ key: 'behavior', before: 'Prior behavior.', after: 'Current behavior.',
+      mechanism: 'Explain the concrete mechanism.', evidence: [{ kind: 'source', snapshot: 'current', path: 'src/main.ts' }] }],
+    relations: [{ claimKey: 'behavior', basis: { kind: 'request' }, explanation: 'Explain the relation to the developer direction.' }], findings: [] },
+  prepare: { recommendation: { action: 'accept-with-limitations', rationale: 'Explain the final advice and any disclosed limitations.' } },
+  decide: { packageId: 'runtime-package-id', humanEvent: { content: 'The exact later Human adoption response.' },
+    action: 'accepted', reason: 'Explain the decision expressed by that message.', acknowledge: [] },
+} satisfies { [K in InputKind]: z.input<(typeof schemas.commands)[K]> };
 
-export function taskInputExample(stage: keyof typeof taskInputSchemas): string {
-  const example = taskInputExamples[stage];
-  taskInputSchemas[stage].parse(example);
-  return JSON.stringify(example, null, 2);
+export function taskInputExample(kind: InputKind): string {
+  schemas.commands[kind].parse(taskInputExamples[kind]);
+  return JSON.stringify(taskInputExamples[kind], null, 2);
 }
-
-export function describeTaskInput(stage: keyof typeof taskInputSchemas) {
-  return {
-    status: 'input-schema',
-    stage,
-    inputSchema: z.toJSONSchema(taskInputSchemas[stage], { io: 'input' }),
-    example: JSON.parse(taskInputExample(stage)) as unknown,
+export function describeTaskInput(kind: InputKind) {
+  return { status: 'input-schema', command: inputCommandNames[kind],
+    inputSchema: z.toJSONSchema(schemas.commands[kind], { io: 'input' }),
+    example: JSON.parse(taskInputExample(kind)) as unknown,
     guidance: [
-      'Examples illustrate input shape. Author the actual task semantics and repository-specific checks.',
-      'Runtime additionally validates current task state, evidence references, and structural evidence ceilings.',
-      ...(stage === 'handoff' ? [
-        'Routine tasks omit concernFindings. Consequential findings reference only concern keys declared at Begin.',
-      ] : []),
-      'Human text is relayed exactly as unattested input. A decision requires a new developer message.',
-    ],
-  };
+      'Examples illustrate structure. Use the actual request, repository-specific checks, and current Runtime references.',
+      'Runtime additionally validates reference identity, current bindings, ordering, and evidence constraints.',
+      'Relayed Human text is exact but unattested. Adoption needs a later Human response to the presented Package.',
+      'Use stdin or a file outside the observed project. Never author canonical task artifacts.',
+    ] };
 }

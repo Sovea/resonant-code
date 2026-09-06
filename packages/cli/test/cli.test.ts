@@ -9,9 +9,9 @@ import test from 'node:test';
 import { runCli } from '../src/cli.ts';
 import { CliError } from '../src/errors.ts';
 
-test('CLI exposes the compact task surface and removes schema 1 commands', async () => {
+test('CLI exposes the compact task surface and rejects unrecognized commands', async () => {
   const help = await runCli([]);
-  assert.match(String(help.output), /task\s+Manage one admitted coding change/);
+  assert.match(String(help.output), /task\s+Manage one admitted coding task/);
   assert.match(String(help.output), /host\s+Bridge a native Host lifecycle event/);
   assert.doesNotMatch(String(help.output), /\n  (?:change|input)(?: |\n)/);
   await assert.rejects(() => runCli(['change']), (error: unknown) => {
@@ -43,7 +43,7 @@ test('CLI reads compact task semantics from stdin and reports deterministic JSON
     assert.match((begin.output as { taskId: string }).taskId, /^[a-f0-9-]{36}$/);
 
     const status = await runCli(['--json', 'status', root]);
-    assert.equal((status.output as { schemaVersion: string }).schemaVersion, '2');
+    assert.equal((status.output as { schemaVersion: string }).schemaVersion, '1');
     assert.equal((status.output as { status: string }).status, 'ready');
   } finally {
     rmSync(root, { recursive: true, force: true });

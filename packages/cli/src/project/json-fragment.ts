@@ -11,7 +11,7 @@ import type { HostAdapter } from '../adapters/definition.ts';
 import { isStetraHookGroup, type HostHookFragment } from '../adapters/hooks.ts';
 import { inputError } from '../errors.ts';
 
-const EVENTS = ['SessionStart', 'Stop'] as const;
+const EVENTS = ['SessionStart', 'SubagentStart', 'SubagentStop', 'Stop'] as const;
 
 export function extractHostHookFragment(
   source: string,

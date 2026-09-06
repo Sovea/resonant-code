@@ -10,7 +10,7 @@ import { parseArtifact } from '../validation.ts';
 import type { CommandEnvironment } from './shared.ts';
 
 const HostAdapterSchema = z.enum(['codex', 'claude']);
-const HostHookEventSchema = z.enum(['session-start', 'stop']);
+const HostHookEventSchema = z.enum(['session-start', 'subagent-start', 'subagent-stop', 'stop']);
 const MAX_HOOK_INPUT_BYTES = 1024 * 1024;
 
 export function registerHostCommands(program: Command, environment: CommandEnvironment): void {
@@ -18,7 +18,7 @@ export function registerHostCommands(program: Command, environment: CommandEnvir
     .description('Bridge a native Host lifecycle event to the embedded Stetra task layer')
     .command('hook')
     .requiredOption('--adapter <host>', 'codex or claude')
-    .requiredOption('--event <event>', 'session-start or stop')
+    .requiredOption('--event <event>', 'session-start, subagent-start, subagent-stop, or stop')
     .action(async (options: { adapter: string; event: string }, source: Command) => {
       const adapter: HostAdapter = parseArtifact(HostAdapterSchema, options.adapter, 'Host adapter');
       const event: HostHookEvent = parseArtifact(HostHookEventSchema, options.event, 'Host Hook event');

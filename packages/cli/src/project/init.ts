@@ -16,14 +16,15 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   renderHostPointerBlock,
   renderHostSkill,
+  renderAnalyzerProfile,
   type HostAdapter,
 } from '../adapters/templates.ts';
 import { hostAdapterDefinitions } from '../adapters/definition.ts';
 import { renderHostHookFragment, type HostHookFragment } from '../adapters/hooks.ts';
 import { inputError } from '../errors.ts';
 import {
-  DELEGATION_PROTOCOL,
-  DELEGATION_SCHEMA_VERSION,
+  PROTOCOL,
+  SCHEMA_VERSION,
 } from '../protocol.ts';
 import {
   HostAdapterSchema,
@@ -84,7 +85,7 @@ export function initializeProject(options: InitializeProjectOptions = {}) {
     ? normalizeAdapters(options.adapters)
     : existingManifest
       ? []
-      : (['codex', 'claude'] satisfies HostAdapter[]);
+      : (['codex'] satisfies HostAdapter[]);
   const adapters = normalizeAdapters([
     ...(existingManifest?.adapters ?? []),
     ...requestedAdapters,
@@ -129,8 +130,8 @@ export function initializeProject(options: InitializeProjectOptions = {}) {
   const counts = countActions(plan);
   return {
     status: blocked.length ? 'blocked' : options.dryRun ? 'planned' : 'initialized',
-    protocol: DELEGATION_PROTOCOL,
-    schemaVersion: DELEGATION_SCHEMA_VERSION,
+    protocol: PROTOCOL,
+    schemaVersion: SCHEMA_VERSION,
     projectRoot,
     manifestPath: join(projectRoot, MANIFEST_PATH),
     adapters,
@@ -152,8 +153,8 @@ export function inspectProjectInstallation(projectRootInput = '.') {
   if (!manifest) {
     return {
       status: 'absent',
-      protocol: DELEGATION_PROTOCOL,
-      schemaVersion: DELEGATION_SCHEMA_VERSION,
+      protocol: PROTOCOL,
+      schemaVersion: SCHEMA_VERSION,
       projectRoot,
       manifestPath: join(projectRoot, MANIFEST_PATH),
       adapters: [],
@@ -211,8 +212,8 @@ export function inspectProjectInstallation(projectRootInput = '.') {
   const drifted = artifacts.some((artifact) => artifact.status !== 'current');
   return {
     status: drifted ? 'drifted' : 'current',
-    protocol: DELEGATION_PROTOCOL,
-    schemaVersion: DELEGATION_SCHEMA_VERSION,
+    protocol: PROTOCOL,
+    schemaVersion: SCHEMA_VERSION,
     projectRoot,
     manifestPath: join(projectRoot, MANIFEST_PATH),
     adapters: manifest.adapters,
@@ -239,6 +240,7 @@ function buildDesiredArtifacts(adapters: HostAdapter[]): DesiredArtifact[] {
     const adapter = definition.id;
     const skillRoot = definition.skillRoot;
     const hookFragment = renderHostHookFragment(adapter);
+    artifacts.push({ path: definition.analyzerPath, kind: 'file', content: renderAnalyzerProfile(adapter) });
     artifacts.push({
       path: definition.hookConfigurationPath,
       kind: 'json-fragment',
@@ -380,8 +382,8 @@ function buildManifest(
   artifacts: DesiredArtifact[],
 ): ProjectManifest {
   return {
-    protocol: DELEGATION_PROTOCOL,
-    schemaVersion: DELEGATION_SCHEMA_VERSION,
+    protocol: PROTOCOL,
+    schemaVersion: SCHEMA_VERSION,
     adapters,
     artifacts: artifacts.map((artifact) => ({
       path: artifact.path,
@@ -406,11 +408,11 @@ function readManifest(projectRoot: string): ProjectManifest | null {
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || !('protocol' in value)
-    || value.protocol !== DELEGATION_PROTOCOL
+    || value.protocol !== PROTOCOL
     || !('schemaVersion' in value)
-    || value.schemaVersion !== DELEGATION_SCHEMA_VERSION) {
+    || value.schemaVersion !== SCHEMA_VERSION) {
     throw new Error(
-      `UNSUPPORTED_SCHEMA_VERSION: ${MANIFEST_PATH} must use ${DELEGATION_SCHEMA_VERSION}.`,
+      `UNSUPPORTED_SCHEMA_VERSION: ${MANIFEST_PATH} must use ${SCHEMA_VERSION}.`,
     );
   }
   const manifest = parseArtifact(
@@ -504,7 +506,7 @@ function indexesOf(source: string, needle: string): number[] {
 }
 
 function normalizeAdapters(adapters: HostAdapter[] | undefined): HostAdapter[] {
-  const input: HostAdapter[] = adapters?.length ? adapters : ['codex', 'claude'];
+  const input: HostAdapter[] = adapters?.length ? adapters : ['codex'];
   for (const adapter of input) {
     if (!HostAdapterSchema.safeParse(adapter).success) {
       throw new Error(`Unsupported adapter: ${String(adapter)}. Expected codex or claude.`);
@@ -586,7 +588,14 @@ function canonicalGeneratedContent(value: string): string {
 }
 
 function canonicalJsonFragment(value: HostHookFragment): string {
-  return `${JSON.stringify(value)}\n`;
+  return `${JSON.stringify(canonicalJson(value))}\n`;
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([key, entry]) => [key, canonicalJson(entry)]));
 }
 
 function extractJsonFragmentContent(

@@ -2,7 +2,7 @@
 import type { HostAdapter } from './definition.ts';
 
 export interface HostHookFragment {
-  hooks: Record<'SessionStart' | 'Stop', Array<Record<string, unknown>>>;
+  hooks: Record<'SessionStart' | 'SubagentStart' | 'SubagentStop' | 'Stop', Array<Record<string, unknown>>>;
 }
 
 export function renderHostHookFragment(adapter: HostAdapter): HostHookFragment {
@@ -10,6 +10,10 @@ export function renderHostHookFragment(adapter: HostAdapter): HostHookFragment {
   const stopCommand = `stetra host hook --adapter ${adapter} --event stop --json`;
   return {
     hooks: {
+      SubagentStart: [{ matcher: 'stetra-analyzer', hooks: [{ type: 'command',
+        command: `stetra host hook --adapter ${adapter} --event subagent-start --json`, timeout: 10 }] }],
+      SubagentStop: [{ matcher: 'stetra-analyzer', hooks: [{ type: 'command',
+        command: `stetra host hook --adapter ${adapter} --event subagent-stop --json`, timeout: 10 }] }],
       SessionStart: [{
         matcher: adapter === 'codex'
           ? 'startup|resume|clear|compact'

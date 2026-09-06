@@ -1,300 +1,154 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { beginTask } from '../src/workflow/begin.ts';
+import { collectTask } from '../src/workflow/collect.ts';
+import { reportTask } from '../src/workflow/report.ts';
+import { decideAdoption, prepareAdoption } from '../src/workflow/adoption.ts';
+import { submitAssessment } from '../src/workflow/assessment.ts';
+import { authorTask } from '../src/workflow/author.ts';
+import { inspectTask } from '../src/workflow/inspect.ts';
+import { loadTask } from '../src/workflow/task-store.ts';
+import { artifact, artifacts } from '../src/workflow/common.ts';
+import { assessmentInput, beginInput, configure, prepare, reportInput, repository } from './fixtures/task.ts';
 
-import { initializeProject } from '../src/project/init.ts';
-import type { TaskBeginDocument, TaskDecisionDocument, TaskHandoffDocument } from '../src/schemas/task.ts';
-import {
-  beginTask,
-  collectTask,
-  decideTask,
-  handoffTask,
-  inspectTask,
-} from '../src/workflow/task.ts';
-
-test('routine task follows Begin, collection reuse, Handoff, and exact Human adoption', async () => {
-  const root = repository('stetra-task-routine-');
+test('routine task preserves exact direction, observed checks, separate analysis, and later adoption', async () => {
+  const root = repository();
   try {
-    const began = await beginTask({ projectRoot: root, source: beginInput(), productVersion: '0.0.1' });
-    assert.equal(began.status, 'task-begun');
-    assert.equal(began.phase, 'working');
-    writeFileSync(join(root, 'app.txt'), 'new\n', 'utf8');
-
-    const collected = await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    assert.equal(collected.status, 'facts-collected');
-    assert.equal(collected.phase, 'awaiting-handoff');
-    assert.deepEqual(collected.summary.changedFiles.map((file) => file.path), ['app.txt']);
-    assert.deepEqual(collected.summary.checks.map((check) => [check.key, check.status]), [['content', 'passed']]);
-    const reused = await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    assert.equal(reused.status, 'facts-current');
-    assert.equal(reused.reused, true);
-
-    const handedOff = await handoffTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      source: handoffInput('accept'),
-    });
-    assert.equal(handedOff.status, 'handoff-ready');
-    assert.equal(handedOff.phase, 'awaiting-decision');
-    if (!('decisionBrief' in handedOff) || !handedOff.decisionBrief) assert.fail('missing Decision Brief');
-    assert.deepEqual(handedOff.decisionBrief.attention, []);
-    assert.equal(handedOff.decisionBrief.decisionState.adoption.status, 'pending');
-    assert.equal(handedOff.decisionBrief.changeMeaning.humanRequest.content, 'Change app.txt from old to new.');
-    assert.equal(handedOff.decisionBrief.changeMeaning.humanRequest.capture, 'unattested-input');
-
-    const decided = await decideTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      source: decisionInput('accepted', 'I accept this implementation.'),
-    });
-    assert.equal(decided.phase, 'complete');
-    assert.equal(decided.decision.status, 'accepted');
-
-    const summary = await inspectTask({ projectRoot: root, taskId: began.taskId, section: 'summary' });
-    if (!('summary' in summary)) assert.fail('missing summary');
-    assert.equal(summary.summary.humanDecision, 'accepted');
-    assert.equal(summary.summary.collectionCount, 1);
-    const events = await inspectTask({ projectRoot: root, taskId: began.taskId, section: 'events' });
-    if (!('events' in events)) assert.fail('missing events');
-    assert.deepEqual(events.events.map((event) => event.type), [
-      'task-began',
-      'facts-collected',
-      'handoff-authored',
-      'human-decision-recorded',
-    ]);
-    assert.deepEqual(events.events.map((event) => event.sequence), [1, 2, 3, 4]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    const began = await beginTask({ projectRoot: root, source: beginInput(true) });
+    const input = { projectRoot: root, taskId: began.taskId };
+    assert.equal(began.phase, 'work');
+    assert.equal(artifacts(loadTask(root, began.taskId).state, 'human-event')[0].content, beginInput().humanEvent.content);
+    writeFileSync(join(root, 'app.txt'), 'new\n');
+    const observed = await collectTask(input);
+    assert.equal(observed.summary.observations!.checks[0].status, 'passed');
+    assert.deepEqual(observed.summary.observations!.changedFiles.map((f) => f.path), ['app.txt']);
+    assert.equal((await collectTask(input)).status, 'observations-reused');
+    const packet = await prepare(input);
+    assert.equal(packet.adoptionBrief!.current, true);
+    assert.equal(packet.adoptionBrief!.humanChoice, 'pending');
+    assert.deepEqual(packet.adoptionBrief!.attention.map((a) => a.code), ['analysis-relayed']);
+    await assert.rejects(() => decideAdoption({ ...input, source: { packageId: packet.current.packageId!,
+      action: 'accepted', humanEvent: { content: 'Accept.' }, reason: 'Reviewed.' } }), /acknowledg/i);
+    const result = await decideAdoption({ ...input, source: { packageId: packet.current.packageId!,
+      action: 'accepted', humanEvent: { content: 'Accept, including the relayed analysis limitation.' }, reason: 'Reviewed.',
+      acknowledge: packet.adoptionBrief!.attention.map((a) => a.id) } });
+    assert.equal(result.phase, 'complete');
+    assert.deepEqual(loadTask(root, began.taskId).events.map((e) => e.event.type), ['begin', 'collect', 'report', 'assess', 'prepare', 'decide']);
+    await assert.rejects(() => collectTask(input), /closed/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('failed Check stays in ordinary Work and a correction starts a new attempt', async () => {
-  const root = repository('stetra-task-repair-');
+test('failed check is inspectable, repair preserves prior observation, and correction keeps the original baseline', async () => {
+  const root = repository();
   try {
-    const began = await beginTask({ projectRoot: root, source: beginInput(), productVersion: '0.0.1' });
-    writeFileSync(join(root, 'app.txt'), 'wrong\n', 'utf8');
-    const failed = await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    assert.equal(failed.phase, 'working');
-    assert.equal(failed.summary.checks[0].status, 'failed');
-    assert.equal(failed.directive.kind, 'continue-work');
-    const check = await inspectTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      section: 'check',
-      checkKey: 'content',
-    });
-    if (!('selectedAttempt' in check)) assert.fail('missing Check detail');
-    assert.equal(check.selectedAttempt.status, 'failed');
-    const log = await inspectTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      section: 'log',
-      checkKey: 'content',
-      stream: 'stderr',
-      tailBytes: 64,
-    });
-    if (!('log' in log)) assert.fail('missing log detail');
-    assert.match(log.log.content, /expected new/);
-
-    writeFileSync(join(root, 'app.txt'), 'new\n', 'utf8');
-    const repaired = await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    assert.equal(repaired.phase, 'awaiting-handoff');
-    assert.equal(repaired.summary.checks[0].status, 'passed');
-    assert.equal(repaired.summary.changedFiles.length, 1);
-
-    await handoffTask({ projectRoot: root, taskId: began.taskId, source: handoffInput('accept') });
-    const correction = await decideTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      source: decisionInput('correction-requested', 'Also preserve a trailing marker.'),
-    });
-    assert.equal(correction.phase, 'working');
-    assert.equal(correction.directive.kind, 'work');
-    const afterCorrection = await inspectTask({ projectRoot: root, taskId: began.taskId, section: 'summary' });
-    if (!('summary' in afterCorrection)) assert.fail('missing summary');
-    assert.equal(afterCorrection.summary.attemptNumber, 2);
-    assert.equal(afterCorrection.summary.collectionCount, 2);
-
-    writeFileSync(join(root, 'app.txt'), 'new marker\n', 'utf8');
-    const secondAttempt = await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    assert.equal(secondAttempt.phase, 'working');
-    assert.equal(secondAttempt.summary.checks[0].status, 'failed');
-    assert.equal(secondAttempt.summary.changedFiles[0].path, 'app.txt');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    const began = await beginTask({ projectRoot: root, source: beginInput(true) });
+    const input = { projectRoot: root, taskId: began.taskId };
+    const original = loadTask(root, began.taskId).state.baselineId;
+    writeFileSync(join(root, 'app.txt'), 'wrong\n');
+    const failed = await collectTask(input);
+    assert.equal(failed.summary.observations!.checks[0].status, 'failed');
+    const log = await inspectTask({ ...input, section: 'log', checkKey: 'content', stream: 'stderr', maxBytes: 64 });
+    assert.ok('log' in log); assert.match(log.log!.content, /expected new/);
+    writeFileSync(join(root, 'app.txt'), 'new\n');
+    await collectTask(input);
+    const prior = await inspectTask({ ...input, section: 'check', checkKey: 'content', observationId: failed.current.observationId });
+    assert.ok('selectedAttempt' in prior); assert.equal(prior.selectedAttempt!.status, 'failed');
+    const packet = await prepare(input);
+    const correction = await decideAdoption({ ...input, source: { packageId: packet.current.packageId!, action: 'correction-requested',
+      humanEvent: { content: 'Also preserve the trailing marker.' }, reason: 'Clarify the requirement.',
+      correction: { desiredOutcome: 'New text with marker.', constraints: ['Keep the file name.'], nonGoals: [] } } });
+    const state = loadTask(root, began.taskId).state;
+    assert.equal(state.attemptNumber, 2); assert.equal(state.baselineId, original);
+    assert.equal(artifacts(state, 'observation').length, 2);
+    assert.equal(correction.directive.kind, 'report');
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('editing after collection makes facts stale without writing a Handoff', async () => {
-  const root = repository('stetra-task-stale-');
+test('edits invalidate report and acceptance; historical source and patch stay frozen and bounded', async () => {
+  const root = repository();
   try {
-    const began = await beginTask({ projectRoot: root, source: beginInput(), productVersion: '0.0.1' });
-    writeFileSync(join(root, 'app.txt'), 'new\n', 'utf8');
-    await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    writeFileSync(join(root, 'extra.txt'), 'late edit\n', 'utf8');
-    const stale = await handoffTask({ projectRoot: root, taskId: began.taskId, source: handoffInput('accept') });
-    assert.equal(stale.status, 'facts-stale');
-    assert.equal(stale.stateWritten, false);
-    const events = await inspectTask({ projectRoot: root, taskId: began.taskId, section: 'events' });
-    if (!('events' in events)) assert.fail('missing events');
-    assert.deepEqual(events.events.map((event) => event.type), ['task-began', 'facts-collected']);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    const began = await beginTask({ projectRoot: root, source: beginInput() });
+    const input = { projectRoot: root, taskId: began.taskId };
+    writeFileSync(join(root, 'app.txt'), 'new\n'); await collectTask(input);
+    const packet = await prepare(input);
+    writeFileSync(join(root, 'app.txt'), 'later\n');
+    const frozen = await inspectTask({ ...input, section: 'source', requestId: packet.current.requestId, snapshot: 'current', path: 'app.txt', maxBytes: 2 });
+    assert.ok('content' in frozen); assert.equal(frozen.content, 'ne'); assert.equal(frozen.nextOffset, 2);
+    const baseline = await inspectTask({ ...input, section: 'source', requestId: packet.current.requestId, snapshot: 'baseline', path: 'app.txt' });
+    assert.ok('content' in baseline); assert.equal(baseline.content, 'old\n');
+    const patch = await inspectTask({ ...input, section: 'patch', maxBytes: 8 });
+    assert.ok('patch' in patch); assert.equal(patch.patch!.returnedBytes, 8);
+    const readOnly = await inspectTask({ ...input, section: 'adoption' });
+    assert.ok('adoptionBrief' in readOnly); assert.equal(readOnly.adoptionBrief!.current, false);
+    assert.equal(readOnly.adoptionBrief!.factsCurrency, 'unobserved');
+    const live = await inspectTask({ ...input, section: 'adoption', live: true });
+    assert.ok('adoptionBrief' in live); assert.equal(live.adoptionBrief!.factsCurrency, 'stale');
+    const revision = loadTask(root, began.taskId).state.revision;
+    await assert.rejects(() => reportTask({ ...input, source: reportInput() }), /current|stale/i);
+    await assert.rejects(() => decideAdoption({ ...input, source: { packageId: packet.current.packageId!, action: 'accepted',
+      humanEvent: { content: 'Accept.' }, reason: 'Reviewed.', acknowledge: packet.adoptionBrief!.attention.map((a) => a.id) } }), /current|stale/i);
+    assert.equal(loadTask(root, began.taskId).state.revision, revision);
+    await assert.rejects(() => inspectTask({ ...input, section: 'source', requestId: packet.current.requestId, snapshot: 'current', path: '../outside' }));
+    await assert.rejects(() => inspectTask({ ...input, section: 'source', requestId: packet.current.requestId, snapshot: 'current', path: 'app.txt', maxBytes: 65537 }));
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('routine no-command task has no synthetic verification obligation', async () => {
-  const root = repository('stetra-task-no-command-');
+test('timeout retry preserves both attempts and cannot change non-timeout checks or exceed its bound', async () => {
+  const root = repository();
   try {
-    const source: TaskBeginDocument = {
-      ...beginInput(),
-      verification: { mode: 'no-command', rationale: 'This fixture checks a prose-only edit.' },
-    };
-    const began = await beginTask({ projectRoot: root, source, productVersion: '0.0.1' });
-    writeFileSync(join(root, 'notes.md'), 'A clearer note.\n', 'utf8');
-    const collected = await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    assert.equal(collected.phase, 'awaiting-handoff');
-    assert.deepEqual(collected.summary.checks, []);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    configure(root, (config) => { config.executionPolicy = { checkTimeoutMs: 25, maxTimeoutMs: 2000, maxTimeoutRetriesPerCheck: 1 }; });
+    const source = beginInput();
+    source.verification = { mode: 'checks', checks: [{ key: 'slow', argv: [process.execPath, '-e', 'setTimeout(()=>process.exit(0),120)'] }] };
+    const began = await beginTask({ projectRoot: root, source }), input = { projectRoot: root, taskId: began.taskId };
+    const first = await collectTask(input);
+    assert.equal(first.summary.observations!.checks[0].termination.kind, 'timeout');
+    await assert.rejects(() => collectTask({ ...input, retryTimeout: { checkKey: 'slow', timeoutMs: 25 } }), /larger bounded/);
+    await assert.rejects(() => collectTask({ ...input, retryTimeout: { checkKey: 'slow', timeoutMs: 2001 } }), /larger bounded/);
+    await assert.rejects(() => collectTask({ ...input, refreshReason: 'Try again.' }), /non-timeout/);
+    const retried = await collectTask({ ...input, retryTimeout: { checkKey: 'slow', timeoutMs: 1800 } });
+    assert.equal(retried.summary.observations!.checks[0].status, 'passed');
+    const check = await inspectTask({ ...input, section: 'check', checkKey: 'slow' });
+    assert.ok('selectedAttempt' in check); assert.deepEqual(check.check!.attempts.map((a) => a.termination.kind), ['timeout', 'exit']);
+    await assert.rejects(() => collectTask({ ...input, retryTimeout: { checkKey: 'slow', timeoutMs: 1900 } }), /actual timeout/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('an actual timeout can be retried once with a larger bounded budget without losing its first Attempt', async () => {
-  const root = repository('stetra-task-timeout-');
+test('in-work decisions and intent changes invalidate semantics without replacing useful collected facts', async () => {
+  const root = repository();
   try {
-    const configPath = join(root, '.stetra', 'config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    config.executionPolicy = {
-      checkTimeoutMs: 30,
-      maxTimeoutMs: 500,
-      maxTimeoutRetriesPerCheck: 1,
-    };
-    config.verificationProfiles.timeout = {
-      checks: [{
-        key: 'slow',
-        argv: [process.execPath, '-e', 'setTimeout(() => process.exit(0), 120)'],
-      }],
-    };
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-    const source: TaskBeginDocument = {
-      ...beginInput(),
-      verification: { mode: 'profile', name: 'timeout' },
-    };
-    const began = await beginTask({ projectRoot: root, source, productVersion: '0.0.1' });
-    const timedOut = await collectTask({ projectRoot: root, taskId: began.taskId, productVersion: '0.0.1' });
-    assert.equal(timedOut.phase, 'working');
-    assert.equal(timedOut.summary.checks[0].termination.kind, 'timeout');
-    assert.equal(timedOut.retryableTimeouts?.[0].checkKey, 'slow');
-    await assert.rejects(() => collectTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      productVersion: '0.0.1',
-      retryTimeout: { checkKey: 'slow', timeoutMs: 30 },
-    }), /must exceed 30 ms/);
-    const retried = await collectTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      productVersion: '0.0.1',
-      retryTimeout: { checkKey: 'slow', timeoutMs: 300 },
-    });
-    assert.equal(retried.phase, 'awaiting-handoff');
-    assert.equal(retried.summary.checks[0].status, 'passed');
-    assert.equal(retried.summary.checks[0].attemptCount, 2);
-    const collections = await inspectTask({ projectRoot: root, taskId: began.taskId, section: 'collections' });
-    if (!('collections' in collections)) assert.fail('missing collections');
-    assert.equal(collections.collections.length, 2);
-    const detail = await inspectTask({
-      projectRoot: root,
-      taskId: began.taskId,
-      section: 'collection',
-      collectionId: collections.collections[1].factCollectionId,
-    });
-    if (!('collection' in detail)) assert.fail('missing collection detail');
-    assert.deepEqual(
-      detail.collection.checks[0].attempts.map((attempt) => attempt.termination.kind),
-      ['timeout', 'exit'],
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    const began = await beginTask({ projectRoot: root, source: beginInput() }), input = { projectRoot: root, taskId: began.taskId };
+    writeFileSync(join(root, 'app.txt'), 'new\n'); await collectTask(input);
+    const first = await reportTask({ ...input, source: reportInput() });
+    authorTask({ ...input, command: { type: 'propose', input: {
+      key: 'format', question: 'How should the literal be stored?', proposedOption: 'plain', requiresHuman: false,
+      options: [{ key: 'plain', description: 'Plain text', consequences: ['Existing readers remain valid.'] },
+        { key: 'json', description: 'JSON string', consequences: ['Readers require a parser.'] }],
+      selection: { option: 'plain', authority: { kind: 'existing-authority', basis: ['request'], rationale: 'The requested literal replacement is authorized.' } },
+    } } });
+    submitAssessment({ ...input, source: assessmentInput(first.current.requestId!) });
+    const state = loadTask(root, began.taskId).state;
+    assert.equal(state.assessmentId, undefined); assert.equal(artifacts(state, 'assessment')[0].currentAtSubmission, false);
+    assert.equal(state.observationId, first.current.observationId);
+    authorTask({ ...input, command: { type: 'amend', input: { kind: 'interpretation',
+      interpretation: { desiredOutcome: 'The literal replacement preserves the reader format.', constraints: [], nonGoals: [] }, reason: 'Clarified the existing request.' } } });
+    const next = await reportTask({ ...input, source: reportInput() });
+    assert.notEqual(next.current.requestId, first.current.requestId);
+    const analysis = await inspectTask({ ...input, section: 'analysis', requestId: first.current.requestId });
+    assert.ok('analysis' in analysis); assert.deepEqual(analysis.analysis.decisions, []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-function repository(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix));
-  git(root, ['init', '--quiet']);
-  git(root, ['config', 'user.name', 'Stetra Test']);
-  git(root, ['config', 'user.email', 'stetra@example.test']);
-  writeFileSync(join(root, 'app.txt'), 'old\n', 'utf8');
-  writeFileSync(join(root, 'notes.md'), 'An old note.\n', 'utf8');
-  initializeProject({ projectRoot: root, adapters: ['codex'] });
-  const configPath = join(root, '.stetra', 'config.json');
-  const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  config.defaultVerificationProfile = 'default';
-  config.verificationProfiles.default = {
-    checks: [{
-      key: 'content',
-      argv: [
-        process.execPath,
-        '-e',
-        "const fs=require('node:fs');if(fs.readFileSync('app.txt','utf8')!=='new\\n'){process.stderr.write('expected new\\n');process.exit(1)}",
-      ],
-      executionInputs: [{ kind: 'file', path: 'app.txt' }],
-    }],
-  };
-  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-  git(root, ['add', '-A']);
-  git(root, ['commit', '--quiet', '-m', 'initial']);
-  return root;
-}
-
-function git(root: string, args: string[]): void {
-  execFileSync('git', ['-C', root, ...args], { stdio: 'pipe' });
-}
-
-function beginInput(): TaskBeginDocument {
-  return {
-    humanEvent: { content: 'Change app.txt from old to new.' },
-    interpretation: {
-      desiredOutcome: 'app.txt contains the new value.',
-      constraints: ['Keep the file name.'],
-      nonGoals: [],
-    },
-    assurance: { mode: 'routine' },
-    verification: { mode: 'profile', name: 'default' },
-  };
-}
-
-function handoffInput(action: 'accept' | 'defer'): TaskHandoffDocument {
-  return {
-    actualChange: {
-      behavior: 'app.txt now contains the requested value.',
-      mechanism: ['The single text value was replaced.'],
-      preservedInvariants: ['The path remains app.txt.'],
-    },
-    reviewFocus: [{
-      question: 'Does app.txt contain exactly the intended value?',
-      adoptionImpact: 'This is the requested behavior.',
-      nextAction: 'Inspect app.txt.',
-      evidence: [{ kind: 'changed-file', path: 'app.txt' }, { kind: 'check', checkKey: 'content' }],
-    }],
-    recommendation: {
-      action,
-      rationale: action === 'accept' ? 'The frozen content Check passes.' : 'More review is needed.',
-    },
-  };
-}
-
-function decisionInput(
-  action: TaskDecisionDocument['action'],
-  content: string,
-): TaskDecisionDocument {
-  return {
-    humanEvent: { content },
-    action,
-    reason: content,
-  };
-}
+test('unavailable analysis is an explicit adoption limitation and never becomes a clean assessment', async () => {
+  const root = repository();
+  try {
+    const began = await beginTask({ projectRoot: root, source: beginInput() }), input = { projectRoot: root, taskId: began.taskId };
+    await collectTask(input); const report = await reportTask({ ...input, source: reportInput() });
+    submitAssessment({ ...input, source: { kind: 'unavailable', requestId: report.current.requestId!, reason: 'Host does not expose a separate analysis context.' } });
+    await assert.rejects(() => prepareAdoption({ ...input, source: { recommendation: { action: 'accept', rationale: 'No findings.' } } }), /accept|Attention|attention/i);
+    const packet = await prepareAdoption({ ...input, source: { recommendation: { action: 'defer', rationale: 'Analysis is unavailable.' } } });
+    assert.ok(packet.adoptionBrief!.attention.some((a) => a.code === 'analysis-unavailable'));
+    assert.deepEqual(packet.summary.pendingDecisions, []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
+import { schemas } from '@sovea/stetra-core';
 
-export const DELEGATION_PROTOCOL = 'cognitive-adoption' as const;
-export const DELEGATION_SCHEMA_VERSION = '2' as const;
+export const PROTOCOL = schemas.protocol;
+export const SCHEMA_VERSION = schemas.schemaVersion;
 
 export function sha256(value: string | Buffer): string {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -16,7 +17,7 @@ function canonicalize(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
     Object.keys(value as Record<string, unknown>)
-      .sort((left, right) => left.localeCompare(right))
+      .sort()
       .map((key) => [
         key,
         canonicalize((value as Record<string, unknown>)[key]),

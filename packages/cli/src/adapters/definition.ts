@@ -9,6 +9,7 @@ export interface HostAdapterDefinition {
   skillRoot: string;
   pointerDocument: 'AGENTS.md' | 'CLAUDE.md';
   hookConfigurationPath: string;
+  analyzerPath: string;
 }
 
 const DEFINITIONS: Record<HostAdapter, HostAdapterDefinition> = {
@@ -18,6 +19,7 @@ const DEFINITIONS: Record<HostAdapter, HostAdapterDefinition> = {
     skillRoot: '.agents/skills/stetra',
     pointerDocument: 'AGENTS.md',
     hookConfigurationPath: '.codex/hooks.json',
+    analyzerPath: '.codex/agents/stetra-analyzer.toml',
   },
   claude: {
     id: 'claude',
@@ -25,6 +27,7 @@ const DEFINITIONS: Record<HostAdapter, HostAdapterDefinition> = {
     skillRoot: '.claude/skills/stetra',
     pointerDocument: 'CLAUDE.md',
     hookConfigurationPath: '.claude/settings.json',
+    analyzerPath: '.claude/agents/stetra-analyzer.md',
   },
 };
 

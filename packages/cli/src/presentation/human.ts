@@ -1,5 +1,4 @@
 import type { Colors } from 'picocolors/types';
-
 import { formatInit, formatReadiness } from './human/setup.ts';
 import { heading, isRecord, statusLine } from './human/shared.ts';
 
@@ -8,179 +7,108 @@ export function formatHumanResult(command: string, output: unknown, colors: Colo
   if (output.status === 'input-schema') return JSON.stringify(output, null, 2);
   if (command === 'init') return formatInit(output, colors);
   if (command === 'status') return formatReadiness(output, colors);
-  if (command.startsWith('task ')) return formatTask(output, colors);
-  return statusLine(String(output.status ?? 'ok'), colors);
-}
-
-function formatTask(output: Record<string, unknown>, colors: Colors): string {
-  const lines = [
-    heading('Stetra managed change', colors),
-    statusLine(String(output.status ?? 'unknown'), colors),
-  ];
-  if (typeof output.taskId === 'string') lines.push(`${colors.bold('Task:')} ${output.taskId}`);
-  if (typeof output.phase === 'string') lines.push(`${colors.bold('Phase:')} ${output.phase}`);
-  if (typeof output.factsCurrency === 'string') lines.push(`Facts: ${output.factsCurrency}`);
-  if (!isRecord(output.decisionBrief) && Array.isArray(output.corrections)) {
-    for (const correction of output.corrections) {
-      if (isRecord(correction)) lines.push(`Human correction (unattested input): ${String(correction.content)}`);
+  const lines = [heading('Stetra managed change', colors), statusLine(String(output.status ?? 'ok'), colors)];
+  if (isRecord(output.adoptionBrief)) appendAdoption(lines, output.adoptionBrief, colors);
+  else {
+    if (typeof output.taskId === 'string') lines.push(`Task: ${output.taskId}`);
+    if (typeof output.phase === 'string') lines.push(`Phase: ${output.phase}; facts: ${String(output.factsCurrency)}`);
+    if (isRecord(output.summary)) {
+      lines.push(`Outcome: ${String(output.summary.intendedOutcome)}`);
+      if (isRecord(output.summary.observations)) appendObservations(lines, output.summary.observations);
     }
   }
-  if (isRecord(output.summary)) appendSummary(lines, output.summary, colors);
-  if (isRecord(output.decisionBrief)) appendDecisionBrief(lines, output.decisionBrief, colors);
-  if (isRecord(output.directive)) {
-    lines.push('', `${colors.bold('Next:')} ${String(output.directive.kind ?? '')}`);
-    if (typeof output.directive.message === 'string') lines.push(output.directive.message);
+  // Explicit inspection must expose its selected detail in text mode as well as JSON.
+  for (const [key, value] of Object.entries(output)) {
+    if (['intent', 'humanEvents', 'decisions', 'baseline', 'verification', 'observations', 'observation', 'report',
+      'analysis', 'assessments', 'events', 'records', 'patch', 'check', 'definition', 'selectedAttempt', 'log'].includes(key)) {
+      lines.push('', colors.bold(key), JSON.stringify(value, null, 2));
+    }
   }
+  if (typeof output.content === 'string') lines.push(`Source (${String(output.encoding)}, ${String(output.returnedBytes)}/${String(output.totalBytes)} bytes):`, output.content);
+  if (isRecord(output.directive)) lines.push('', `Next: ${String(output.directive.kind)}. ${String(output.directive.message)}`);
   return lines.join('\n');
 }
 
-function appendSummary(lines: string[], summary: Record<string, unknown>, colors: Colors): void {
-  if (isRecord(summary.facts)) appendSummary(lines, summary.facts, colors);
-  if (typeof summary.intendedOutcome === 'string') {
-    lines.push(`${colors.bold('Outcome:')} ${summary.intendedOutcome}`);
-  }
-  if (Array.isArray(summary.changedFiles)) {
-    lines.push(`${colors.bold('Changed files:')} ${summary.changedFiles.length}`);
-  }
-  if (Array.isArray(summary.checks)) {
-    lines.push(`${colors.bold('Checks:')} ${summary.checks.length}`);
-    for (const check of summary.checks) {
-      if (isRecord(check)) {
-        lines.push(`${colors.cyan('•')} ${JSON.stringify(check.argv ?? [])} — ${String(check.status ?? 'unknown')}`);
-      }
-    }
-  }
-}
-
-function appendDecisionBrief(
-  lines: string[],
-  brief: Record<string, unknown>,
-  colors: Colors,
-): void {
-  if (isRecord(brief.decisionState)) {
-    lines.push(
-      '',
-      colors.bold('Decision state'),
-      `Delivery: ${String(brief.decisionState.delivery ?? 'unknown')}`,
-      `Evidence: ${String(brief.decisionState.evidence ?? 'unknown')}`,
-      `Agent recommendation: ${String(brief.decisionState.recommendation ?? 'unknown')}`,
-      `Human adoption: ${isRecord(brief.decisionState.adoption)
-        ? String(brief.decisionState.adoption.status ?? 'pending') : 'pending'}`,
-    );
-  }
-  if (isRecord(brief.changeMeaning)) {
-    lines.push('', colors.bold('Actual change'));
-    if (isRecord(brief.changeMeaning.humanRequest)
-      && typeof brief.changeMeaning.humanRequest.content === 'string') {
-      lines.push(`Human request (unattested input): ${brief.changeMeaning.humanRequest.content}`);
-    }
-    if (Array.isArray(brief.changeMeaning.humanCorrections)) {
-      for (const correction of brief.changeMeaning.humanCorrections) {
-        if (isRecord(correction)) lines.push(`Human correction (unattested input): ${String(correction.content)}`);
-      }
-    }
-    if (typeof brief.changeMeaning.intendedOutcome === 'string') {
-      lines.push(`Intended: ${brief.changeMeaning.intendedOutcome}`);
-    }
-    for (const [field, label] of [['constraints', 'Constraint'], ['nonGoals', 'Non-goal']]) {
-      const values = brief.changeMeaning[field];
-      if (Array.isArray(values)) for (const value of values) lines.push(`${label}: ${String(value)}`);
-    }
-    if (isRecord(brief.changeMeaning.actualChange)) {
-      lines.push(`Behavior: ${String(brief.changeMeaning.actualChange.behavior ?? '')}`);
-      for (const mechanism of Array.isArray(brief.changeMeaning.actualChange.mechanism)
-        ? brief.changeMeaning.actualChange.mechanism : []) {
-        lines.push(`${colors.cyan('•')} Mechanism: ${String(mechanism)}`);
-      }
-      for (const [field, label] of [
-        ['preservedInvariants', 'Invariant'], ['failureAndRecovery', 'Failure and recovery'],
-        ['importantEffects', 'Effect'], ['materialTradeoffs', 'Tradeoff'],
-      ]) {
-        const values = brief.changeMeaning.actualChange[field];
-        if (Array.isArray(values)) for (const value of values) lines.push(`${label}: ${String(value)}`);
-      }
-    }
-  }
-  if (isRecord(brief.runtimeEvidence)) {
-    lines.push('', colors.bold('Runtime verification'));
-    if (Array.isArray(brief.runtimeEvidence.changedFiles)) {
-      for (const file of brief.runtimeEvidence.changedFiles) {
-        if (isRecord(file)) lines.push(`${String(file.operation)}: ${String(file.path)}`);
-      }
-    }
-    if (Array.isArray(brief.runtimeEvidence.checks)) {
-      for (const check of brief.runtimeEvidence.checks) {
-        if (isRecord(check)) lines.push(`${String(check.key)}: ${JSON.stringify(check.argv)} — ${String(check.status)}`);
-      }
-    }
-    if (isRecord(brief.runtimeEvidence.verificationBoundary)) {
-      const boundary = brief.runtimeEvidence.verificationBoundary;
-      if (boundary.mode === 'no-command') lines.push(`No command: ${String(boundary.rationale)}`);
-      if (boundary.mode === 'checks') lines.push('Checks were run after implementation. Semantic support remains Agent judgment.');
-      lines.push('Verifier-change detection covers declared selectors only.');
-      if (Array.isArray(boundary.verifierSelectors)) {
-        if (!boundary.verifierSelectors.length) lines.push('Verifier selectors: none declared.');
-        for (const selector of boundary.verifierSelectors) {
-          if (isRecord(selector)) lines.push(`Verifier selector (${String(selector.checkKey)}): ${String(selector.path)} — ${String(selector.role)}`);
-        }
-      }
-    }
-    if (isRecord(brief.runtimeEvidence.refresh)) {
-      lines.push(`Recheck reason (Agent judgment): ${String(brief.runtimeEvidence.refresh.reason)}`);
-    }
-  }
+function appendAdoption(lines: string[], brief: Record<string, unknown>, colors: Colors): void {
   if (isRecord(brief.recommendation)) {
-    lines.push('', `${colors.bold('Recommendation:')} ${String(brief.recommendation.action ?? '')}`);
-    if (typeof brief.recommendation.rationale === 'string') lines.push(brief.recommendation.rationale);
-    if (Array.isArray(brief.recommendation.caveats)) {
-      for (const caveat of brief.recommendation.caveats) lines.push(`Caveat: ${String(caveat)}`);
+    lines.push(`${colors.bold('Agent recommendation:')} ${String(brief.recommendation.action)}`, String(brief.recommendation.rationale));
+    strings(lines, brief.recommendation.caveats, 'Caveat');
+  }
+  lines.push(`Human adoption: ${String(brief.humanChoice)}`, `Package: ${String(brief.packageId)}`,
+    `Current: ${String(brief.current)}; fact currency: ${String(brief.factsCurrency)}`);
+  if (isRecord(brief.direction)) lines.push(`Intended outcome: ${String(brief.direction.desiredOutcome)}`);
+  if (isRecord(brief.actualBehavior)) {
+    lines.push('', colors.bold('Implementer explanation'), String(brief.actualBehavior.behavior));
+    dimensions(lines, brief.actualBehavior);
+    evidence(lines, brief.actualBehavior.evidence);
+  }
+  if (Array.isArray(brief.decisions)) for (const decision of brief.decisions) {
+    if (!isRecord(decision) || !isRecord(decision.proposal) || !isRecord(decision.proposal.input)) continue;
+    const proposal = decision.proposal.input;
+    lines.push(`Decision: ${String(proposal.question)}`);
+    if (isRecord(decision.resolution)) lines.push(`Selected: ${String(decision.resolution.option)}; authority: ${String(decision.resolution.actor)} (${JSON.stringify(decision.resolution.authorityEventIds)})`, String(decision.resolution.rationale));
+    else lines.push('Resolution pending.', JSON.stringify(proposal.options));
+  }
+  if (isRecord(brief.observations)) {
+    lines.push('', colors.bold('Runtime observations')); appendObservations(lines, brief.observations);
+  }
+  if (isRecord(brief.assessment)) {
+    const assessment = brief.assessment;
+    lines.push('', colors.bold('Analyzer judgment'), `Provenance: ${JSON.stringify(assessment.origin)}`);
+    if (assessment.kind === 'unavailable') lines.push(`Analysis unavailable: ${String(assessment.reason)}`);
+    else {
+      lines.push(String(assessment.summary), `Context: ${String(assessment.context)}`);
+      if (Array.isArray(assessment.claims)) for (const claim of assessment.claims) {
+        if (!isRecord(claim)) continue;
+        lines.push(`Before: ${String(claim.before)}`, `After: ${String(claim.after)}`); dimensions(lines, claim); evidence(lines, claim.evidence);
+      }
+      if (Array.isArray(assessment.relations)) for (const relation of assessment.relations) {
+        if (isRecord(relation)) lines.push(`Relation (${String(relation.claimKey)}): ${String(relation.explanation)}; basis ${JSON.stringify(relation.basis)}`);
+      }
+      if (Array.isArray(assessment.findings)) for (const finding of assessment.findings) appendFinding(lines, finding);
+      if (Array.isArray(assessment.dispositions)) for (const disposition of assessment.dispositions) {
+        if (isRecord(disposition)) lines.push(`Finding disposition: ${String(disposition.outcome)} — ${String(disposition.rationale)}`, `Source: ${JSON.stringify(disposition.finding)}`);
+      }
+      strings(lines, assessment.unknowns, 'Unknown'); strings(lines, assessment.reviewFocus, 'Review focus');
     }
+  }
+  if (Array.isArray(brief.responses)) for (const response of brief.responses) {
+    if (isRecord(response)) { lines.push(`Implementer response: ${String(response.response)}`, `Finding: ${JSON.stringify(response.finding)}`); evidence(lines, response.evidence); }
+  }
+  if (Array.isArray(brief.openFindings)) for (const item of brief.openFindings) {
+    if (isRecord(item)) { lines.push(`Unresolved source: ${JSON.stringify(item.reference)}`); appendFinding(lines, item.finding); }
   }
   if (Array.isArray(brief.attention) && brief.attention.length) {
-    lines.push('', colors.bold('Attention'));
-    for (const item of brief.attention) {
-      if (isRecord(item)) {
-        lines.push(`${colors.yellow('•')} ${String(item.message ?? item.code ?? '')}`);
-        appendEvidence(lines, item.evidence);
-      }
-    }
+    lines.push('', colors.bold('Attention requiring explicit acknowledgment for acceptance'));
+    for (const item of brief.attention) if (isRecord(item)) lines.push(String(item.message), `Attention ID: ${String(item.id)}`);
   }
-  if (Array.isArray(brief.concerns)) {
-    for (const concern of brief.concerns) {
-      if (!isRecord(concern)) continue;
-      lines.push(`Concern (Agent judgment): ${String(concern.statement)} — ${String(concern.status)}`,
-        String(concern.summary), `Adoption impact: ${String(concern.adoptionImpact)}`);
-      if (Array.isArray(concern.gaps)) for (const gap of concern.gaps) lines.push(`Gap: ${String(gap)}`);
-      appendEvidence(lines, concern.evidence);
-    }
-  }
-  if (Array.isArray(brief.unknowns)) {
-    for (const unknown of brief.unknowns) {
-      if (!isRecord(unknown)) continue;
-      lines.push(`Unknown (Agent judgment): ${String(unknown.statement)}`);
-      if (typeof unknown.nextAction === 'string') lines.push(`Next: ${unknown.nextAction}`);
-      appendEvidence(lines, unknown.evidence);
-    }
-  }
-  if (Array.isArray(brief.reviewFocus) && brief.reviewFocus.length) {
-    lines.push('', colors.bold('Review focus'));
-    for (const item of brief.reviewFocus) {
-      if (isRecord(item)) {
-        lines.push(`${colors.cyan('•')} ${String(item.question ?? '')}`,
-          `Adoption impact: ${String(item.adoptionImpact)}`, `Review: ${String(item.nextAction)}`);
-        appendEvidence(lines, item.evidence);
-      }
-    }
-  }
-  if (isRecord(brief.decisionState) && isRecord(brief.decisionState.adoption)
-    && brief.decisionState.adoption.status === 'pending') {
-    lines.push('', 'Human adoption is pending: accept, request correction, reject, or defer.');
-  }
+  if (Array.isArray(brief.concernFindings)) for (const finding of brief.concernFindings) lines.push(`Concern judgment: ${JSON.stringify(finding)}`);
+  if (brief.humanChoice === 'pending') lines.push('', 'Human choice: accept, request correction, reject, or defer.');
 }
-
-function appendEvidence(lines: string[], evidence: unknown): void {
-  if (!Array.isArray(evidence)) return;
-  for (const item of evidence) {
-    if (isRecord(item)) lines.push(`Evidence: ${String(item.path ?? item.checkKey ?? item.kind)}`);
+function appendObservations(lines: string[], observation: Record<string, unknown>): void {
+  if (Array.isArray(observation.changedFiles)) for (const file of observation.changedFiles) {
+    if (isRecord(file)) lines.push(`${String(file.operation)}: ${String(file.path)} (${String(file.representation)})`);
   }
+  if (Array.isArray(observation.checks)) for (const check of observation.checks) {
+    if (isRecord(check)) lines.push(`Check ${String(check.key)}: ${JSON.stringify(check.argv)} — ${String(check.status)} (attempt ${String(check.attempt)})`);
+  }
+  if (isRecord(observation.verification) && observation.verification.mode === 'no-command') lines.push(`No command: ${String(observation.verification.rationale)}`);
+  if (isRecord(observation.refresh)) lines.push(`Refresh reason (Agent judgment): ${String(observation.refresh.reason)}`);
+  lines.push('Check results establish observed outcomes; verifier mutation coverage uses declared selectors only.');
+}
+function dimensions(lines: string[], item: Record<string, unknown>): void {
+  for (const key of ['mechanism', 'ownership', 'invariants', 'failureAndRecovery', 'effects', 'tradeoffs', 'unknowns']) strings(lines, item[key], key);
+}
+function strings(lines: string[], value: unknown, label: string): void {
+  if (typeof value === 'string') lines.push(`${label}: ${value}`);
+  if (Array.isArray(value)) for (const entry of value) lines.push(`${label}: ${typeof entry === 'string' ? entry : JSON.stringify(entry)}`);
+}
+function appendFinding(lines: string[], finding: unknown): void {
+  if (!isRecord(finding)) return;
+  lines.push(`Finding (${String(finding.kind)}): ${String(finding.statement)}`, `Consequence: ${String(finding.consequence)}`);
+  if (finding.nextAction) lines.push(`Review: ${String(finding.nextAction)}`);
+  evidence(lines, finding.evidence);
+}
+function evidence(lines: string[], value: unknown): void {
+  if (Array.isArray(value)) for (const item of value) lines.push(`Evidence: ${JSON.stringify(item)}`);
 }
