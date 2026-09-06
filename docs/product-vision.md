@@ -44,10 +44,10 @@ It does not replace their conversation, planning, execution, tools, or
 subagents.
 
 The product owner has chosen to proceed with this direction without a
-prerequisite experiment. [Architecture](architecture.md) defines the target.
-[Change workflow](change-workflow.md) describes the current schema `2`
-implementation, which does not yet implement runtime Decisions, separate
-semantic Assessments, or Reconciliation.
+prerequisite experiment. [Architecture](architecture.md) defines the domain.
+[Change workflow](change-workflow.md) describes the schema `1` implementation
+of runtime Decisions, separate semantic Assessments, and Reconciliation.
+Implementation and deterministic tests do not establish product effectiveness.
 
 ## Primary job
 

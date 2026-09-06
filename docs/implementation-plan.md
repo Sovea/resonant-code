@@ -1,8 +1,11 @@
 # Decision-aware runtime implementation plan
 
-Status: approved implementation specification; implementation is underway.
-The executable implementation still uses `cognitive-adoption` schema `2`.
-Commands, files, and APIs described as new below are not implemented yet.
+Status: approved implementation specification, implemented with initial
+`cognitive-adoption` schema `1` and paired package version `0.0.1`.
+Use [Change workflow](change-workflow.md) for the executable reference and
+verification limits. Core, CLI, generated adapters, and package checks are
+implemented. The complete native Codex session acceptance item remains
+unverified; native event fixtures do not establish that live session.
 
 This plan implements [Architecture](architecture.md) directly, with Codex as
 the first Host. It requires engineering verification, not a preliminary
@@ -10,8 +13,7 @@ prototype, paired effectiveness experiment, or another product-direction
 decision. Claude Code is a second adapter that can ship in the same effort;
 its completion does not gate the Codex release.
 
-The source baseline is local commit `49700bc`, including the current schema `2`
-task workflow. The earlier shared discussion examined an older implementation.
+The source baseline was local commit `49700bc`. The earlier shared discussion examined an older implementation.
 Do not recreate or remove obsolete modules merely because that discussion
 mentioned them. Current behavior is documented in
 [Change workflow](change-workflow.md).
@@ -267,10 +269,10 @@ Unchanged surrounding files can also be read from the full captured snapshot.
 The Analyzer can reconstruct old behavior without treating the current file as
 the baseline or asking the implementer to supply the old code.
 
-Current `loadTask` repairs `task.json` during a read. Refactor loading so the
-Analyzer's frozen inspection path performs no writes, cache repair, collection,
-or check execution. Projection repair belongs to a writable Runtime operation;
-a missing cache can be reconstructed in memory for a read.
+The replaced `loadTask` repaired its cache during a read. The Analyzer's frozen
+inspection path now performs no writes, cache repair, collection, or check
+execution. The current implementation reconstructs its projection in memory
+from the immutable journal and has no cache consumer requiring another write.
 
 ### Assessment structure
 
@@ -382,11 +384,11 @@ event, replacing `events.jsonl` in the new schema to avoid a torn appended line.
 
 ```text
 .stetra/tasks/<taskId>/
-  events/00000001.json        # committed ordering and artifact references
-  artifacts/<artifactId>.json # typed immutable domain records
-  logs/<attemptId>/...        # non-empty bounded Check streams
+  events/000000000001.json    # committed ordering and artifact references
+  artifacts/<idDigest>.json   # typed immutable domain records
+  collections/<operationId>/  # patch and non-empty bounded Check streams
   worktree-objects/           # captured Git snapshot objects
-  task.json                  # rebuildable projection cache
+                             # projection is replayed in memory; no cache write
 
 .stetra/staging/              # owned incomplete Runtime publication
 .stetra/host-sessions/        # opaque bindings and bounded continuation markers
@@ -394,7 +396,7 @@ event, replacing `events.jsonl` in the new schema to avoid a torn appended line.
 
 One mutation performs: acquire task lock and check expected revision; validate
 the proposed transition; publish immutable artifacts; atomically publish the
-next event as the commit point; update the projection cache. Use file/directory
+next event as the commit point; rebuild the in-memory projection. Use file/directory
 flushes where supported for the claimed durability level. Begin publishes its
 staged directory only after compilation and baseline capture succeed.
 

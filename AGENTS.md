@@ -21,8 +21,8 @@ explicitly separate.
 The product owner has adopted the Decision-aware redesign and chosen to proceed
 without prerequisite experiments. Implement that direction directly. Product
 effectiveness studies do not gate design or implementation; engineering
-verification and honest claims remain required. The current executable schema
-`2` is the implementation baseline, not the limit of the target architecture.
+verification and honest claims remain required. The executable protocol uses
+initial schema `1` and paired package version `0.0.1`.
 
 ## Product kernel
 
@@ -90,7 +90,7 @@ relabelled as one another. Runtime validates references and structural ceilings;
 it does not decide natural-language truth. A Human exception cannot erase a
 contradictory fact, and green checks cannot become adoption.
 
-## Target workflow
+## Workflow
 
 Preserve Intent and the baseline, implement through the Host, resolve necessary
 Decisions and accept Human corrections during work, collect Observations,
@@ -101,24 +101,23 @@ Existing authorization stays effective. Important autonomous choices need not
 interrupt the developer. Pending Human choices block only dependent work within
 the Host's actual enforcement capabilities. Semantic analysis runs through the
 Host; Core and CLI do not call an LLM or orchestrate another Agent loop.
-Codex is the first target Host and reference integration. Claude Code may be
-implemented alongside it as a second Host; Codex delivery does not depend on
-Claude Code support or feature parity. Portable fallbacks disclose same-context
+Codex is the default Host and reference adapter. Claude Code has a separate
+adapter with read tools only for its Analyzer. Portable fallbacks disclose same-context
 or unavailable analysis without inventing isolation guarantees.
 
-## Current schema 2 workflow
+## Runtime task path
 
 The routine task path is:
 
 ```text
-task begin -> Agent implementation -> task collect -> task handoff
--> Human decision
+task begin -> Agent implementation -> task collect -> task report
+-> Host analysis -> assessment submit -> adoption prepare -> adoption decide
 ```
 
 The Agent may call `task inspect` on demand. Failed checks return ordinary
 engineering evidence and the Agent repairs through its normal Host loop. An
 edit after collection makes facts stale. A correction request creates a
-successor Attempt while preserving prior facts, Handoff, and decision.
+successor Attempt while preserving prior facts, reports, Assessments, and decisions.
 
 The primary Agent surface must remain small. Do not reintroduce `hostAction`,
 owned Draft/Guide transport, full canonical protocol authoring, mandatory
@@ -129,7 +128,7 @@ before an unfinished task stops. Repeated unchanged state becomes a warning and
 permits stop. Hooks do not create authority or task state, and the portable
 workflow remains usable without them.
 
-## Current schema 2 Begin and collect
+## Begin and collect
 
 Begin receives one exact Human Event, a compact Agent interpretation, explicit
 routine or consequential assurance, and exact Check argv, a named project
@@ -151,12 +150,16 @@ reason is Agent judgment; prior collections and Attempts remain inspectable.
 Direct Host execution is Agent evidence and never replaces a Runtime Check
 Attempt.
 
-## Current schema 2 Handoff and decision
+## Assessment and adoption
 
-Handoff is authored only from current collected facts. Routine Handoff requires
-actual behavior, mechanism, and recommendation; invariants, failure/recovery,
-effects, tradeoffs, unknowns, and review focus are optional and included only
-when material.
+Reports are authored from current collected facts and freeze an Analysis Request.
+The Host Analyzer submits a separate Assessment bound to that request. Changes
+to Intent, Decisions, verification, observations, or report invalidate the
+corresponding current delivery. Late results remain historical. Findings survive
+omission and implementer claims of repair; only explicit later Assessment
+dispositions resolve them. Final recommendation belongs to Adoption preparation.
+Include ownership, invariants, failure/recovery, effects, tradeoffs, unknowns,
+and review focus when material.
 
 Runtime adds mechanical Attention for non-passing checks, changed verifier
 surfaces, check-induced or unrepresentable changes, stale facts, unknowns, and
@@ -176,8 +179,8 @@ Generated Host Adapter -> CLI Runtime -> Core
 
 - `packages/core/` publishes `@sovea/stetra-core`.
 - `packages/cli/` publishes `@sovea/stetra`.
-- Current Core exposes exactly `compileDelegation` and `evaluateHandoff` as
-  runtime values. These exports may change with the adopted target kernel.
+- Core exposes exactly `schemas`, `planTransition`, `reduceTaskEvent`, and
+  `evaluateAdoption` as runtime values.
 - Core does not read repositories, execute commands, format CLI output, know
   Host files, or call an LLM.
 - CLI owns IO validation, sequencing, Git/Check collection, storage,
@@ -189,15 +192,15 @@ schema `1`. Do not add legacy compatibility, format recognition, migration,
 aliases, translators, or dual read/write paths.
 
 Task state lives only under `.stetra/tasks/<taskId>/`. Persist admitted Human
-requests and explicit corrections or decisions, compiled Contract and baseline,
-non-duplicate Fact Collections, Check Attempts and non-empty logs, Handoffs, and
-Human Decisions. Do not persist Agent transcripts, ordinary Hook events,
+requests and explicit corrections or decisions, Intent and baseline,
+non-duplicate Observations, Check Attempts and non-empty logs, reports, Analysis
+Requests, Assessments, Adoption Packages, and Human Decisions. Do not persist Agent transcripts, ordinary Hook events,
 Drafts, Guides, or data without an alignment, recovery, review, or adoption
 consumer.
 
-The target extends task-scoped persistence to Intent revisions, Decision
-proposals and resolutions, separately attributed Assessments, finding
-dispositions, and Adoption records. Preserve history and invalidate current
+Use an immutable typed-event journal and replay its projection without writes.
+Operational session bindings and continuation markers live under
+`.stetra/host-sessions/`; they never create task authority. Preserve history and invalidate current
 delivery projections when their Intent, Decisions, Observations, or analysis
 inputs change. Do not create cross-task memory.
 

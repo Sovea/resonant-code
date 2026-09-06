@@ -37,86 +37,52 @@ try {
   assert.equal(existsSync(join(installedCore, 'assets')), false);
 
   const core = await import(pathToFileURL(join(installedCore, 'dist', 'index.mjs')).href);
-  assert.deepEqual(Object.keys(core).sort(), ['compileDelegation', 'evaluateHandoff']);
-  const compiled = core.compileDelegation({
-    protocol: 'cognitive-adoption',
-    schemaVersion: '2',
-    humanEvent: { content: 'Deliver an inspectable change.' },
-    interpretation: {
-      desiredOutcome: 'Expose the schema 2 Core workflow.',
-      constraints: [],
-      nonGoals: [],
-    },
-    assurance: { mode: 'routine' },
-    verification: { mode: 'no-command', rationale: 'The isolated fixture has no command surface.' },
-    executionPolicy: {
-      checkTimeoutMs: 300_000,
-      maxTimeoutMs: 900_000,
-      maxTimeoutRetriesPerCheck: 1,
-    },
-  });
-  assert.equal(compiled.status, 'delegation-compiled');
-  const contract = compiled.contract;
-  const changedFile = {
-    id: 'file:example',
-    path: 'example.ts',
-    operation: 'modified',
-    before: { kind: 'file', contentDigest: sha256('before'), mode: '100644' },
-    after: { kind: 'file', contentDigest: sha256('after'), mode: '100644' },
-    representation: 'text',
+  assert.deepEqual(Object.keys(core).sort(), ['evaluateAdoption', 'planTransition', 'reduceTaskEvent', 'schemas']);
+  assert.equal(core.schemas.schemaVersion, '1');
+  const taskId = '00000000-0000-4000-8000-000000000001';
+  const projection = { head: null, treeId: 'a'.repeat(40), entries: [] };
+  const snapshot = { source: 'git-worktree-tree', ...projection, fingerprint: stableFingerprint(projection) };
+  const currency = { worktreeFingerprint: snapshot.fingerprint, executionInputsFingerprint: stableFingerprint([]) };
+  let state = null, sequence = 0;
+  const transition = (command, extra = {}) => {
+    const planned = core.planTransition(state, command, { taskId,
+      operationId: '00000000-0000-4000-8000-' + String(++sequence).padStart(12, '0'), ...extra });
+    assert.equal(planned.status, 'transition', JSON.stringify(planned.issues));
+    assert.deepEqual(core.reduceTaskEvent(state, planned.event, planned.artifacts), planned.state);
+    state = planned.state;
   };
-  const summary = (name) => ({ head: null, fingerprint: sha256(name), entryCount: 1 });
-  const bundleBase = {
-    protocol: 'cognitive-adoption',
-    schemaVersion: '2',
-    effectiveContractId: contract.effectiveContractId,
-    attemptId: 'attempt:1',
-    baseline: summary('baseline'),
-    preCheck: summary('current'),
-    current: summary('current'),
-    preCheckExecutionInputs: [],
-    currentExecutionInputs: [],
-    changeFingerprint: stableFingerprint([changedFile]),
-    changedFiles: [changedFile],
-    checkInducedChanges: [],
-    checks: [],
-    verifierMutations: [],
+  transition({ type: 'begin', input: {
+    humanEvent: { content: 'Exercise the isolated installed task kernel.' },
+    interpretation: { desiredOutcome: 'Keep adoption explicit.', constraints: [], nonGoals: [] },
+    verification: { mode: 'no-command', rationale: 'This pure domain fixture has no executable worktree.' },
+  } }, { baseline: snapshot, executionPolicy: core.schemas.defaults.executionPolicy,
+    verification: { mode: 'no-command', rationale: 'This pure domain fixture has no executable worktree.' } });
+  transition({ type: 'collect', input: {} }, { observation: {
+    baselineFingerprint: snapshot.fingerprint, preCheck: snapshot, current: snapshot,
+    preCheckExecutionInputs: [], currentExecutionInputs: [], changeFingerprint: stableFingerprint([]),
+    changedFiles: [], checkInducedChanges: [], checks: [], verifierMutations: [],
     environment: { platform: process.platform, architecture: process.arch, executables: [] },
-    patch: { path: 'change.patch', digest: sha256('patch'), byteLength: 5 },
     provenance: { collector: 'stetra-cli', cliVersion: expectedVersion, coreVersion: expectedVersion },
-  };
-  const factBundle = { ...bundleBase, factCollectionId: stableFingerprint(bundleBase) };
-  const handoffProjection = {
-    protocol: 'cognitive-adoption',
-    schemaVersion: '2',
-    handoffId: 'handoff:smoke',
-    effectiveContractId: contract.effectiveContractId,
-    attemptId: factBundle.attemptId,
-    factCollectionId: factBundle.factCollectionId,
-    actualChange: {
-      behavior: 'The installed Core exposes the schema 2 kernel.',
-      mechanism: ['The two public runtime operations remain the complete surface.'],
-      preservedInvariants: ['Human adoption remains separate.'],
-      failureAndRecovery: [],
-      importantEffects: [],
-      materialTradeoffs: [],
-    },
-    concernFindings: [],
-    residualUnknowns: [],
-    reviewFocus: [],
-    recommendation: { action: 'accept', rationale: 'The installed API matches the contract.', caveats: [] },
-  };
-  const handoff = { ...handoffProjection, handoffFingerprint: stableFingerprint(handoffProjection) };
-  const evaluation = core.evaluateHandoff({
-    protocol: 'cognitive-adoption',
-    schemaVersion: '2',
-    contract,
-    factBundle,
-    currentWorktreeFingerprint: factBundle.current.fingerprint,
-    handoff,
-  });
-  assert.equal(evaluation.status, 'handoff-ready');
-  assert.deepEqual(evaluation.adoption, { authority: 'human', status: 'pending' });
+  } });
+  transition({ type: 'report', input: { report: {
+    behavior: 'No source change is part of this domain fixture.', mechanism: ['The public transition API preserves explicit authority.'],
+  } } }, { currency });
+  transition({ type: 'assess', input: { kind: 'assessment', requestId: state.requestId,
+    context: 'same-context', summary: 'This smoke fixture only checks distributability.',
+    claims: [], relations: [], findings: [],
+  } });
+  transition({ type: 'prepare', input: { recommendation: {
+    action: 'accept-with-limitations', rationale: 'The domain fixture is internally consistent; it is not product evidence.',
+  } } }, { currency });
+  const view = core.evaluateAdoption(state, currency);
+  assert.equal(view.next, 'await-human-decision');
+  assert.equal(state.closed, false);
+  assert.equal(core.evaluateAdoption(state).packageCurrent, false);
+  transition({ type: 'decide', input: { packageId: state.packageId, action: 'accepted',
+    humanEvent: { content: 'Accept this smoke fixture and its disclosed same-context relayed analysis.' },
+    reason: 'Fixture decision.', acknowledge: view.attention.map((item) => item.id),
+  } }, { currency });
+  assert.equal(core.evaluateAdoption(state, currency).next, 'complete');
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
@@ -134,7 +100,7 @@ function canonicalize(value) {
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
     Object.keys(value)
-      .sort((left, right) => left.localeCompare(right))
+      .sort()
       .map((key) => [key, canonicalize(value[key])]),
   );
 }

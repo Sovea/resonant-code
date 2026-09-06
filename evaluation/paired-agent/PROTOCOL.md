@@ -13,9 +13,9 @@ of evaluation runs.
 The product owner has authorized the Decision-aware redesign without a
 prerequisite experiment. This protocol governs measured-effectiveness claims;
 it does not gate architecture or implementation. The treatment lifecycle below
-describes the current schema `2` implementation. Revise and preregister the
-applicable protocol before evaluating a later implemented lifecycle; do not
-claim that planned Decisions, Assessments, or Reconciliation have been measured.
+describes the schema `1` implementation. Preregister the applicable treatment
+before evaluation, including Host analysis provenance and fallback. Decisions,
+Assessments, and Reconciliation have not been measured for product effectiveness.
 
 This directory contains only the protocol and reusable record templates. Active
 preregistrations, run ledgers, observations, results, source workspaces, sealed
@@ -37,8 +37,10 @@ One pair runs the same task twice from the same immutable repository state:
   repository instructions, ordinary repository tools, and the registered
   strong Handoff prompt. It receives no Stetra Runtime facts.
 - `treatment`: a fresh instance of the same agent receives the same inputs and
-  uses the generated Host adapter and `begin`, `collect`, optional repair or
-  timeout retry, `handoff`, and Human `decide` lifecycle under schema `2` of
+  uses the generated Host adapter and `task begin`, in-work Decisions/corrections,
+  `task collect`, optional repair/retry/refresh, `task report`, Host analysis,
+  `assessment submit`, `adoption prepare`, and exact Human `adoption decide`
+  under schema `1` of
   the `cognitive-adoption` protocol.
 
 Model/build, Host surface, tool policy, reasoning settings, time limit,
@@ -193,7 +195,8 @@ infer a stage schedule from it.
 4. Preserve initial/final patches, commands, elapsed time, and Agent messages.
 5. Run registered acceptance checks outside the Agent context.
 6. For treatment, preserve the Task Contract, Attempt lineage, every
-   collection, patch, check attempts, handoff evaluation, Human Decision, and
+   Observations, patches, Check Attempts, reports, Analysis Requests, Assessments,
+   finding dispositions, Adoption Packages, exact Human Decisions, and
    any stale/recollection transition.
 7. Record harness overhead separately from task and review time. Attribute time
    by provenance: Host-observed implementation and authoring, Runtime-

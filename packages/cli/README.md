@@ -1,50 +1,48 @@
 # @sovea/stetra
 
-Portable Runtime for Stetra's embedded coding-change harness.
+Stetra connects developer direction, engineering choices, observed changes,
+semantic assessment, and exact Human adoption inside the coding Host.
 
 ```sh
 npm install --global @sovea/stetra
-cd /path/to/project
 stetra init .
 stetra status .
 ```
 
-Developers keep using Codex or Claude Code through ordinary conversation. The
-generated Skill and lifecycle Hooks apply the project admission policy and
-guide admitted changes through a small visible path:
+Codex is the default project adapter. Add Claude Code with
+`stetra init . --adapter codex --adapter claude`. Initialization preserves owner
+files and generates a Skill, Analyzer profile, and lifecycle Hook fragments.
+Developers continue using the Host through normal conversation:
+`Align -> Work -> Decide`.
 
 ```text
-Align -> Work -> Decide
+task begin -> implementation -> task collect -> task report
+-> Host analysis -> assessment submit -> adoption prepare -> adoption decide
 ```
 
-The primary Agent commands are:
+Use `decision propose`, `decision resolve`, `task amend`, and `verification revise`
+as concrete choices or corrections arise. Existing authorization remains
+effective; routine work needs no invented Decisions or repeated approval.
 
-```sh
-stetra task begin . --input - --json
-stetra task collect . --task <task-id> --json
-stetra task handoff . --task <task-id> --input - --json
-stetra task inspect . --task <task-id> --section summary --json
-```
+Every authoring command exposes `--input-schema --json`. Submit compact JSON
+through stdin or a file outside the worktree; use returned Runtime IDs. Inspect
+frozen evidence through `task inspect`, including baseline/current source bound
+to an Analysis Request. `--section adoption --live` checks current facts before
+presenting the Package. Reports and Analyzer results remain distinct judgments.
 
-Use `stetra task begin --input-schema --json` (also `handoff` and `decide`) to
-read the installed input schema and a validated example without creating state.
-Submit input through stdin or a file outside the project worktree.
+Checks execute argv without a shell. Dirty baselines, untracked files, actual
+changes, failed attempts, bounded logs, and verifier changes remain inspectable.
+Timeout retries require an actual timeout and a larger bounded budget. One
+explicit non-timeout refresh per unchanged delivery Attempt can record external
+recovery. Edits invalidate current delivery rather than erase prior evidence.
 
-Deep inspection can select one Fact Collection, Check Attempt, or bounded log
-tail without expanding those details on the successful path.
-`task inspect --section handoff` restores the complete current Decision Brief,
-including Human corrections, verification boundaries, and review entry points.
+The Host invokes analysis; Core and CLI do not call an LLM. Codex's Analyzer
+requests a read-only sandbox. Claude's Analyzer has Read/Grep/Glob and receives
+frozen evidence from its parent. Relayed, same-context, and unavailable analysis
+remain explicit. A native receipt attests routing, not independent reasoning.
 
-The developer's later message may be recorded with `stetra task decide`.
-Corrections start a new delivery attempt inside the same task. Routine failures
-return ordinary Check facts for normal repair and recollection; they do not
-create a separate diagnosis protocol.
-After a non-timeout external failure, an available `--refresh-reason <text>`
-permits one explicit recheck for unchanged inputs and preserves the old failure.
-Completed Host sessions can admit another task with the same binding token.
-
-Task state lives under `.stetra/tasks/<taskId>/`. Runtime owns exact identities,
-the Git baseline and current changes, frozen Check attempts, logs, and ordering.
-The Agent owns interpretation, implementation, explanation, and recommendation.
-The developer owns the exact request and adoption decision. Passing checks are
-evidence, never adoption.
+Only an exact later Human event adopts a current Package. Findings survive
+omission or implementer claims of repair, and accepting limitations requires
+explicit acknowledgment. Adoption never commits, merges, publishes, or deploys.
+Task state lives under `.stetra/tasks/<taskId>/`; no transcript or cross-task
+memory is stored. Initial protocol schema is `1`, paired package version `0.0.1`.

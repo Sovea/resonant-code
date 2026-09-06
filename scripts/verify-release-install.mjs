@@ -29,7 +29,7 @@ export async function verifyReleaseInstallation(installationRoot, expectedVersio
   const core = await import(pathToFileURL(resolve(coreRoot, 'dist/index.mjs')).href);
   assert.deepEqual(
     Object.keys(core).sort(),
-    ['compileDelegation', 'evaluateHandoff'],
+    ['evaluateAdoption', 'planTransition', 'reduceTaskEvent', 'schemas'],
   );
 
   const cliEntrypoint = resolve(cliRoot, cliManifest.bin['stetra']);

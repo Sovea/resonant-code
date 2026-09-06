@@ -1,8 +1,8 @@
 {
   "protocol": "cognitive-adoption-paired-evaluation",
-  "schemaVersion": "2",
+  "schemaVersion": "1",
   "treatmentProtocol": "cognitive-adoption",
-  "treatmentProtocolSchemaVersion": "2",
+  "treatmentProtocolSchemaVersion": "1",
   "pairId": "pair-kebab-case",
   "taskId": "task-kebab-case",
   "taskRecord": "tasks/task-kebab-case.json",
@@ -23,7 +23,10 @@
       "phaseDurations": {
         "alignmentMs": 0,
         "implementationMs": 0,
-        "handoffAuthoringMs": 0,
+        "reportAuthoringMs": 0,
+        "semanticAssessmentMs": 0,
+        "reconciliationMs": 0,
+        "adoptionPreparationMs": 0,
         "collectionCheckExecutionMs": 0,
         "gitFactCollectionMs": 0,
         "activeReviewMs": 0,
@@ -49,7 +52,10 @@
       "phaseDurations": {
         "alignmentMs": 0,
         "implementationMs": 0,
-        "handoffAuthoringMs": 0,
+        "reportAuthoringMs": 0,
+        "semanticAssessmentMs": 0,
+        "reconciliationMs": 0,
+        "adoptionPreparationMs": 0,
         "collectionCheckExecutionMs": 0,
         "gitFactCollectionMs": 0,
         "activeReviewMs": 0,
@@ -61,8 +67,14 @@
       "infrastructureRetries": 0,
       "lifecycle": {
         "beginStatus": "task-begun",
-        "collectionIds": ["sha256"],
-        "handoffStatus": "handoff-ready",
+        "observationIds": ["runtime-observation-id"],
+        "reportId": "runtime-report-id",
+        "requestId": "runtime-analysis-request-id",
+        "assessmentIds": ["runtime-assessment-id"],
+        "analysisTransport": "agent-relay",
+        "analysisContext": "separate-context",
+        "unresolvedFindings": [],
+        "packageId": "runtime-package-id",
         "decisionStatus": "accepted",
         "repairRecollectionOccurred": false
       }

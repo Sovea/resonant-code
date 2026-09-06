@@ -54,8 +54,8 @@ for (const file of [
 const coreModule = await import(pathToFileURL(resolve(root, 'packages/core/dist/index.mjs')).href);
 assert.deepEqual(
   Object.keys(coreModule).sort(),
-  ['compileDelegation', 'evaluateHandoff'],
-  'Core root must expose exactly the two Cognitive Adoption operations.',
+  ['evaluateAdoption', 'planTransition', 'reduceTaskEvent', 'schemas'],
+  'Core root must expose exactly the deterministic task API and schemas.',
 );
 for (const path of ['.claude-plugin', '.codex-plugin', '.codex', 'skills']) {
   assert.equal(existsSync(resolve(root, path)), false, `Repository-native Host path still exists: ${path}.`);

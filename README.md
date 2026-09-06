@@ -2,7 +2,8 @@
 
 **Let the Agent implement. Keep the engineering thread and the final say.**
 
-Stetra is an engineering harness for coding agents.
+Stetra connects developer direction, engineering decisions during work,
+observed changes, semantic assessment, and Human adoption inside coding Hosts.
 
 Its objective is to reduce the total cost from request to confident adoption
 without weakening the developer's system understanding or engineering
@@ -24,11 +25,18 @@ stetra init .
 stetra status .
 ```
 
-Review and trust the generated project hooks when Codex or Claude Code prompts
-you to do so.
+Codex is the default adapter. To include Claude Code, use
+`stetra init . --adapter codex --adapter claude`. Review the generated project
+Hooks when the Host requests trust.
 
 Then give the coding task to your Agent as usual. Project admission policy,
 generated Host hooks, and one compact Skill apply Stetra only to admitted coding
 changes. The visible path is `Align -> Work -> Decide`: the Agent implements
-normally, Stetra collects exact Git and Check facts, the Agent explains the
-actual change, and you accept, correct, reject, or defer it.
+normally within existing authority, records concrete choices and corrections,
+and supplies an implementation report. Stetra retains exact Git and Check
+facts; a Host Analyzer assesses the frozen result and surfaces findings. You
+review the resulting adoption Package and accept, correct, reject, or defer it.
+
+Core and CLI do not call models. Findings and disagreements remain visible;
+passing checks are evidence, not adoption. See the
+[executable workflow](docs/change-workflow.md) and [architecture](docs/architecture.md).

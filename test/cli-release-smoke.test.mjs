@@ -50,159 +50,89 @@ try {
   const entrypoint = resolve(installedCli, cliManifest.bin.stetra);
   const binary = join(consumer, 'node_modules/.bin', process.platform === 'win32' ? 'stetra.cmd' : 'stetra');
   assert.equal(run(binary, ['--version'], consumer).stdout.trim(), expectedVersion);
-  for (const stage of ['begin', 'handoff', 'decide']) {
-    const schema = runJson(entrypoint, ['--json', 'task', stage, '--input-schema'], consumer);
-    assert.equal(schema.status, 'input-schema');
-    assert.equal(schema.inputSchema.additionalProperties, false);
-    assert.ok(schema.example);
+  for (const argv of [['task', 'begin'], ['task', 'report'], ['decision', 'propose'], ['assessment', 'submit'], ['adoption', 'prepare'], ['adoption', 'decide']]) {
+    const schema = runJson(entrypoint, ['--json', ...argv, '--input-schema'], consumer);
+    assert.equal(schema.status, 'input-schema'); assert.ok(schema.inputSchema); assert.ok(schema.example);
   }
-
-  const initialized = runJson(entrypoint, ['--json', 'init', project, '--adapter', 'codex'], consumer);
-  assert.equal(initialized.status, 'initialized');
-  assert.equal(initialized.schemaVersion, '2');
+  const initialized = runJson(entrypoint, ['--json', 'init', project], consumer);
+  assert.equal(initialized.status, 'initialized'); assert.equal(initialized.schemaVersion, '1');
   assert.deepEqual(initialized.adapters, ['codex']);
-  assert.equal(existsSync(join(project, '.agents/skills/stetra/references')), false);
-  assert.match(readFileSync(join(project, '.agents/skills/stetra/SKILL.md'), 'utf8'), /stetra task begin/);
-  assert.equal(JSON.parse(readFileSync(join(project, '.stetra/config.json'), 'utf8')).admission, 'ask');
-
-  git(project, ['init', '--quiet']);
-  git(project, ['config', 'user.email', 'release@example.invalid']);
-  git(project, ['config', 'user.name', 'CLI Release Smoke']);
-  git(project, ['add', '-A']);
-  git(project, ['commit', '--quiet', '-m', 'initial']);
-
-  const hookPayload = JSON.stringify({
-    session_id: 'packed-session', cwd: project, hook_event_name: 'SessionStart',
-  });
-  const hook = runJson(entrypoint, [
-    '--json', 'host', 'hook', '--adapter', 'codex', '--event', 'session-start',
-  ], consumer, hookPayload);
-  const context = hook.hookSpecificOutput.additionalContext;
+  assert.match(readFileSync(join(project, '.codex/agents/stetra-analyzer.toml'), 'utf8'), /sandbox_mode = "read-only"/);
+  git(project, ['init', '--quiet']); git(project, ['config', 'user.email', 'release@example.invalid']);
+  git(project, ['config', 'user.name', 'CLI Release Smoke']); git(project, ['add', '-A']); git(project, ['commit', '--quiet', '-m', 'initial']);
+  const native = (event, extra = {}) => runJson(entrypoint, ['--json', 'host', 'hook', '--adapter', 'codex', '--event', event], consumer,
+    JSON.stringify({ session_id: 'packed-session', cwd: project, hook_event_name:
+      { 'session-start': 'SessionStart', 'subagent-start': 'SubagentStart', 'subagent-stop': 'SubagentStop', stop: 'Stop' }[event], ...extra }));
+  const context = native('session-start').hookSpecificOutput.additionalContext;
   const bindingToken = context.match(/--binding-token ([a-z]+\.[a-f0-9]{64}\.[a-f0-9]{32})/)?.[1];
   assert.ok(bindingToken);
-
   const beginInput = {
     humanEvent: { content: 'Change the packed fixture value to 2.' },
-    interpretation: {
-      desiredOutcome: 'The exported fixture value is 2.',
-      constraints: ['Human adoption remains explicit.'],
-      nonGoals: [],
-    },
-    assurance: { mode: 'routine' },
-    verification: {
-      mode: 'checks',
-      checks: [{
-        key: 'fixture-check',
-        argv: [
-          process.execPath,
-          '-e',
-          "const ok=require('node:fs').readFileSync('src/example.ts','utf8').includes('value = 2');process.stdout.write('fixture-out\\n');process.stderr.write('fixture-err\\n');process.exit(ok ? 0 : 1)",
-        ],
-        executionInputs: [{ kind: 'file', path: 'src/example.ts' }],
-        verifierSelectors: [{ kind: 'file', path: 'src/example.ts', role: 'acceptance-surface' }],
-      }],
-    },
+    interpretation: { desiredOutcome: 'The fixture exports 2.', constraints: ['Keep the export name.'], nonGoals: [] },
+    verification: { mode: 'checks', checks: [{
+      key: 'fixture-check', argv: [process.execPath, '-e',
+        "const ok=require('node:fs').readFileSync('src/example.ts','utf8').includes('value = 2');process.stdout.write('fixture-out\\n');process.stderr.write('fixture-err\\n');process.exit(ok?0:1)"],
+      executionInputs: [{ kind: 'file', path: 'src/example.ts' }],
+      verifierSelectors: [{ kind: 'file', path: 'src/example.ts', role: 'acceptance-surface' }],
+    }] },
   };
-  const began = runJson(entrypoint, [
-    '--json', 'task', 'begin', project, '--input', '-', '--binding-token', bindingToken,
-  ], consumer, JSON.stringify(beginInput));
-  assert.equal(began.status, 'task-begun');
-  assert.equal(began.phase, 'working');
-
-  writeFileSync(join(project, 'src/example.ts'), 'export const value = 2;\n', 'utf8');
-  const collected = runJson(entrypoint, [
-    '--json', 'task', 'collect', project, '--task', began.taskId,
-  ], consumer);
-  assert.equal(collected.status, 'facts-collected');
-  assert.equal(collected.phase, 'awaiting-handoff');
-  assert.deepEqual(collected.summary.changedFiles.map((file) => file.path), ['src/example.ts']);
-  assert.deepEqual(
-    collected.summary.checks.map((check) => [check.key, check.status]),
-    [['fixture-check', 'passed']],
-  );
-  const collectionIndex = runJson(entrypoint, [
-    '--json', 'task', 'inspect', project, '--task', began.taskId, '--section', 'collections',
-  ], consumer).collections;
-  const latest = runJson(entrypoint, [
-    '--json', 'task', 'inspect', project, '--task', began.taskId,
-    '--section', 'collection', '--collection', collectionIndex.at(-1).factCollectionId,
-  ], consumer).collection;
-  assert.equal(latest.checks[0].attempts[0].stdout.byteLength, 12);
-  assert.equal(latest.checks[0].attempts[0].stderr.byteLength, 12);
-  assert.equal(existsSync(join(project, latest.checks[0].attempts[0].stdout.logPath)), true);
-  assert.equal(existsSync(join(project, latest.patch.path)), true);
-
-  const handedOff = runJson(entrypoint, [
-    '--json', 'task', 'handoff', project, '--task', began.taskId, '--input', '-',
-  ], consumer, JSON.stringify({
-    actualChange: {
-      behavior: 'The packed fixture now exports value 2.',
-      mechanism: ['The source export literal changed from 1 to 2.'],
-      preservedInvariants: ['The export name remains value.'],
-    },
-    reviewFocus: [{
-      question: 'Does the changed export retain its public name?',
-      adoptionImpact: 'Renaming it would break consumers.',
-      nextAction: 'Inspect src/example.ts.',
-      evidence: [
-        { kind: 'changed-file', path: 'src/example.ts' },
-        { kind: 'check', checkKey: 'fixture-check' },
-      ],
-    }],
-    recommendation: { action: 'accept', rationale: 'The frozen Check passes.' },
-  }));
-  assert.equal(handedOff.status, 'needs-attention');
-  assert.equal(handedOff.decisionBrief.decisionState.adoption.status, 'pending');
-  assert.deepEqual(handedOff.decisionBrief.attention.map((item) => item.code), ['verifier-surface-changed']);
-  const restored = runJson(entrypoint, [
-    '--json', 'task', 'inspect', project, '--task', began.taskId, '--section', 'handoff',
-  ], consumer);
-  assert.deepEqual(restored.decisionBrief, handedOff.decisionBrief);
-  const humanBrief = run(process.execPath, [
-    entrypoint, 'task', 'inspect', project, '--task', began.taskId, '--section', 'handoff',
-  ], consumer).stdout;
-  assert.match(humanBrief, /Renaming it would break consumers/);
-  assert.match(humanBrief, /Evidence: src\/example.ts/);
-
-  const decided = runJson(entrypoint, [
-    '--json', 'task', 'decide', project, '--task', began.taskId, '--input', '-',
-  ], consumer, JSON.stringify({
-    humanEvent: { content: 'Accept the packed fixture after reviewing the changed verifier.' },
-    action: 'accepted',
-    reason: 'The verifier mutation is expected and was directly reviewed.',
-    acknowledgeAttention: true,
-  }));
-  assert.equal(decided.phase, 'complete');
-  assert.equal(decided.decision.status, 'accepted');
-  const events = runJson(entrypoint, [
-    '--json', 'task', 'inspect', project, '--task', began.taskId, '--section', 'events',
-  ], consumer).events;
-  assert.deepEqual(events.map((event) => event.type), [
-    'task-began', 'facts-collected', 'handoff-authored', 'human-decision-recorded',
-  ]);
-  const stop = runJson(entrypoint, [
-    '--json', 'host', 'hook', '--adapter', 'codex', '--event', 'stop',
-  ], consumer, JSON.stringify({
-    session_id: 'packed-session', cwd: project, hook_event_name: 'Stop',
-  }));
-  assert.deepEqual(stop, {});
-  const nextBegin = { ...beginInput, humanEvent: { content: 'Admit the next packed fixture task.' } };
-  const next = runJson(entrypoint, [
-    '--json', 'task', 'begin', project, '--binding-token', bindingToken,
-  ], consumer, JSON.stringify(nextBegin));
+  const began = runJson(entrypoint, ['--json', 'task', 'begin', project, '--binding-token', bindingToken], consumer, JSON.stringify(beginInput));
+  assert.equal(began.phase, 'work');
+  const call = (group, operation, input, options = []) => runJson(entrypoint,
+    ['--json', group, operation, project, '--task', began.taskId, ...options], consumer, input && JSON.stringify(input));
+  const proposal = call('decision', 'propose', {
+    key: 'format', question: 'Which value representation should be retained?', proposedOption: 'literal', requiresHuman: false,
+    options: [{ key: 'literal', description: 'Keep the number literal.', consequences: ['Existing readers keep working.'] },
+      { key: 'string', description: 'Export a string.', consequences: ['Readers need conversion.'] }],
+    selection: { option: 'literal', authority: { kind: 'existing-authority', basis: ['request'], rationale: 'The request changes the numeric value.' } },
+  });
+  assert.deepEqual(proposal.summary.pendingDecisions, []);
+  writeFileSync(join(project, 'src/example.ts'), 'export const value = 2;\n');
+  const collected = call('task', 'collect');
+  assert.equal(collected.status, 'observations-collected');
+  assert.deepEqual(collected.summary.observations.checks.map((check) => [check.key, check.status]), [['fixture-check', 'passed']]);
+  const observation = call('task', 'inspect', undefined, ['--section', 'observation']).observation;
+  assert.equal(observation.data.checks[0].attempts[0].stdout.byteLength, 12);
+  assert.equal(observation.data.checks[0].attempts[0].stderr.byteLength, 12);
+  assert.equal(existsSync(join(project, observation.data.patch.path)), true);
+  const report = call('task', 'report', { report: {
+    behavior: 'The fixture exports the number 2.', mechanism: ['The source literal changed.'], decisions: ['format'],
+    evidence: [{ kind: 'source', snapshot: 'current', path: 'src/example.ts' }, { kind: 'check', checkKey: 'fixture-check' }],
+  } }, ['--binding-token', bindingToken]);
+  const requestId = report.current.requestId;
+  assert.equal(call('task', 'inspect', undefined, ['--section', 'source', '--request', requestId,
+    '--snapshot', 'baseline', '--path', 'src/example.ts']).content, 'export const value = 1;\n');
+  const child = { agent_id: 'packed-analyzer', agent_type: 'stetra-analyzer', turn_id: 'packed-turn' };
+  assert.match(native('subagent-start', child).hookSpecificOutput.additionalContext, new RegExp(requestId));
+  const assessment = { kind: 'assessment', requestId, context: 'separate-context',
+    summary: 'The numeric literal change preserves the public export.',
+    claims: [{ key: 'value', before: 'The export is 1.', after: 'The export is 2.', mechanism: 'The number literal changed.',
+      invariants: ['The export name remains value.'],
+      evidence: [{ kind: 'source', snapshot: 'baseline', path: 'src/example.ts' }, { kind: 'source', snapshot: 'current', path: 'src/example.ts' }] }],
+    relations: [{ claimKey: 'value', basis: { kind: 'decision', key: 'format' }, explanation: 'The existing-authority choice preserves the numeric representation.' }],
+    findings: [], reviewFocus: ['Check that consumers still import value.'],
+  };
+  assert.match(native('subagent-stop', { ...child, last_assistant_message: JSON.stringify(assessment) }).systemMessage, /assessment-recorded/);
+  const prepared = call('adoption', 'prepare', { recommendation: { action: 'accept-with-limitations', rationale: 'The frozen check passes; the declared verifier surface changed.' } });
+  assert.deepEqual(prepared.adoptionBrief.attention.map((item) => item.code), ['verifier-changed']);
+  assert.equal(prepared.adoptionBrief.humanChoice, 'pending');
+  const restored = call('task', 'inspect', undefined, ['--section', 'adoption', '--live']);
+  assert.deepEqual(restored.adoptionBrief, prepared.adoptionBrief);
+  const human = run(process.execPath, [entrypoint, 'task', 'inspect', project, '--task', began.taskId, '--section', 'adoption', '--live'], consumer).stdout;
+  assert.match(human, /Agent recommendation/); assert.match(human, /Check that consumers still import value/);
+  assert.match(human, /Human adoption: pending/);
+  const adopted = call('adoption', 'decide', {
+    packageId: prepared.current.packageId, action: 'accepted', humanEvent: { content: 'Accept, including the disclosed verifier change.' },
+    reason: 'The source and changed verifier surface were reviewed.', acknowledge: prepared.adoptionBrief.attention.map((item) => item.id),
+  });
+  assert.equal(adopted.phase, 'complete'); assert.deepEqual(native('stop'), {});
+  const history = call('task', 'inspect', undefined, ['--section', 'history']);
+  assert.deepEqual(history.events.map((item) => item.event.type), ['begin', 'propose', 'collect', 'report', 'assess', 'prepare', 'decide']);
+  const next = runJson(entrypoint, ['--json', 'task', 'begin', project, '--binding-token', bindingToken], consumer, JSON.stringify(beginInput));
   assert.notEqual(next.taskId, began.taskId);
-  const resumed = runJson(entrypoint, [
-    '--json', 'task', 'begin', project, '--binding-token', bindingToken,
-  ], consumer, JSON.stringify(nextBegin));
-  assert.equal(resumed.status, 'task-resumed');
-  assert.equal(resumed.taskId, next.taskId);
-
-  const status = runJson(entrypoint, ['--json', 'status', project], consumer);
-  assert.equal(status.status, 'ready');
-  assert.equal(status.controlPlane.kind, 'cli');
-  assert.equal(status.installation.status, 'current');
-  const legacy = run(process.execPath, [entrypoint, 'change'], consumer, { expectStatus: 2 });
-  assert.match(legacy.stderr, /unknown command 'change'/i);
+  const resumed = runJson(entrypoint, ['--json', 'task', 'begin', project, '--binding-token', bindingToken], consumer, JSON.stringify(beginInput));
+  assert.equal(resumed.taskId, next.taskId); assert.equal(resumed.status, 'task-resumed');
+  assert.equal(runJson(entrypoint, ['--json', 'status', project], consumer).status, 'ready');
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

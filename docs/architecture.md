@@ -1,14 +1,14 @@
 # Architecture
 
-This document defines the adopted target design for Stetra's Decision-aware
+This document defines the implemented domain design for Stetra's Decision-aware
 Agent-native Adoption Runtime. The product owner has chosen to proceed without
 a prerequisite experiment or paired effectiveness study.
 
-The current implementation remains the schema `2` workflow documented in
-[Change workflow](change-workflow.md). Runtime Decisions, separate semantic
-Assessments, and Reconciliation below are target behavior, not implemented
-capabilities. Product direction, executable behavior, and measured product
-effectiveness must remain distinguishable.
+The schema `1` implementation and its CLI are documented in
+[Change workflow](change-workflow.md). Product direction, executable behavior,
+Host integration verification, and measured product effectiveness remain
+separate. Native event fixtures establish adapter consistency, not a completed
+live Host session or measured product effectiveness.
 
 ## Product positioning
 
@@ -60,7 +60,7 @@ The developer continues to see ordinary engineering phases:
 Align -> Work -> Decide
 ```
 
-The target task loop is:
+The task loop is:
 
 ```text
 exact Human request -> Intent + baseline
@@ -304,18 +304,19 @@ sequencing, presentation, initialization, and Host integration. Core does not
 read repositories, execute commands, format CLI output, know Host files, or
 call an LLM. Exact schemas live in TypeScript.
 
-The current two Core runtime exports do not constrain the target kernel.
+Core exports `schemas`, `planTransition`, `reduceTaskEvent`, and
+`evaluateAdoption`.
 The product owner requested initial versions for the fresh implementation:
 paired package version `0.0.1` and protocol schema `1`. Do not add legacy
 compatibility, format recognition, migration, aliases, or dual read/write paths.
 
-## Implementation sequence
+## Implementation organization
 
-The [implementation plan](implementation-plan.md) specifies the proposed schema,
+The [implementation plan](implementation-plan.md) records the adopted schema,
 Core API, CLI operations, persistence changes, Codex adapter, and engineering
-acceptance criteria. It does not describe currently executable behavior.
+acceptance criteria. Use the workflow document for the executable command reference.
 
-Implementation proceeds directly from this adopted design:
+The implementation follows these boundaries:
 
 1. Replace the domain contract with Intent, in-work Decisions and corrections,
    Observations, Assessments, and Adoption, preserving authority boundaries.

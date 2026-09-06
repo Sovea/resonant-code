@@ -1,6 +1,6 @@
 {
   "protocol": "cognitive-adoption-paired-evaluation",
-  "schemaVersion": "2",
+  "schemaVersion": "1",
   "registrationFingerprint": "sha256",
   "taskId": "task-kebab-case",
   "taskType": "bugfix",

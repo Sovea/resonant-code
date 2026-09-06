@@ -1,6 +1,6 @@
 {
   "protocol": "cognitive-adoption-paired-evaluation-preflight",
-  "schemaVersion": "2",
+  "schemaVersion": "1",
   "taskId": "task-kebab-case",
   "recordedAt": "2026-08-11T00:00:00.000Z",
   "repository": {
@@ -11,7 +11,7 @@
   },
   "stetra": {
     "commit": "full-commit-sha",
-    "protocolSchemaVersion": "2",
+    "protocolSchemaVersion": "1",
     "coreArchiveDigest": "sha256",
     "cliArchiveDigest": "sha256",
     "hostAdapterDigest": "sha256"

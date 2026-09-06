@@ -27,7 +27,7 @@ validateTemplates();
 function validateTemplates() {
   const task = readJson(resolve(evaluationRoot, 'task.template.json'));
   assert.equal(task.protocol, 'cognitive-adoption-paired-evaluation');
-  assert.equal(task.schemaVersion, '2');
+  assert.equal(task.schemaVersion, '1');
   assert.equal(task.registrationFingerprint, 'sha256');
   assert.ok(isNonEmptyString(task.taskId));
   assert.ok(isNonEmptyString(task.taskPrompt));
@@ -41,9 +41,9 @@ function validateTemplates() {
 
   const result = readJson(resolve(evaluationRoot, 'result.template.json'));
   assert.equal(result.protocol, 'cognitive-adoption-paired-evaluation');
-  assert.equal(result.schemaVersion, '2');
+  assert.equal(result.schemaVersion, '1');
   assert.equal(result.treatmentProtocol, 'cognitive-adoption');
-  assert.equal(result.treatmentProtocolSchemaVersion, '2');
+  assert.equal(result.treatmentProtocolSchemaVersion, '1');
   assert.equal(result.status, 'completed');
   assert.ok(isSafeRelativePath(result.taskRecord));
   assert.ok(isSafeRelativePath(result.preflightRecord));
@@ -169,9 +169,9 @@ function validateCoverageMatrix(matrix, checks, label) {
 
 function validatePreflightTemplate(preflight, taskId) {
   assert.equal(preflight.protocol, 'cognitive-adoption-paired-evaluation-preflight');
-  assert.equal(preflight.schemaVersion, '2');
+  assert.equal(preflight.schemaVersion, '1');
   assert.equal(preflight.taskId, taskId);
-  assert.equal(preflight.stetra.protocolSchemaVersion, '2');
+  assert.equal(preflight.stetra.protocolSchemaVersion, '1');
   assert.ok(isIsoTimestamp(preflight.recordedAt));
   assert.equal(
     preflight.repository.controlWorkspaceFingerprint,
@@ -236,7 +236,7 @@ function validatePreflightTemplate(preflight, taskId) {
 function validatePhaseDurations(durations, label) {
   assert.ok(durations && typeof durations === 'object', label);
   for (const field of [
-    'alignmentMs', 'implementationMs', 'handoffAuthoringMs',
+    'alignmentMs', 'implementationMs', 'reportAuthoringMs', 'semanticAssessmentMs', 'reconciliationMs', 'adoptionPreparationMs',
     'collectionCheckExecutionMs',
     'gitFactCollectionMs', 'activeReviewMs', 'clarificationMs',
     'correctionDecisionMs', 'queueOrWaitMs',

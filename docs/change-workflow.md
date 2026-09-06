@@ -1,288 +1,260 @@
 # Change workflow
 
-This document defines the currently executable schema `2` task workflow.
-[Architecture](architecture.md) defines the adopted Decision-aware target,
-including in-work Decisions, separate semantic Assessments, and Reconciliation.
-Those target capabilities are not yet part of the executable workflow below.
-Update this document alongside their implementation; do not present planned
-commands as available commands.
+This is the executable schema `1` workflow. Both packages use version `0.0.1`.
+There is no legacy translation or migration path. The
+[architecture](architecture.md) defines product authority; the
+[implementation plan](implementation-plan.md) records the adopted design.
+Tests establish implementation consistency and distribution, not effectiveness
+at preserving developer understanding.
 
-The product owner has chosen to proceed with that redesign without prerequisite
-experiments. Stetra remains embedded in the developer's Coding Agent Host. CLI
-commands are the portable transport and do not define a separate conversational
-product.
-
-## Setup
+## Installation and admission
 
 ```sh
+stetra init .
 stetra init . --adapter codex --adapter claude
-stetra status .
+stetra status . --json
 ```
 
-Initialization installs compact Host Skills and bounded lifecycle Hooks. It
-also writes `.stetra/config.json` with an explicit admission mode and named
-verification profiles. Owner-modified generated content is never overwritten
-without `--force`.
+Codex is the default adapter. Initialization plans writes before applying them,
+owns generated Skill and Analyzer files, and merges only its marked blocks and
+Hook fragments. Unknown owner files and modified managed content are protected;
+`--dry-run` previews changes. `--force` explicitly replaces modified managed
+content, preserving unrelated owner data. Model preferences, global feature
+flags, and Host trust are not changed.
 
-The initial configuration defaults to `ask` admission and contains no invented
-verification command. A project must configure a named profile or the Agent
-must supply explicit argv checks when a task begins. A concrete no-command
-rationale is also accepted.
+Project configuration under `.stetra/config.json` declares admission as `ask`,
+`explicit`, or `required`, optional named verification profiles, and operational
+execution budgets. Conversation-only work and declined tasks create no task.
+Existing Human admission remains effective. The Agent supplies the exact Human
+request without trimming; relayed Human text is labelled `unattested-input`.
+An opaque Host binding token provides continuity, not Human authority.
 
-## Visible lifecycle
+## Portable task loop
 
 ```text
-Align -> Work -> Decide
+task begin -> implementation -> task collect -> task report
+-> Host analysis -> assessment submit -> adoption prepare -> adoption decide
 ```
 
-The portable command surface is:
-
-```sh
-stetra task begin . --input begin.json --json
-stetra task collect . --task <task-id> --json
-stetra task handoff . --task <task-id> --input handoff.json --json
-stetra task decide . --task <task-id> --input decision.json --json
-stetra task inspect . --task <task-id> --section summary --json
-```
-
-Input may be `-` for stdin. Input files inside the project worktree are
-rejected, so semantic transport cannot silently become part of the change.
-There is no Draft reservation, Guide, Authoring Projection, `hostAction`, or
-final-response command protocol.
-
-Every response contains a compact task phase and one provider-neutral
-directive:
-
-```text
-work | continue-work | author-handoff | await-human-decision | complete
-```
-
-The directive describes the engineering next step. Internal identities and
-artifact bindings remain Runtime-owned.
-
-Discover exact authoring inputs from the installed binary, even outside a
-repository:
+The visible phases remain `Align -> Work -> Decide`. Exact command inputs are
+defined in Core TypeScript schemas. Every authoring command exposes its input
+schema and validated example without reading a repository or creating state:
 
 ```sh
 stetra task begin --input-schema --json
-stetra task handoff --input-schema --json
-stetra task decide --input-schema --json
+stetra decision propose --input-schema --json
+stetra assessment submit --input-schema --json
+stetra adoption decide --input-schema --json
 ```
 
-These read-only options return the actual input validator's JSON Schema and a
-validated example. Examples illustrate structure; supply the real request and
-repository checks. Input errors point back to the corresponding schema command.
+Use `--input -` for JSON on stdin or an input file outside the observed worktree.
+Runtime supplies IDs; Agents do not author canonical records or fingerprints.
+All commands after Begin require `--task <taskId>`. Mutations return a compact
+status, revision, current references, observed summary, and next directive.
+Schemas reject extra fields. No prose parsing selects an operation.
 
-## Begin
+| Command | Purpose |
+|---|---|
+| `task begin` | Admit exact direction, resolve verification, and retain the complete Git baseline. |
+| `task amend` | Preserve a Human correction or an explicitly attributed Agent interpretation revision. |
+| `decision propose` | Record a concrete fork, alternatives, consequences, and autonomous selection or pending Human choice. |
+| `decision resolve` | Resolve the exact proposal revision under existing authority or an exact Human response. |
+| `verification revise` | Replace the current verification plan with an attributed authority basis; retain prior checks. |
+| `task collect` | Observe the actual change and execute frozen argv checks. |
+| `task report` | Explain actual implementation and freeze an Analysis Request. |
+| `assessment submit` | Record a result for an exact request, including explicit same-context or unavailable fallback. |
+| `adoption prepare` | Prepare the final recommendation and developer Package from current facts and Assessment. |
+| `adoption decide` | Record an exact later Human acceptance, correction, rejection, or deferral. |
+| `task inspect` | Read task state, frozen evidence, and historical records. |
 
-Routine input:
+## Direction and decisions during work
 
-```json
-{
-  "humanEvent": {
-    "content": "Implement the exact developer request."
-  },
-  "interpretation": {
-    "desiredOutcome": "Observable outcome",
-    "constraints": [],
-    "nonGoals": []
-  },
-  "assurance": { "mode": "routine" },
-  "verification": {
-    "mode": "checks",
-    "checks": [
-      {
-        "key": "test",
-        "argv": ["npm", "test"],
-        "verifierSelectors": []
-      }
-    ]
-  }
-}
-```
+Begin takes a compact Agent interpretation, routine or consequential assurance,
+and exact check argv, a named profile, or a concrete no-command rationale. It
+publishes a task only after validation and baseline observation succeed. Begin
+does not execute checks. Routine requires no invented Decisions or concerns.
+Consequential concerns require explicit Human choice or project policy; their
+check requirements bind exact definitions rather than reusable names.
 
-The current thin adapter relays the exact Human text but cannot attest its Host
-origin. Runtime labels it `unattested-input`, preserves its submitted bytes,
-and shows it in the Decision Brief instead of inventing Host authority. The
-Agent authors only interpretation and check intent. Runtime creates Human Event,
-Contract, Verifier, Definition, step, task, and Attempt identities.
-Runtime captures the complete Git worktree before publishing the task. Routine
-Begin does not execute checks.
+Proposals identify the concrete question, alternatives and consequences, and
+work waiting on a choice. An autonomous selection cites existing Human authority
+with an Agent-authored rationale. `request` is a shorthand reference to the
+initial Human event. Other authority references use returned Human event IDs.
+An important choice does not inherently require another approval.
 
-Human content and argv arguments are preserved exactly, including surrounding
-whitespace and empty arguments after the executable. The executable must be
-non-empty; command strings cannot contain NUL.
+A proposal requiring new Human authority cannot be self-approved. A Human
+resolution binds its exact proposal ID and selected option. Changing the
+proposal does not reuse approval of the earlier revision. After an Intent
+revision, a previous exact Human selection can be reaffirmed under its existing
+authority when the same proposal and option remain applicable. Runtime validates
+references; the Agent judges natural-language applicability.
 
-When a binding token is supplied, Begin checks the session before publishing a
-task. A session can start its next admitted task after the previous task closes.
-A repeated Begin for the same open Contract returns `task-resumed` with the
-existing identity. An interrupted publication is recovered through the exact
-pending session association; a new baseline never replaces a published one.
+Human corrections and Agent interpretation amendments remain separate records.
+An Intent change invalidates current reports and Assessments; it preserves the
+original baseline and any still-current Git/check facts. A verification revision
+preserves earlier definitions and observations and requires collection for the
+new plan. Neither command invents cross-task policy.
 
-Verification may instead select one exact project profile or declare
-`no-command` with a concrete rationale. Commands are argv-only and run without
-a shell. Optional preparation commands establish only the named check's own
-preconditions.
+## Collection, failure, and currency
 
-Consequential input adds explicit Adoption Concerns. A concern may require
-named checks or direct Human review. The initial
-schema does not include nested Evidence Obligations, Independent Challenge, or
-Host-policy requirements.
+The baseline includes dirty tracked files and all non-ignored untracked files.
+Runtime excludes only its task, staging, session, and worktree-lock storage.
+Git objects retain raw bytes without clean filters or newline conversion; the
+user's index is not modified. Operations, modes, content digests, representable
+patches, binary markers, and original baseline references remain inspectable.
+Unsupported Git paths or transport limits fail explicitly instead of silently
+omitting evidence.
 
-## Work and collect
+Checks run exact argv without a shell. They preserve preparation/assertion
+steps, exits, signals, spawn failures, timeout budgets, full-stream digests,
+bounded non-empty logs, declared execution inputs, and check-induced changes.
+Verifier mutation coverage is limited to explicitly declared file/tree selectors.
+Direct Host command execution remains Agent evidence rather than a Runtime Check
+Attempt. No filename, dependency, count, or keyword infers semantic importance.
 
-The Agent uses normal Host tools while implementing. Stetra receives no
-per-tool event stream and stores no Agent transcript.
-
-Collect:
-
-1. observes the pre-check worktree;
-2. executes every frozen check definition in order without a shell;
-3. observes the post-check worktree;
-4. computes the complete baseline-to-current change;
-5. records check-induced changes, verifier mutations, execution inputs,
-   environment, bounded logs, and full-stream digests;
-6. publishes one immutable Fact Collection.
-
-If the worktree and declared execution inputs still match an existing current
-collection, Collect reuses it and writes no event. A forced refresh is not part
-of the routine Agent surface.
-
-Non-passing checks return `continue-work` with compact exact results and log
-selectors. The Agent diagnoses and repairs through its ordinary coding loop;
-there is no mandatory Diagnosis artifact. A later Collect preserves the prior
-Fact Collection and creates a successor observation for the same Attempt.
-
-Timeout retry is allowed only after an actual timeout, with an explicitly
-larger bounded budget, and never overwrites the earlier Attempt. It is a
-conditional recovery option, not the default next action.
+Ordinary collection reuses unchanged current facts, including failed checks.
+Repair through the Host and collect again. Two explicit re-execution paths exist:
 
 ```sh
-stetra task collect . --task <task-id> \
-  --retry-timeout <check-key> --timeout-ms <larger-ms> --json
+stetra task collect . --task <taskId> --retry-timeout <checkKey> --timeout-ms <largerMs> --json
+stetra task collect . --task <taskId> --refresh-reason 'The external service recovered.' --json
 ```
 
-After a non-timeout failure and a change in external conditions, one explicit
-refresh is available per unchanged worktree and declared input set in a delivery
-Attempt:
+A timeout retry requires a real prior timeout, unchanged worktree and declared
+inputs, a larger bounded budget, and remaining retry allowance. It retains all
+prior Attempts and every other Check unchanged. A non-timeout refresh requires
+an actual failure and reruns every frozen Check at existing budgets; it is
+available once per unchanged worktree/input set in a delivery Attempt. Its
+reason remains Agent judgment. Old Observations remain immutable.
+
+Report, Package preparation, and acceptance independently re-observe worktree
+and declared-input currency. Read-only inspection and Hooks do not observe Git.
+Their `factsCurrency: unobserved` is not proof that the worktree stayed unchanged.
+Use `task inspect --section summary|adoption --live` before presenting a result
+as current. A stale Package remains historical and cannot support acceptance.
+
+## Report, analysis, and reconciliation
+
+The implementation report requires actual behavior and mechanism. Material
+ownership, invariants, failure/recovery, effects, tradeoffs, unknowns, Decisions,
+and evidence are included proportionally. The final recommendation is separate.
+
+Report freezes the Intent, Decision state, verification plan, Observation,
+report, and prior findings into an Analysis Request. Identical reports and
+identical results are reused. Explicit reassessment of an unchanged report uses
+`task report --reassess --reason <reason>`. The earlier request and result remain
+inspectable. A conflicting replacement result for the same request is rejected.
+
+The Host runs the Analyzer. Core and CLI never call an LLM or create an Agent
+loop. Analyzer claims reconstruct before/after behavior and mechanism, link to
+source/patch/check evidence, and relate to direction, Decisions, the report, or
+an explicitly unexplained change. Candidate unexplained changes, direction
+conflicts, evidence contradictions, and missing evidence are Agent judgments.
+Runtime checks references and bindings, not their natural-language truth.
+
+Source inspection reads retained baseline/current Git objects, not live files:
 
 ```sh
-stetra task collect . --task <task-id> --refresh-reason "The local service was restored." --json
+stetra task inspect . --task <taskId> --section analysis --request <requestId> --json
+stetra task inspect . --task <taskId> --section source --request <requestId> --snapshot baseline --path src/example.ts --json
 ```
 
-Refresh requires current facts, at least one non-passing Check, and no current
-timeout. It reruns every frozen Check with its existing timeout and writes a new
-Fact Collection referencing the earlier one. The reason is labelled Agent
-judgment and does not attest that the environment was repaired. Earlier failed
-collections, ordered Check Attempts, and logs remain available. Ordinary Collect
-continues to reuse current observations; it never automatically loops on failure.
+Analysis documents larger than the inspection budget return a serialized
+`analysisDocument` with digest and `nextOffset`; assemble pages using `--offset`
+before analyzing. Source, patch, and log output use bounded byte pages with
+explicit encoding, truncation, and next offset. Binary or partial UTF-8 pages
+use base64. No evidence is discarded by a semantic relevance heuristic.
 
-## Handoff
+Current bindings are checked again at result submission. Late results remain
+historical, and their dispositions cannot clear findings for current work.
+Unresolved findings survive omission, changed explanations, and implementer
+claims of repair. Implementer responses preserve disagreement and counterevidence.
+A later current Assessment must explicitly address, retract, or dispute a prior
+finding. Human acknowledgment accepts a disclosed limitation, not the truth of
+an Agent claim.
 
-Handoff is accepted only against current worktree and declared execution-input
-facts. Its compact input contains:
+## Adoption and the developer view
+
+Preparation requires a current report and a current Assessment, or an explicitly
+unavailable Assessment result. It binds one recommendation to one exact current
+result. Mechanical Attention includes failed checks, verifier changes,
+check-induced or unrepresentable changes, analysis gaps, relayed/same-context
+provenance, unknowns, unresolved findings, and declared concern gaps. A plain
+`accept` recommendation cannot exceed those structural limits.
+
+The text and JSON Package distinguish the Agent recommendation, actual behavior,
+important choices and authority, Runtime observations, Analyzer judgment,
+finding responses, maintenance entry points, and pending Human choice. Details
+remain inspectable through `task inspect`.
+
+Acceptance requires the exact current Package ID, current observed facts,
+resolved Decisions, and explicit acknowledgment of every Attention ID. An exact
+later Human event records accepted, correction-requested, rejected, or deferred.
+Correction creates a successor delivery Attempt with new interpretation while
+preserving the original baseline and earlier delivery. Deferral leaves the task
+open; acceptance and rejection close it. Adoption never commits, merges,
+publishes, deploys, or grants unrelated authority.
+
+## Host adapters
+
+Codex initialization generates `.agents/skills/stetra/SKILL.md`,
+`.codex/agents/stetra-analyzer.toml`, owned `.codex/hooks.json` fragments, and an
+`AGENTS.md` pointer. The Analyzer requests a read-only sandbox and inherits
+session model/reasoning settings. Claude Code initialization generates its
+Skill, `.claude/agents/stetra-analyzer.md`, settings fragments, and `CLAUDE.md`
+pointer. Its Analyzer allows only Read/Grep/Glob; the parent supplies frozen
+input, source, and result schema. These are different capability requests.
+
+SessionStart injects admission or exact task recovery. Report with
+`--binding-token` reserves an Analysis Request. SubagentStart binds only the
+requested `stetra-analyzer` identity; child events never admit another task.
+SubagentStop ingests only that child's final raw JSON with a minimal native
+receipt. It does not read transcripts. Invalid results get at most one format
+repair continuation before an explicit fallback. Native receipt proves routing
+and event identity, not independent reasoning, semantic truth, or isolation.
+
+Main Stop requests at most one continuation for unchanged unfinished state.
+Pending Human choices permit stop. Hooks do not execute Git collection, checks,
+or models. Failed native transport can be relayed by the parent through
+`assessment submit` with Agent-relayed provenance. Same-context and unavailable
+fallbacks remain explicit adoption limitations.
+
+Automated native event fixtures cover both adapters and packed CLI transport.
+They are not evidence of a completed live Host/model session. Actual Host trust,
+feature support, permission enforcement, and model behavior require native
+integration verification for the installed Host version.
+
+Local configuration checks used Codex CLI `0.153.4` and Claude Code `2.1.123`.
+Codex's `debug prompt-input` discovered the generated Skill; that diagnostic did
+not report even a deliberately malformed Analyzer profile, so it provides no
+Analyzer-discovery evidence. Claude's `agents` command listed `stetra-analyzer`.
+Both generated Skills passed the skill format validator. A complete live
+Host/model session has not been verified in this implementation run.
+
+## Persistence and recovery
 
 ```text
-actual behavior
-implementation mechanism
-optional preserved invariants
-optional failure and recovery behavior
-optional important effects
-optional material tradeoffs
-optional residual unknowns
-optional consequence-directed review focus
-Agent recommendation
-optional consequential concern findings
+.stetra/tasks/<taskId>/
+  artifacts/<artifact-id-digest>.json
+  events/<sequence>.json
+  worktree-objects/
+  collections/<operationId>/change.patch
+  collections/<operationId>/checks/...
+.stetra/host-sessions/<host>/<session-digest>/...
+.stetra/staging/...
 ```
 
-Runtime adds mechanical Attention for:
+Immutable artifacts and collection files publish before the event that commits
+them. Ordered event replay reconstructs state without modifying storage; no
+redundant projection cache is required. Inspection never repairs state. A
+worktree lease serializes collection and baseline publication; task locks and
+expected revisions reject concurrent stale writers. Recovery removes only
+recognized staging owned by a confirmed dead process and preserves unknown
+owner data. Interrupted Begin recovers its exact pending session association
+before or after publication, avoiding duplicate admission.
 
-- current failed or unavailable checks;
-- verifier-surface changes;
-- check-induced worktree changes;
-- unrepresentable changes;
-- residual unknowns;
-- missing evidence required by an Adoption Concern.
-
-Runtime can reject a concern conclusion or recommendation that exceeds its
-declared evidence. It does not validate the truth of natural-language behavior
-or diagnosis.
-
-The result is one compact Developer Decision Brief. Full facts, logs, patch,
-Contract, Handoff, and event history remain available through bounded
-`task inspect` sections.
-
-`task inspect --section handoff` rebuilds the same current Decision Brief,
-including exact Human corrections, material behavior and mechanism, unknowns,
-and review consequences with readable path/Check references. Terminal output
-includes these details and preserves the recorded adoption status.
-
-## Human decision
-
-The Host presents the current Decision Brief and stops. Only a later exact
-developer message can authorize:
-
-```text
-accepted | correction-requested | rejected | deferred
-```
-
-Acceptance with Attention must acknowledge every current Attention item.
-Decision is bound to the current Contract, Attempt, Fact Collection, and
-Handoff fingerprint.
-
-`correction-requested` starts a successor Attempt while preserving the prior
-facts, Handoff, and decision. Other actions close the task. Decision never
-commits, merges, publishes, deploys, or updates cross-task policy.
-
-## Currency
-
-Any repository edit or declared execution-input change after Collect makes the
-facts stale. Handoff then returns `collect` without persisting Agent prose.
-Any edit after Handoff similarly requires a new collection and Handoff before a
-Human decision can be recorded.
-Summary, Handoff inspection, and Host Hooks derive their visible phase and next
-step from current facts. A stale Handoff can still be inspected as a historical
-artifact, but no current Decision Brief is emitted for it. Inspection does not
-write a lifecycle event. Exact task corrections are available in summary and
-the latest correction is included in resumed Host context.
-
-## Host continuity
-
-SessionStart injects only:
-
-- admission policy when no task is bound;
-- current task identity and visible phase when a task is bound;
-- the smallest next engineering action.
-
-Stop may request one continuation for one unchanged unfinished task state. A
-second identical Stop allows the Host to stop and emits a visible warning. A
-current Decision Brief is presented without continuation. Hooks never infer a
-task from the worktree and never create Human authority.
-
-The generated adapters are honest about their provider capabilities. A thin
-Skill fallback can call the portable CLI but cannot attest native event
-identity or enforcement. Relayed Human text remains visibly unattested.
-
-## Inspection
-
-Summary and index sections are:
-
-```text
-summary | contract | baseline | collections | handoff | decision | events
-```
-
-`collections` returns compact collection summaries. `collection` selects one
-Fact Collection; `check` selects one readable Check key and optional Attempt;
-`log` returns at most 65,536 trailing bytes from one selected stdout or stderr
-stream. Summary never expands full logs, patches, baseline trees, or event
-history.
-
-## Persistence
-
-Task artifacts live only beneath `.stetra/tasks/<taskId>/`. Events include only
-task begin, non-duplicate fact collection, Handoff, Human decision, and a
-future explicit Contract or verification amendment. Task projection is a
-rebuildable cache.
-
-Schema `1` artifacts are unsupported. The CLI does not translate, migrate, or
-silently reinterpret them.
+The inspection sections are `summary`, `intent`, `decisions`, `baseline`,
+`verification`, `observations`, `observation`, `report`, `analysis`, `assessment`,
+`adoption`, `history`, `source`, `patch`, `check`, and `log`. Explicit selectors
+choose historical request, Observation, Package, check, or Attempt references.
+No transcripts, ordinary Hook events, or cross-task memory are persisted.
