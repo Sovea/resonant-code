@@ -10,11 +10,13 @@ import { ensureHostSession } from '../src/host/session.ts';
 import { describeTaskInput, inputCommandNames, taskInputExamples, type InputKind } from '../src/schemas/task-input.ts';
 import { beginTask } from '../src/workflow/begin.ts';
 import { collectTask } from '../src/workflow/collect.ts';
+import { reportTask } from '../src/workflow/report.ts';
+import { authorTask } from '../src/workflow/author.ts';
 import { decideAdoption } from '../src/workflow/adoption.ts';
 import { inspectTask } from '../src/workflow/inspect.ts';
 import { commitTaskCommand, loadTask, withWorktreeLease } from '../src/workflow/task-store.ts';
 import { acquireLock, releaseLock, writeImmutableJson } from '../src/workflow/storage-io.ts';
-import { beginInput, prepare, repository } from './fixtures/task.ts';
+import { beginInput, prepare, reportInput, repository } from './fixtures/task.ts';
 
 test('CLI preserves exact Human text and assertion/preparation argv, including empty arguments', async () => {
   const root = repository();
@@ -45,6 +47,48 @@ test('all input schemas are discoverable without a repository and input errors i
   await assert.rejects(() => runCli(['task', 'report', '--task', 'fixture'], { input: Readable.from(['{"report":{}}']) }), /task report --input-schema --json/);
   await assert.rejects(() => runCli(['adoption', 'decide']), /requires --task/);
   await assert.rejects(() => runCli(['task', 'begin'], { input: Readable.from([]) }), /empty/i);
+});
+
+test('CLI reassessment reuses a current Report without reading stdin and preserves prior requests', async () => {
+  const root = repository();
+  const input = new Readable({ read() { throw new Error('Reassessment must not read stdin.'); } });
+  try {
+    const began = await beginTask({ projectRoot: root, source: beginInput() });
+    const task = { projectRoot: root, taskId: began.taskId };
+    const argv = ['--json', 'task', 'report', root, '--task', began.taskId];
+    const reassess = [...argv, '--reassess', '--reason', 'Retry interrupted Host analysis.'];
+    await assert.rejects(() => runCli(reassess, { input }), /requires a current Report/);
+    assert.equal(loadTask(root, began.taskId).state.revision, 1);
+    writeFileSync(join(root, 'app.txt'), 'new\n');
+    await collectTask(task);
+    const first = await reportTask({ ...task, source: reportInput() });
+    const prior = loadTask(root, began.taskId).state.records;
+    const result = await runCli(reassess, { input });
+    const output = result.output as typeof first;
+    assert.equal(output.current.reportId, first.current.reportId);
+    assert.equal(output.current.observationId, first.current.observationId);
+    assert.notEqual(output.current.requestId, first.current.requestId);
+    const state = loadTask(root, began.taskId).state;
+    assert.deepEqual(state.records.slice(0, prior.length), prior);
+    assert.equal(state.records.filter((record) => record.kind === 'report').length, 1);
+    assert.equal(state.records.filter((record) => record.kind === 'analysis-request').length, 2);
+    const request = state.records.find((record) => record.id === output.current.requestId);
+    assert.ok(request?.kind === 'analysis-request');
+    assert.equal(request.reason, 'Retry interrupted Host analysis.');
+
+    await assert.rejects(() => runCli([...argv, '--reassess'], { input }), /requires --reason/);
+    await assert.rejects(() => runCli([...argv, '--reason', 'Retry.'], { input }), /requires --reassess/);
+    await assert.rejects(() => runCli([...reassess, '--input', '-'], { input }), /omit --input/);
+    writeFileSync(join(root, 'app.txt'), 'changed after Report\n');
+    await assert.rejects(() => runCli(reassess, { input }), /FACTS_STALE/);
+    assert.equal(loadTask(root, began.taskId).state.revision, state.revision);
+    writeFileSync(join(root, 'app.txt'), 'new\n');
+    await authorTask({ ...task, command: { type: 'amend', input: { kind: 'interpretation',
+      interpretation: { desiredOutcome: 'A revised explanation.', constraints: [], nonGoals: [] }, reason: 'Revise Agent understanding.' } } });
+    const amended = loadTask(root, began.taskId).state.revision;
+    await assert.rejects(() => runCli(reassess, { input }), /requires a current Report/);
+    assert.equal(loadTask(root, began.taskId).state.revision, amended);
+  } finally { input.destroy(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test('same-session Begin is idempotent; a later admitted task follows an exact closed task', async () => {

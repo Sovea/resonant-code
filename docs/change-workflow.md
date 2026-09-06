@@ -143,7 +143,10 @@ Report freezes the Intent, Decision state, verification plan, Observation,
 report, and prior findings into an Analysis Request. Identical reports and
 identical results are reused. Explicit reassessment of an unchanged report uses
 `task report --reassess --reason <reason>`. The earlier request and result remain
-inspectable. A conflicting replacement result for the same request is rejected.
+inspectable. This command reuses the current retained Report without reading
+stdin; omit `--input`. Changed Report bindings require an authored Report first,
+and stale worktree facts still require collection. A conflicting replacement
+result for the same request is rejected.
 
 The Host runs the Analyzer. Core and CLI never call an LLM or create an Agent
 loop. Analyzer claims reconstruct before/after behavior and mechanism, link to

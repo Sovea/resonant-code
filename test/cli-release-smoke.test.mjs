@@ -102,7 +102,12 @@ try {
     behavior: 'The fixture exports the number 2.', mechanism: ['The source literal changed.'], decisions: ['format'],
     evidence: [{ kind: 'source', snapshot: 'current', path: 'src/example.ts' }, { kind: 'check', checkKey: 'fixture-check' }],
   } }, ['--binding-token', bindingToken]);
-  const requestId = report.current.requestId;
+  const reassessed = call('task', 'report', undefined,
+    ['--reassess', '--reason', 'Retry interrupted packed Host analysis.', '--binding-token', bindingToken]);
+  assert.equal(reassessed.current.reportId, report.current.reportId);
+  assert.equal(reassessed.current.observationId, report.current.observationId);
+  assert.notEqual(reassessed.current.requestId, report.current.requestId);
+  const requestId = reassessed.current.requestId;
   assert.equal(call('task', 'inspect', undefined, ['--section', 'source', '--request', requestId,
     '--snapshot', 'baseline', '--path', 'src/example.ts']).content, 'export const value = 1;\n');
   const child = { agent_id: 'packed-analyzer', agent_type: 'stetra-analyzer', turn_id: 'packed-turn' };
@@ -130,7 +135,7 @@ try {
   });
   assert.equal(adopted.phase, 'complete'); assert.deepEqual(native('stop'), {});
   const history = call('task', 'inspect', undefined, ['--section', 'history']);
-  assert.deepEqual(history.events.map((item) => item.event.type), ['begin', 'propose', 'collect', 'report', 'assess', 'prepare', 'decide']);
+  assert.deepEqual(history.events.map((item) => item.event.type), ['begin', 'propose', 'collect', 'report', 'report', 'assess', 'prepare', 'decide']);
   const next = runJson(entrypoint, ['--json', 'task', 'begin', project, '--binding-token', bindingToken], consumer, JSON.stringify(beginInput));
   assert.notEqual(next.taskId, began.taskId);
   const resumed = runJson(entrypoint, ['--json', 'task', 'begin', project, '--binding-token', bindingToken], consumer, JSON.stringify(beginInput));

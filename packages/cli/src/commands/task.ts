@@ -43,11 +43,20 @@ export function registerTaskCommands(program: Command, environment: CommandEnvir
       .option('--input-schema', 'show the actual input schema and validated example without reading a task');
     if (kind === 'begin' || kind === 'report') command.option('--binding-token <token>', 'opaque parent Host-session binding');
     if (kind === 'decide') command.option('--package <id>', 'presented Package ID; must agree with the input');
-    if (kind === 'report') command.option('--reassess', 'request another analysis of unchanged report inputs')
+    if (kind === 'report') command.option('--reassess', 'reuse the current Report for another analysis without reading stdin')
       .option('--reason <text>', 'Agent-authored reason for --reassess');
     command.action(async (root: string, options: InputOptions, source: Command) => {
       if (options.inputSchema) { environment.emit(inputCommandNames[kind], describeTaskInput(kind), source); return; }
       if (kind !== 'begin' && !options.task) throw usageError('This command requires --task <id>.');
+      if (kind === 'report') {
+        if (Boolean(options.reassess) !== Boolean(options.reason)) throw inputError('--reassess requires --reason, and --reason requires --reassess.');
+        if (options.reassess) {
+          if (source.getOptionValueSource('input') === 'cli') throw inputError('--reassess reuses the current Report; omit --input.');
+          environment.emit(inputCommandNames[kind], await reportTask({ projectRoot: root, taskId: options.task!,
+            reassessReason: options.reason!, bindingToken: options.bindingToken }), source);
+          return;
+        }
+      }
       const document = await readDocument(root, options.input, environment.runtime.input);
       const result = await executeInput(kind, root, options, document);
       environment.emit(inputCommandNames[kind], result, source);
@@ -108,8 +117,7 @@ async function executeInput(kind: InputKind, projectRoot: string, options: Input
     case 'verification-revise': return authorTask({ projectRoot, taskId, command: { type: 'verification-revise', input: parse('verification-revise') } });
     case 'report': {
       const input = parse('report');
-      if (Boolean(options.reassess) !== Boolean(options.reason)) throw inputError('--reassess requires --reason, and --reason requires --reassess.');
-      return reportTask({ projectRoot, taskId, source: { ...input, ...(options.reassess ? { reassessReason: options.reason } : {}) }, bindingToken: options.bindingToken });
+      return reportTask({ projectRoot, taskId, source: input, bindingToken: options.bindingToken });
     }
     case 'assess': return submitAssessment({ projectRoot, taskId, source: parse('assess') });
     case 'prepare': return prepareAdoption({ projectRoot, taskId, source: parse('prepare') });
