@@ -167,3 +167,97 @@ These observations identify concrete adapter and authoring costs. They do not
 measure whether Stetra is faster, cheaper, more effective, or better at preserving
 developer understanding than direct Codex use. Such claims remain governed by
 [the paired-agent protocol](../evaluation/paired-agent/PROTOCOL.md).
+
+## Daily-use closure continuation
+
+The subsequent run used paired archives built from `b8d133d`; the later
+`27d66d6` changes only test fixtures. Installed Core/CLI bundles matched the
+fully verified build byte-for-byte. The same Codex parent continued the existing
+task with normal implementation permissions for repair, analysis, and Package
+preparation. No coordinator permission switches or new Human corrections were
+needed during this continuation.
+
+The Implementer corrected its own Intent interpretation to remove expired
+coordination stages and deadlines, reaffirmed the existing API choice under
+existing authority, and repaired synchronous re-entry. Both dev and preview now
+publish a deferred close operation before invoking any hook. Reentrant calls
+join that operation; the development path keeps the first close reason. Public
+async wrappers still return distinct Promise objects adopting the shared outcome.
+Documentation explicitly excludes a hook awaiting or returning its own unfinished
+close operation, which would form a cyclic wait.
+
+Two successive Collections retained their exact verification plans and results.
+The final six Runtime checks were:
+
+| Check | Retained result |
+| --- | --- |
+| Complete lifecycle unit file | 29 passed, including four success/rejection re-entry cases |
+| Complete utils unit file | 119 passed, one skipped, one failed |
+| Focused signal tests | Two passed |
+| Vite package typecheck | Passed |
+| Explicit implementation/spec ESLint paths | Passed; the `.mts` fixture is not in this argv |
+| Changed code, fixture, and guide formatting | Passed |
+
+The utils failure occurs in unchanged `resolveServerUrls` code when
+`os.networkInterfaces()` returns `uv_interface_addresses Unknown system error 1`
+inside the Host. The Agent retained that failure and added a focused signal
+check; it did not change the unrelated test or turn the complete suite green.
+No baseline Check Attempt was retained to establish the same failure before
+implementation.
+
+An independent copy matched all 2,814 frozen source entries, including bytes
+and modes. Outside the Codex execution boundary, both complete changed unit
+files passed together (149 passed, one skipped), as did a fresh Vite bundle.
+Real listening dev/preview servers passed success and rejection re-entry cases:
+each hook ran once, rejection reasons were preserved, and HTTP listeners closed.
+These results support the environment attribution and the repair. They are
+independent validation, not Runtime Check Attempts or evidence silently added to
+the Analyzer's frozen request.
+
+The fresh native Analyzer explicitly marked `reentrant-close-memoization-gap`
+and `close-promise-identity-overclaim` as `addressed`. It found no new semantic
+findings and reported that the three earlier repairs remained present. The
+SubagentStop Hook accepted its original JSON against the current Request.
+The final Package recommends `accept-with-limitations`, has current facts, and
+awaits Human adoption. No acceptance or new Human event was fabricated.
+
+| Retained identity | Value |
+| --- | --- |
+| Task | `fbb9d470-af6b-4438-8b15-4ece7e70b569` |
+| Observation | `44d4bc27-5080-467e-8e18-2445b81266c3:observation` |
+| Analysis Request | `704091ca-12f2-4dc3-8c60-7d0d106e7348:analysis-request` |
+| Assessment | `74725d55-00c9-4024-b3c0-5d93fd304178:assessment` |
+| Package | `0c093753-9f20-4088-b328-b544acb48259:adoption-package` |
+
+Native child metadata records `stetra-analyzer`, inherited `gpt-5.6-sol`/`max`,
+and effective `workspace-write` permissions. The parent requested `fork_turns:
+none`. This run establishes native routing and a completed assessment workflow;
+it does not establish read-only isolation or semantic correctness. Full Vite
+monorepo/documentation builds, Windows signal execution, restart-plus-signal
+and repeated/cross-signal scenarios remain outside the retained verification.
+The first historical Human event also contains explicitly labelled coordinator
+organization around a quoted approval; it remains unattested input, not newly
+certified verbatim developer direction.
+
+All 3,421 previously retained task files and both Human events remained
+byte-identical, and the frozen source stayed unchanged through final delivery.
+This continuation exited normally after about 46 minutes with the inherited
+model/effort settings. That includes repair, repeated typechecking, analysis,
+and delivery; it is a single-run wall-clock observation, not an efficiency claim.
+
+Remaining friction was observable: a mistaken `verify revise` command,
+`observations --observation` selector conflict, a projection assumption in a jq
+filter, and reuse of a historical child name required recovery. All recovered
+within the same Host continuation without Human intervention. Progress surfaced
+the long typecheck and failed utils check before collection completed. Re-rendering
+the same historical Package reduced text output from 301 to 129 lines while
+preserving full request-bound inspection; this measures output size only.
+
+Local full verification passed 66 behavior tests, coverage thresholds,
+deterministic builds, isolated Core and paired archive installations, release
+contracts, and CLI checks. The high-severity dependency audit found no known
+vulnerabilities. Both Ubuntu and Windows CI passed for `27d66d6`:
+[push verification](https://github.com/Sovea/stetra/actions/runs/34033401437) and
+[PR verification](https://github.com/Sovea/stetra/actions/runs/34033439681).
+These checks establish implementation and distribution consistency. They do
+not establish reduced adoption cost or preserved developer cognition.
