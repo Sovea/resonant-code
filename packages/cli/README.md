@@ -9,11 +9,8 @@ stetra init .
 stetra status .
 ```
 
-Codex is the default project adapter. Add Claude Code with
-`stetra init . --adapter codex --adapter claude`. Initialization preserves owner
-files and generates a Skill, Analyzer profile, and lifecycle Hook fragments.
-Developers continue using the Host through normal conversation:
-`Align -> Work -> Decide`.
+Initialization installs project guidance and Hooks. Start a new Codex session
+and ask it to use Stetra for the task: `Align -> Work -> Decide`.
 
 ```text
 task begin -> implementation -> task collect -> task report
@@ -36,10 +33,9 @@ Timeout retries require an actual timeout and a larger bounded budget. One
 explicit non-timeout refresh per unchanged delivery Attempt can record external
 recovery. Edits invalidate current delivery rather than erase prior evidence.
 
-The Host invokes analysis; Core and CLI do not call an LLM. Codex's Analyzer
-requests a read-only sandbox. Claude's Analyzer has Read/Grep/Glob and receives
-frozen evidence from its parent. Relayed, same-context, and unavailable analysis
-remain explicit. A native receipt attests routing, not independent reasoning.
+The Host invokes analysis; Core and CLI do not call an LLM. Analysis provenance
+and unavailable boundaries remain explicit. A native receipt establishes routing;
+semantic correctness and effective permission isolation require separate evidence.
 
 Only an exact later Human event adopts a current Package. Findings survive
 omission or implementer claims of repair, and accepting limitations requires

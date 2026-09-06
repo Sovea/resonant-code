@@ -1,6 +1,7 @@
 # Contributing
 
-Use Node.js 22 and pnpm 10.33.0:
+Read [AGENTS.md](AGENTS.md) for the project goal and core design. Use Node.js 22
+and pnpm 10.33.0:
 
 ```sh
 corepack pnpm install --frozen-lockfile
@@ -8,27 +9,38 @@ corepack pnpm verify
 corepack pnpm audit --audit-level high
 ```
 
-Read [Architecture](docs/architecture.md) before changing product boundaries,
-authority, persistence, public APIs, or host interaction. Read
-[Change workflow](docs/change-workflow.md) before changing CLI lifecycle or
-task-run behavior.
+[Core](packages/core/README.md) owns the deterministic task domain and schemas;
+[CLI](packages/cli/README.md) owns IO and Host integration. Command schemas are
+available through `--input-schema --json`.
 
-The workspace has two version-locked packages:
+Keep `dist/` generated and untracked. Cover changed behavior and recovery paths;
+package changes require isolated Core and paired Core/CLI archive verification.
 
-- Core owns deterministic Semantic Contract compilation, fact binding, and
-  Cognitive Handoff evaluation.
-- CLI owns workflow IO, Git and check collection, run sequencing,
-  initialization, generated host workflows, and presentation.
+## Local installation
 
-Core exports only `compileDelegation` and `evaluateHandoff` as runtime values.
-Generated adapters stay thin: they invoke the CLI protocol and leave repository
-reasoning to the host agent.
+After installing workspace dependencies, pack and install both packages together:
 
-Preserve unrelated changes in dirty worktrees. Keep `dist/` generated and
-untracked. Changes to release behavior must pass the isolated Core archive and
-paired Core/CLI archive smoke workflows. Maintainer publication follows the
-[trusted release process](docs/releasing.md).
+```sh
+STETRA_INSTALL_DIR="$HOME/.local/share/stetra"
+mkdir -p "$STETRA_INSTALL_DIR/archives"
+corepack pnpm -C packages/core pack --pack-destination "$STETRA_INSTALL_DIR/archives"
+corepack pnpm -C packages/cli pack --pack-destination "$STETRA_INSTALL_DIR/archives"
+npm install --prefix "$STETRA_INSTALL_DIR/runtime" --ignore-scripts \
+  "$STETRA_INSTALL_DIR/archives/sovea-stetra-core-0.0.1.tgz" \
+  "$STETRA_INSTALL_DIR/archives/sovea-stetra-0.0.1.tgz"
+export PATH="$STETRA_INSTALL_DIR/runtime/node_modules/.bin:$PATH"
+```
 
-Technical verification does not establish product effectiveness. Any claim
-about adoption cost or developer cognition must follow
-[`evaluation/paired-agent/PROTOCOL.md`](evaluation/paired-agent/PROTOCOL.md).
+Keep that bin directory in the PATH used to launch Codex.
+
+## Publishing
+
+Configure the GitHub `npm` environment and both packages' npm trusted publishers
+for this repository's `publish.yml` workflow and that environment. Publish a
+GitHub Release from a version tag on `main` to run the
+[publish workflow](.github/workflows/publish.yml).
+
+Core, CLI, and `PRODUCT_VERSION` share the committed stable version. Stable tags
+match it; prerelease tags add a suffix, applied only in the publishing runner.
+The workflow verifies both archives and publishes Core before CLI. Release
+validation and recovery behavior are defined by the workflow and `scripts/`.

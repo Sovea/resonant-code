@@ -2,45 +2,29 @@
 
 **Let the Agent implement. Keep the engineering thread and the final say.**
 
-Stetra connects developer direction, engineering decisions during work,
-observed changes, semantic assessment, and Human adoption inside coding Hosts.
-
-Its objective is to reduce the total cost from request to confident adoption
-without weakening the developer's system understanding or engineering
-judgment.
+Stetra helps developers delegate coding work while retaining direction,
+engineering understanding, and authority. It connects requests, engineering
+choices, observed changes, and analysis inside the coding workflow.
 
 ## Install
 
-For this initial checkout, follow the [paired-archive installation and daily
-Codex workflow](docs/daily-use.md). A registry install may contain a different
-published version:
+Install the published package with Node.js 22 or later:
 
 ```sh
 npm install --global @sovea/stetra
 ```
 
+To use this checkout, follow [local installation](CONTRIBUTING.md#local-installation).
+
 ## Use
 
-Initialize Stetra in the repository where the Agent will work:
+Initialize Stetra in your project:
 
 ```sh
 cd /path/to/project
 stetra init .
-stetra status .
 ```
 
-Codex is the default adapter. To include Claude Code, use
-`stetra init . --adapter codex --adapter claude`. Review the generated project
-Hooks when the Host requests trust.
-
-Then give the coding task to your Agent as usual. Project admission policy,
-generated Host hooks, and one compact Skill apply Stetra only to admitted coding
-changes. The visible path is `Align -> Work -> Decide`: the Agent implements
-normally within existing authority, records concrete choices and corrections,
-and supplies an implementation report. Stetra retains exact Git and Check
-facts; a Host Analyzer assesses the frozen result and surfaces findings. You
-review the resulting adoption Package and accept, correct, reject, or defer it.
-
-Core and CLI do not call models. Findings and disagreements remain visible;
-passing checks are evidence, not adoption. See the
-[executable workflow](docs/change-workflow.md) and [architecture](docs/architecture.md).
+Start a new Codex session and ask it to use Stetra for the task. Review the
+result, evidence, and open questions, then accept it or request changes.
+Use `stetra status .` to find unfinished work after an interruption.

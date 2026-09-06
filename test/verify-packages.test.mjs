@@ -69,11 +69,3 @@ const trackedDist = execFileSync(
 const presentTrackedDist = trackedDist.filter((path) => existsSync(resolve(root, path)));
 assert.deepEqual(presentTrackedDist, [], 'Generated dist files must not remain tracked by Git.');
 assert.match(readFileSync(resolve(root, '.gitignore'), 'utf8'), /^\*\*\/dist\/$/m);
-
-for (const file of [
-  'docs/architecture.md',
-  'docs/change-workflow.md',
-  'evaluation/paired-agent/PROTOCOL.md',
-]) {
-  assert.ok(existsSync(resolve(root, file)), `Missing project artifact ${file}.`);
-}
