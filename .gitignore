@@ -1,0 +1,6 @@
+.claude/
+node_modules/
+**/dist/
+.entire/
+coverage/
+.stetra/runs/
