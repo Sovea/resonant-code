@@ -11,6 +11,10 @@ judgment.
 
 ## Install
 
+For this initial checkout, follow the [paired-archive installation and daily
+Codex workflow](docs/daily-use.md). A registry install may contain a different
+published version:
+
 ```sh
 npm install --global @sovea/stetra
 ```
