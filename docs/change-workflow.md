@@ -29,6 +29,14 @@ Existing Human admission remains effective. The Agent supplies the exact Human
 request without trimming; relayed Human text is labelled `unattested-input`.
 An opaque Host binding token provides continuity, not Human authority.
 
+`stetra status . --json` lists unfinished admitted tasks without selecting one.
+In a new Host session, `stetra task resume . --task <taskId> --binding-token
+<session-token> --json` restores the exact selected task binding. It creates no
+Human event, task, or new Attempt and executes no checks or model. A closed task
+cannot resume. A session already bound to different unfinished work cannot be
+silently rebound. If its former Host analysis cannot resume, explicitly reassess
+the current Report with the new session token; do not invent a native receipt.
+
 ## Portable task loop
 
 ```text

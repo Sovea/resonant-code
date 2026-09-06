@@ -57,6 +57,13 @@ export function formatReadiness(output: JsonObject, colors: Colors): string {
       colors,
     )}`);
   }
+  if (Array.isArray(output.unfinishedTasks) && output.unfinishedTasks.length) {
+    lines.push('', colors.bold('Unfinished tasks'));
+    for (const task of output.unfinishedTasks) if (isRecord(task)) {
+      lines.push(`${String(task.taskId)} — ${String(task.phase)}: ${String(task.outcome)}`);
+    }
+    lines.push('Ask the Host to resume the intended task. No task was selected automatically.');
+  }
   if (Array.isArray(output.issues) && output.issues.length) {
     lines.push('', colors.bold('Required'));
     for (const issue of output.issues) {

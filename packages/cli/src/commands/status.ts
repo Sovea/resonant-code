@@ -6,6 +6,7 @@ import { Command } from 'commander';
 import { captureGitWorktree } from '../facts/worktree.ts';
 import { inspectProjectInstallation } from '../project/init.ts';
 import { readProjectConfig } from '../schemas/config.ts';
+import { inspectUnfinishedTasks } from '../workflow/resume.ts';
 import {
   PROTOCOL,
   SCHEMA_VERSION,
@@ -58,6 +59,8 @@ export function registerStatusCommand(
       worktree = { status: 'unsupported', message };
       issues.push({ code: 'git-worktree-unsupported', message });
     }
+    const unfinished = inspectUnfinishedTasks(projectRoot);
+    issues.push(...unfinished.issues);
     environment.emit('status', {
       protocol: PROTOCOL,
       schemaVersion: SCHEMA_VERSION,
@@ -66,6 +69,8 @@ export function registerStatusCommand(
       version: productVersion,
       issues,
       installation,
+      unfinishedTasks: unfinished.tasks,
+      recovery: 'Choose the exact task from the developer direction; never guess the latest task. The Host can bind it with task resume --task <id> --binding-token <session-token>.',
       ...(config ? {
         config: {
           admission: config.admission,

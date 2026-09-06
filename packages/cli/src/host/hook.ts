@@ -92,6 +92,7 @@ function admissionContext(projectRoot: string, bindingToken: string): string {
     : config.admission === 'required' ? 'Project policy admits coding tasks into Stetra. Conversation-only work creates no task.'
       : 'Start Stetra only for an explicitly admitted coding task.';
   return [`Stetra admission: ${config.admission}.`, admission,
+    'To continue an existing task in this session, inspect stetra status . --json, select its exact task ID from the developer direction, and use task resume --task TASK_ID --binding-token TOKEN. Do not create another task for resumed work or guess the latest task.',
     'Use the generated Stetra skill. Begin before editing; preserve the exact Human request and existing authority.',
     `Pass --binding-token ${bindingToken} to task begin and task report. The token establishes continuity, not Human authority.`].join('\n');
 }

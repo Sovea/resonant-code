@@ -15,6 +15,7 @@ import { reportTask } from '../workflow/report.ts';
 import { submitAssessment } from '../workflow/assessment.ts';
 import { prepareAdoption, decideAdoption } from '../workflow/adoption.ts';
 import { inspectTask } from '../workflow/inspect.ts';
+import { resumeTask } from '../workflow/resume.ts';
 import type { CommandEnvironment } from './shared.ts';
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
@@ -26,6 +27,13 @@ export function registerTaskCommands(program: Command, environment: CommandEnvir
   const verification = program.command('verification').description('Revise explicit verification without erasing earlier attempts');
   const assessment = program.command('assessment').description('Submit attributed semantic analysis');
   const adoption = program.command('adoption').description('Prepare a result for an exact Human adoption decision');
+  task.command('resume').description('Bind this Host session to one explicitly selected unfinished task')
+    .argument('[project-root]', 'Git worktree root', '.')
+    .requiredOption('--task <id>', 'exact existing task ID')
+    .requiredOption('--binding-token <token>', 'current Host-session binding token')
+    .action(async (root: string, options: { task: string; bindingToken: string }, source: Command) => {
+      environment.emit('task resume', await resumeTask({ projectRoot: root, taskId: options.task, bindingToken: options.bindingToken }), source);
+    });
   const commands: Array<[Command, string, InputKind, string]> = [
     [task, 'begin', 'begin', 'Admit exact direction and capture the full dirty Git baseline'],
     [task, 'amend', 'amend', 'Preserve an in-work correction or attributed interpretation revision'],

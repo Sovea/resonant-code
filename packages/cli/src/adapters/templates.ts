@@ -20,6 +20,11 @@ facts come from Runtime output. Pass \`--task TASK_ID\` after Begin.
 ## Align
 
 Follow project admission policy. Existing explicit admission remains effective.
+For continued work in a new Host session, read \`stetra status . --json\` and bind
+the exact unfinished task with \`stetra task resume --task TASK_ID --binding-token
+TOKEN\`, using this session's Hook token. Never guess the most recent task or
+create another task to recover existing work. Ask which task only if the
+developer's direction does not identify one. Resume changes only the Host binding.
 Conversation-only work and declined tasks create no task. For an admitted task,
 call Begin before editing with the exact Human request, your interpretation,
 and actual check argv, a project profile, or a concrete no-command rationale:
