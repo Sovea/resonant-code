@@ -228,6 +228,14 @@ The text and JSON Package distinguish the Agent recommendation, actual behavior,
 important choices and authority, Runtime observations, Analyzer judgment,
 finding responses, maintenance entry points, and pending Human choice. Details
 remain inspectable through `task inspect`.
+The human brief shows each open finding once, with numbered Attention references
+to its expanded explanation. Detailed Analyzer claims, evidence digests, and
+native receipt fields remain in the request-bound inspection. Report and
+Assessment unknowns retain their distinct attribution; Runtime does not merge
+similar prose. Agents present the brief in the developer's language and bind the
+exact later natural-language response to the Package and acknowledged limitations.
+The developer need not write JSON or copy protocol IDs. Runtime does not parse
+that prose or infer acknowledgment.
 
 Acceptance requires the exact current Package ID, current observed facts,
 resolved Decisions, and explicit acknowledgment of every Attention ID. An exact

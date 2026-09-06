@@ -109,5 +109,6 @@ export function adoptionBrief(task: LoadedTask, packageId: string, currency?: Cu
         })) : []),
     responses: packet.input.responses, attention: packet.attention, concernFindings: packet.input.concernFindings,
     pendingDecisions: packet.pendingDecisions,
+    inspection: { taskId: task.taskId, requestId: packet.requestId },
   };
 }

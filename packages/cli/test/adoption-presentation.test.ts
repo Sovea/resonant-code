@@ -48,6 +48,11 @@ test('CLI decision, correction, revised verification, analysis, and Human view p
     const prepared = await call('adoption', 'prepare', { recommendation: { action: 'defer', rationale: 'Review the downstream reader.', caveats: ['No compatibility check.'] },
       responses: [{ finding: { assessmentId, key: 'reader' }, response: 'The limitation is disclosed; no claim of resolution.', evidence: [] }] });
     const output = formatCliOutput(prepared);
+    assert.equal(output.split('Reader compatibility lacks evidence.').length - 1, 1);
+    assert.equal(output.split('Consumer behavior is unverified.').length - 1, 1);
+    assert.equal(output.split('Consumer usage is not inspected.').length - 1, 1);
+    assert.ok(!output.includes('Before: The literal reads old.'));
+    assert.match(output, /--section assessment --request/);
     for (const phrase of ['Agent recommendation: defer', 'Human adoption: pending', 'Runtime observations', 'Analyzer judgment',
       'Reader compatibility lacks evidence', 'The limitation is disclosed', 'Inspect the downstream reader', 'same-context', 'Attention ID:']) assert.ok(output.includes(phrase), phrase);
     const packet = (prepared.output as { current: { packageId: string } }).current.packageId;

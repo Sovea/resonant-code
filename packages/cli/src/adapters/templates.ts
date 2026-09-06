@@ -113,8 +113,13 @@ and recommendation proportionally. Keep Runtime facts and Agent judgment clear.
 
 Present the exact Package and pending choice: accept, request correction, reject,
 or defer. Only an exact later Human response may be passed to \`stetra adoption
-decide\`; acknowledge Attention only when the Human explicitly did so. Green
-checks and an Agent recommendation do not authorize adoption. Adoption never
+decide\`; acknowledge Attention only when the Human explicitly did so.
+Present the brief in the developer's language;
+use natural descriptions and numbered Attention items. The Agent binds the
+exact response to the presented Package and explicitly acknowledged Attention
+IDs. Do not ask the developer to author protocol JSON or copy identifiers. If a
+response leaves a required limitation unacknowledged, ask only about that gap.
+Green checks and an Agent recommendation do not authorize adoption. Adoption never
 commits, merges, publishes, or deploys. Repeated unchanged Hook continuation
 permits stopping with the remaining work disclosed.
 `;
