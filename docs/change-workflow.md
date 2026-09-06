@@ -200,7 +200,17 @@ publishes, deploys, or grants unrelated authority.
 Codex initialization generates `.agents/skills/stetra/SKILL.md`,
 `.codex/agents/stetra-analyzer.toml`, owned `.codex/hooks.json` fragments, and an
 `AGENTS.md` pointer. The Analyzer requests a read-only sandbox and inherits
-session model/reasoning settings. Claude Code initialization generates its
+session model/reasoning settings. The Skill requests `fork_turns: "none"` and
+explicit frozen inputs rather than copying the implementation conversation.
+This controls conversation inheritance; it does not attest independent reasoning.
+Codex can reapply parent runtime permissions over custom-agent defaults. A
+read-only setting in the generated file is therefore not proof of enforced
+read-only execution. Use the Host's effective read-only permission mode for the
+analysis turn when needed, returning to implementation permissions for repair
+or Package preparation. Disclose an unavailable boundary; Stetra does not
+change global Host permissions or certify permissions from a Hook receipt.
+See [Codex subagent permissions](https://learn.chatgpt.com/docs/agent-configuration/subagents#approvals-and-sandbox-controls).
+Claude Code initialization generates its
 Skill, `.claude/agents/stetra-analyzer.md`, settings fragments, and `CLAUDE.md`
 pointer. Its Analyzer allows only Read/Grep/Glob; the parent supplies frozen
 input, source, and result schema. These are different capability requests.
@@ -228,8 +238,20 @@ Local configuration checks used Codex CLI `0.153.4` and Claude Code `2.1.123`.
 Codex's `debug prompt-input` discovered the generated Skill; that diagnostic did
 not report even a deliberately malformed Analyzer profile, so it provides no
 Analyzer-discovery evidence. Claude's `agents` command listed `stetra-analyzer`.
-Both generated Skills passed the skill format validator. A complete live
-Host/model session has not been verified in this implementation run.
+Both generated Skills passed the skill format validator.
+
+A local Vite lifecycle task subsequently completed the live Codex CLI `0.153.4`
+path through collection, Report, native Analyzer ingestion, and a pending
+Adoption Package. Its Analyzer identified three omissions after all frozen
+checks passed. This is a single usability observation, not comparative product
+effectiveness evidence. In that run, the Analyzer inherited writable parent
+permissions despite its read-only profile. Isolated write probes reproduced
+this with both legacy sandbox settings and permission profiles, including
+children spawned without conversation history. Merely changing the custom
+agent's permission key did not establish enforcement.
+Selecting `:read-only` for the parent analysis turn did: both child write probes
+failed with `EROFS`. This verifies that tested Host configuration, not a portable
+guarantee that a custom agent can narrow writable parent permissions.
 
 ## Persistence and recovery
 

@@ -26,6 +26,9 @@ test('init generates one compact embedded Host surface and initial schema projec
     assert.match(skill, /stetra task\s+collect/);
     assert.match(skill, /stetra task report/);
     assert.match(skill, /stetra adoption/);
+    assert.match(skill, /fork_turns none/);
+    assert.match(skill, /parent runtime permissions can override it/);
+    assert.match(skill, /Host establishes effective read-only permissions/);
     assert.doesNotMatch(skill, /hostAction|input reserve|task diagnose|revise-verification|Challenge command/);
     assert.ok(Buffer.byteLength(skill) < 7_000);
     assert.equal(existsSync(join(root, '.agents', 'skills', 'stetra', 'references')), false);

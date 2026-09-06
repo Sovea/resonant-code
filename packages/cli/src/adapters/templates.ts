@@ -72,7 +72,7 @@ Ask the Host to run the project \`stetra-analyzer\` profile in a separate analys
 context for this exact request. Supply the frozen input and the schema from
 \`stetra assessment submit --input-schema --json\`. ${adapter === 'claude'
     ? 'The Claude profile has Read/Grep/Glob only. Supply relevant baseline and current source via Runtime source inspection, plus patch and check evidence; it cannot execute CLI commands itself.'
-    : 'The Codex profile requests a read-only sandbox and can inspect retained source through the CLI. Inherit the session model and reasoning settings.'}
+    : 'Use fork_turns none and supply the task and request IDs explicitly; do not copy the implementation conversation. Inherit the session model and reasoning settings. The Codex profile requests read-only command execution, but parent runtime permissions can override it. Only describe execution as read-only when the Host establishes effective read-only permissions. If necessary, use the Host permission controls for a read-only analysis turn after Report, then return to implementation permissions for repair or Adoption preparation. If the Host cannot establish this boundary, disclose that limitation. The Analyzer can inspect retained source through the CLI.'}
 The Analyzer returns raw JSON; a bound SubagentStop Hook records it. The parent
 checks \`task inspect --section assessment\` afterward. If native ingestion is
 unavailable, relay the exact result with \`assessment submit\`; Runtime labels

@@ -58,6 +58,9 @@ try {
   assert.equal(initialized.status, 'initialized'); assert.equal(initialized.schemaVersion, '1');
   assert.deepEqual(initialized.adapters, ['codex']);
   assert.match(readFileSync(join(project, '.codex/agents/stetra-analyzer.toml'), 'utf8'), /sandbox_mode = "read-only"/);
+  const installedSkill = readFileSync(join(project, '.agents/skills/stetra/SKILL.md'), 'utf8');
+  assert.match(installedSkill, /fork_turns none/);
+  assert.match(installedSkill, /parent runtime permissions can override it/);
   git(project, ['init', '--quiet']); git(project, ['config', 'user.email', 'release@example.invalid']);
   git(project, ['config', 'user.name', 'CLI Release Smoke']); git(project, ['add', '-A']); git(project, ['commit', '--quiet', '-m', 'initial']);
   const native = (event, extra = {}) => runJson(entrypoint, ['--json', 'host', 'hook', '--adapter', 'codex', '--event', event], consumer,
