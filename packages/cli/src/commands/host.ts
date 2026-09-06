@@ -3,13 +3,13 @@ import type { Readable } from 'node:stream';
 import { Command } from 'commander';
 import { z } from 'zod';
 
-import type { HostAdapter } from '../adapters/definition.ts';
+import { HOST_ADAPTERS, type HostAdapter } from '../adapters/definition.ts';
 import { inputError } from '../errors.ts';
 import { handleHostHook, type HostHookEvent } from '../host/hook.ts';
+import { HostAdapterSchema } from '../schemas/project.ts';
 import { parseArtifact } from '../validation.ts';
 import type { CommandEnvironment } from './shared.ts';
 
-const HostAdapterSchema = z.enum(['codex', 'claude']);
 const HostHookEventSchema = z.enum(['session-start', 'subagent-start', 'subagent-stop', 'stop']);
 const MAX_HOOK_INPUT_BYTES = 1024 * 1024;
 
@@ -17,7 +17,7 @@ export function registerHostCommands(program: Command, environment: CommandEnvir
   program.command('host')
     .description('Bridge a native Host lifecycle event to the embedded Stetra task layer')
     .command('hook')
-    .requiredOption('--adapter <host>', 'codex or claude')
+    .requiredOption('--adapter <host>', HOST_ADAPTERS.join(' or '))
     .requiredOption('--event <event>', 'session-start, subagent-start, subagent-stop, or stop')
     .action(async (options: { adapter: string; event: string }, source: Command) => {
       const adapter: HostAdapter = parseArtifact(HostAdapterSchema, options.adapter, 'Host adapter');

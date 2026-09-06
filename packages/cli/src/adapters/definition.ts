@@ -2,6 +2,7 @@
 
 export const HOST_ADAPTERS = ['codex', 'claude'] as const;
 export type HostAdapter = typeof HOST_ADAPTERS[number];
+export const DEFAULT_HOST_ADAPTER: HostAdapter = 'codex';
 
 export interface HostAdapterDefinition {
   id: HostAdapter;

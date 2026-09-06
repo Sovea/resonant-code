@@ -19,7 +19,7 @@ import {
   renderAnalyzerProfile,
   type HostAdapter,
 } from '../adapters/templates.ts';
-import { hostAdapterDefinitions } from '../adapters/definition.ts';
+import { DEFAULT_HOST_ADAPTER, HOST_ADAPTERS, hostAdapterDefinitions } from '../adapters/definition.ts';
 import { renderHostHookFragment, type HostHookFragment } from '../adapters/hooks.ts';
 import { inputError } from '../errors.ts';
 import {
@@ -85,7 +85,7 @@ export function initializeProject(options: InitializeProjectOptions = {}) {
     ? normalizeAdapters(options.adapters)
     : existingManifest
       ? []
-      : (['codex'] satisfies HostAdapter[]);
+      : [DEFAULT_HOST_ADAPTER];
   const adapters = normalizeAdapters([
     ...(existingManifest?.adapters ?? []),
     ...requestedAdapters,
@@ -506,10 +506,10 @@ function indexesOf(source: string, needle: string): number[] {
 }
 
 function normalizeAdapters(adapters: HostAdapter[] | undefined): HostAdapter[] {
-  const input: HostAdapter[] = adapters?.length ? adapters : ['codex'];
+  const input: HostAdapter[] = adapters?.length ? adapters : [DEFAULT_HOST_ADAPTER];
   for (const adapter of input) {
     if (!HostAdapterSchema.safeParse(adapter).success) {
-      throw new Error(`Unsupported adapter: ${String(adapter)}. Expected codex or claude.`);
+      throw new Error(`Unsupported adapter: ${String(adapter)}. Expected ${HOST_ADAPTERS.join(' or ')}.`);
     }
   }
   return [...new Set(input)].sort();

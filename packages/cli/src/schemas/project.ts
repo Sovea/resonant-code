@@ -1,11 +1,12 @@
 import { z } from 'zod';
+import { HOST_ADAPTERS } from '../adapters/definition.ts';
 
 import {
   PROTOCOL,
   SCHEMA_VERSION,
 } from '../protocol.ts';
 
-export const HostAdapterSchema = z.enum(['codex', 'claude']);
+export const HostAdapterSchema = z.enum(HOST_ADAPTERS);
 
 export const ManifestArtifactSchema = z.strictObject({
   path: z.string().min(1),

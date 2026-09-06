@@ -9,8 +9,9 @@ stetra init .
 stetra status .
 ```
 
-Initialization installs project guidance and Hooks. Start a new Codex session
-and ask it to use Stetra for the task: `Align -> Work -> Decide`.
+Initialization lets you select coding agents and installs their project guidance
+and Hooks. Start a new session and ask it to use Stetra for the task:
+`Align -> Work -> Decide`.
 
 ```text
 task begin -> implementation -> task collect -> task report

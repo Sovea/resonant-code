@@ -1,4 +1,6 @@
 import type { Colors } from 'picocolors/types';
+import { hostAdapterDefinition } from '../../adapters/definition.ts';
+import { HostAdapterSchema } from '../../schemas/project.ts';
 
 import {
   heading,
@@ -14,7 +16,11 @@ export function formatInit(output: JsonObject, colors: Colors): string {
     statusLine(String(output.status ?? 'unknown'), colors),
   ];
   if (Array.isArray(output.adapters)) {
-    lines.push(`${colors.bold('Adapters:')} ${output.adapters.join(', ') || 'none'}`);
+    const names = output.adapters.map((adapter) => {
+      const parsed = HostAdapterSchema.safeParse(adapter);
+      return parsed.success ? hostAdapterDefinition(parsed.data).displayName : String(adapter);
+    });
+    lines.push(`${colors.bold('Coding agents:')} ${names.join(', ') || 'none'}`);
   }
   if (isRecord(output.counts)) {
     const counts = Object.entries(output.counts)

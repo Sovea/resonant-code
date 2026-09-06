@@ -18,13 +18,13 @@ To use this checkout, follow [local installation](CONTRIBUTING.md#local-installa
 
 ## Use
 
-Initialize Stetra in your project:
+Initialize Stetra in your project and select the coding agents to use:
 
 ```sh
 cd /path/to/project
 stetra init .
 ```
 
-Start a new Codex session and ask it to use Stetra for the task. Review the
-result, evidence, and open questions, then accept it or request changes.
+Start a new session in your coding agent and ask it to use Stetra for the task.
+Review the result, evidence, and open questions, then accept it or request changes.
 Use `stetra status .` to find unfinished work after an interruption.

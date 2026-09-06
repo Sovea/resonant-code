@@ -1,10 +1,11 @@
 import type { Readable, Writable } from 'node:stream';
-import type { HostAdapter } from './project/init.ts';
+import { hostAdapterDefinition, type HostAdapter } from './adapters/definition.ts';
 
 export interface PromptProvider {
   selectAdapters(input: {
-    choices: HostAdapter[];
-    defaults: HostAdapter[];
+    choices: readonly HostAdapter[];
+    defaults: readonly HostAdapter[];
+    installed: readonly HostAdapter[];
     streams: PromptStreams;
   }): Promise<HostAdapter[]>;
 }
@@ -81,15 +82,16 @@ export async function resolveRuntimeContext(
 }
 
 const defaultPromptProvider: PromptProvider = {
-  async selectAdapters({ choices, defaults, streams }) {
+  async selectAdapters({ choices, defaults, installed, streams }) {
     const { checkbox } = await import('@inquirer/prompts');
     return checkbox<HostAdapter>({
-      message: 'Select host adapters to install',
+      message: 'Select coding agents to set up',
       required: true,
       choices: choices.map((adapter) => ({
         value: adapter,
-        name: adapter === 'codex' ? 'Codex' : 'Claude Code',
-        checked: defaults.includes(adapter),
+        name: hostAdapterDefinition(adapter).displayName,
+        checked: installed.includes(adapter) || defaults.includes(adapter),
+        disabled: installed.includes(adapter) ? '(already enabled)' : false,
       })),
     }, streams);
   },

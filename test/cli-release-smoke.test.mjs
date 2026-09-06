@@ -50,6 +50,20 @@ try {
   const entrypoint = resolve(installedCli, cliManifest.bin.stetra);
   const binary = join(consumer, 'node_modules/.bin', process.platform === 'win32' ? 'stetra.cmd' : 'stetra');
   assert.equal(run(binary, ['--version'], consumer).stdout.trim(), expectedVersion);
+  const setupProject = join(temporary, 'agent-setup');
+  mkdirSync(setupProject);
+  const setup = (...args) => runJson(entrypoint, ['--json', 'init', setupProject, ...args], consumer);
+  assert.deepEqual(setup('--adapter', 'claude').adapters, ['claude']);
+  const claudeAnalyzer = join(setupProject, '.claude/agents/stetra-analyzer.md');
+  const originalAnalyzer = readFileSync(claudeAnalyzer, 'utf8');
+  assert.deepEqual(setup('--yes').adapters, ['claude']);
+  const planned = setup('--adapter', 'codex', '--dry-run');
+  assert.equal(planned.status, 'planned');
+  assert.deepEqual(planned.adapters, ['claude', 'codex']);
+  assert.equal(existsSync(join(setupProject, '.codex')), false);
+  assert.deepEqual(setup('--adapter', 'codex').adapters, ['claude', 'codex']);
+  assert.ok(existsSync(join(setupProject, '.codex/agents/stetra-analyzer.toml')));
+  assert.equal(readFileSync(claudeAnalyzer, 'utf8'), originalAnalyzer);
   for (const argv of [['task', 'begin'], ['task', 'report'], ['decision', 'propose'], ['assessment', 'submit'], ['adoption', 'prepare'], ['adoption', 'decide']]) {
     const schema = runJson(entrypoint, ['--json', ...argv, '--input-schema'], consumer);
     assert.equal(schema.status, 'input-schema'); assert.ok(schema.inputSchema); assert.ok(schema.example);

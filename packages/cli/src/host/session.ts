@@ -18,6 +18,7 @@ import { z } from 'zod';
 import type { HostAdapter } from '../adapters/definition.ts';
 import { inputError, usageError } from '../errors.ts';
 import { sha256 } from '../protocol.ts';
+import { HostAdapterSchema } from '../schemas/project.ts';
 import { parseArtifact } from '../validation.ts';
 import { loadTask, type LoadedTask } from '../workflow/task-store.ts';
 import { safeStoragePath, writeImmutableJson, writeJsonAtomic } from '../workflow/storage-io.ts';
@@ -27,7 +28,7 @@ const BINDING_TOKEN = /^(codex|claude)\.([a-f0-9]{64})\.([a-f0-9]{32})$/;
 
 const SessionSchema = z.strictObject({
   schemaVersion: z.literal(1),
-  adapter: z.enum(['codex', 'claude']),
+  adapter: HostAdapterSchema,
   sessionKeyHash: z.string().regex(HEX_64),
   bindingToken: z.string().regex(BINDING_TOKEN),
   taskId: z.uuid().optional(),

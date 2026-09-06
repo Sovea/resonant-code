@@ -1,16 +1,17 @@
 import { Command } from 'commander';
 import { z } from 'zod';
 
+import { DEFAULT_HOST_ADAPTER, HOST_ADAPTERS } from '../adapters/definition.ts';
 import {
   initializeProject,
   inspectProjectInstallation,
-  type HostAdapter,
 } from '../project/init.ts';
+import { HostAdapterSchema } from '../schemas/project.ts';
 import { parseArtifact } from '../validation.ts';
 import type { CommandEnvironment } from './shared.ts';
 import { collectOption } from './shared.ts';
 
-const AdapterListSchema = z.array(z.enum(['codex', 'claude']));
+const AdapterListSchema = z.array(HostAdapterSchema);
 
 interface InitOptions {
   adapter: string[];
@@ -29,13 +30,13 @@ export function registerInitCommand(
     .argument('[project-root]', 'project root', '.')
     .option(
       '-a, --adapter <host>',
-      'host adapter to install (repeatable: codex or claude)',
+      `coding agent to set up (repeatable: ${HOST_ADAPTERS.join(' or ')})`,
       collectOption,
       [],
     )
     .option('--dry-run', 'plan managed artifact changes without writing')
     .option('--force', 'replace modified managed artifacts explicitly')
-    .option('-y, --yes', 'accept documented non-interactive defaults')
+    .option('-y, --yes', 'skip selection; keep existing adapters or default to Codex')
     .action(async (
       projectRoot: string,
       options: InitOptions,
@@ -46,20 +47,24 @@ export function registerInitCommand(
         !adapters.length
         && !options.yes
         && environment.shouldPrompt(command)
-        && inspectProjectInstallation(projectRoot).status === 'absent'
       ) {
-        adapters = await environment.runtime.prompts.selectAdapters({
-          choices: ['codex', 'claude'],
-          defaults: ['codex'],
-          streams: {
-            input: environment.runtime.input,
-            output: environment.runtime.output,
-          },
-        });
+        const installed = inspectProjectInstallation(projectRoot).adapters;
+        if (HOST_ADAPTERS.some((adapter) => !installed.includes(adapter))) {
+          adapters = parseArtifact(AdapterListSchema.nonempty(),
+            await environment.runtime.prompts.selectAdapters({
+              choices: HOST_ADAPTERS,
+              defaults: installed.length ? installed : [DEFAULT_HOST_ADAPTER],
+              installed,
+              streams: {
+                input: environment.runtime.input,
+                output: environment.runtime.output,
+              },
+            }), 'init adapters');
+        }
       }
       const output = initializeProject({
         projectRoot,
-        adapters: adapters as HostAdapter[],
+        adapters,
         force: Boolean(options.force),
         dryRun: Boolean(options.dryRun),
       });
