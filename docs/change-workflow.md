@@ -1,8 +1,16 @@
 # Change workflow
 
-This document defines the executable schema `2` task workflow. Stetra remains
-embedded in the developer's Coding Agent Host. CLI commands are the portable
-transport and do not define a separate conversational product.
+This document defines the currently executable schema `2` task workflow.
+[Architecture](architecture.md) defines the adopted Decision-aware target,
+including in-work Decisions, separate semantic Assessments, and Reconciliation.
+Those target capabilities are not yet part of the executable workflow below.
+Update this document alongside their implementation; do not present planned
+commands as available commands.
+
+The product owner has chosen to proceed with that redesign without prerequisite
+experiments. Stetra remains embedded in the developer's Coding Agent Host. CLI
+commands are the portable transport and do not define a separate conversational
+product.
 
 ## Setup
 

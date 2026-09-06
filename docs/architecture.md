@@ -1,317 +1,347 @@
 # Architecture
 
-This document is the authoritative product boundary and target design for
-Stetra schema `2`. Current executable behavior is defined in
-[Change workflow](change-workflow.md). Measured product evidence is separate
-from both documents.
+This document defines the adopted target design for Stetra's Decision-aware
+Agent-native Adoption Runtime. The product owner has chosen to proceed without
+a prerequisite experiment or paired effectiveness study.
+
+The current implementation remains the schema `2` workflow documented in
+[Change workflow](change-workflow.md). Runtime Decisions, separate semantic
+Assessments, and Reconciliation below are target behavior, not implemented
+capabilities. Product direction, executable behavior, and measured product
+effectiveness must remain distinguishable.
 
 ## Product positioning
 
-Stetra is a **Human-authoritative engineering harness for Agent-authored coding
-changes**. It keeps the engineering thread between developer direction, the
-actual repository change, verification evidence, Agent judgment, and Human
-adoption intact.
+Stetra helps developers delegate implementation while retaining engineering
+understanding and authority over new choices and adoption. It enters the Coding
+Agent's work loop through project initialization, Skills, Hooks, and Host-native
+extensions.
 
 Codex, Claude Code, Pi, Trellis, and similar systems remain the interaction and
 execution Hosts. They own models, conversation, investigation, planning,
 implementation, tools, sessions, subagents, worktrees, cancellation, and
-streaming. Stetra is installed into those Hosts as a project layer; it does not
-replace their entry point or run another Agent loop.
+streaming. Stetra does not replace their entry point or run a second Coding
+Agent loop.
 
-Stetra protects five developer rights:
-
-| Right | Product obligation |
+| Developer right | Product obligation |
 |---|---|
-| Direction | Preserve exact developer authority and explicit corrections. |
-| Visibility | Present actual repository and verification facts independently of Agent prose. |
-| Intervention | Return control when continuing requires a Human-owned choice. |
-| Understanding | Reconstruct behavior, mechanism, invariants, effects, and failure paths. |
-| Adoption | Keep completion, evidence, recommendation, and Human acceptance separate. |
+| Direction | Keep the exact request and subsequent corrections effective during work. |
+| Visibility | Expose actual changes, verification, important choices, and uncertainty. |
+| Intervention | Present a concrete choice when continuing needs new Human authority. |
+| Understanding | Explain behavior, mechanism, ownership, invariants, and failure paths against current code. |
+| Adoption | Bind explicit acceptance to the exact current result and its disclosed limitations. |
 
-The product succeeds only when implementation outcomes remain non-inferior,
-developer adoption cost falls, developer understanding remains non-inferior,
-evidence provenance stays inspectable, and adoption authority remains Human.
+The central loop connects declared Decisions to assessed system changes and
+Runtime Observations. Reconciliation surfaces unexplained changes, conflicting
+claims, departures from developer direction, and missing evidence so they can
+be investigated, corrected, or explicitly decided.
 
 ## Product kernel
 
-One admitted coding task contains three task cores and one Human control loop:
+One admitted task contains five domain concepts:
 
-1. **Semantic Contract** — the exact Human request beside a compact Agent
-   interpretation and frozen verification boundary.
-2. **Fact Spine** — Runtime-observed baseline, current change, Check Attempts,
-   bounded logs, verifier mutations, and fact currency.
-3. **Cognitive Handoff** — the Agent's current explanation of actual behavior,
-   mechanism, invariants, failure paths, effects, tradeoffs, unknowns, review
-   focus, and recommendation.
-4. **Human Decision** — explicit acceptance, correction, rejection, or deferral
-   bound to one exact Handoff and Fact Collection.
+| Concept | Responsibility |
+|---|---|
+| **Intent** | Exact Human direction, compact Agent interpretation, protected constraints, and the current authorization boundary. |
+| **Decision** | An engineering choice discovered before or during implementation, its alternatives and consequences, and the authority for its resolution. |
+| **Observation** | Runtime-observed baseline, actual changes, Check Attempts, execution inputs, and fact currency. |
+| **Assessment** | Attributed semantic judgments about actual behavior changes, decision implications, evidence, and uncertainty. |
+| **Adoption** | The later Human decision about one exact current result, including its Assessments and unresolved findings. |
 
-These cores serve one problem: turn an Agent implementation into an engineering
-change the developer can understand, challenge, and responsibly adopt.
+Evidence references connect Assessment claims to Observations and inspectable
+code. They do not require a separate obligation graph. These concepts do not
+imply five stores, services, or independently orchestrated workflows.
 
-## Visible workflow and internal control
+## Visible workflow
 
-The developer and Agent see three ordinary engineering phases:
+The developer continues to see ordinary engineering phases:
 
 ```text
 Align -> Work -> Decide
 ```
 
-The Runtime may use more internal transitions, identities, and immutable
-artifacts, but those are not an Agent protocol.
+The target task loop is:
 
 ```text
-No Task
-  -> admitted Task + baseline
-  -> Agent works through its normal Host
-  -> current Fact Collection
-  -> Cognitive Handoff
-  -> Human Decision
+exact Human request -> Intent + baseline
+  -> Agent investigation and implementation
+       -> Decision proposal -> existing authority or Human resolution
+       -> Human correction -> revised current Intent
+  -> current Observations
+  -> implementation report + semantic Assessment
+  -> Reconciliation
+       -> explanation, investigation, repair, or a necessary Human choice
+  -> current Adoption Package
+  -> Human adoption decision
 ```
 
-Check failure returns ordinary engineering evidence to the Agent and leaves the
-task in Work. An edit after collection makes the facts stale. A correction
-request creates a successor Attempt. These mechanics do not require a separate
-diagnosis or resolution document on the routine path.
+Ordinary implementation stays autonomous within existing authority. Important
+choices do not all require approval. Routine changes need no invented
+Decisions, mandatory diagnosis, Conditions, or Evidence Obligations.
 
-## Task admission
+## Admission and authority
 
-Stetra is installed for the project but creates state only for an admitted
-coding task. Non-coding conversation and declined tasks create no task, capture
-no prompt, run no check, and have no visible lifecycle.
-
-Admission is explicit policy, never a Runtime risk inference:
-
-- `explicit` — only a direct developer request starts a managed task;
-- `ask` — the Agent offers one concise task-admission choice for a coding task;
-- `required` — project policy requires coding tasks to be managed.
-
-The Agent may interpret whether a request is a coding task. Runtime must not
-infer assurance or admission from keywords, paths, dependencies, diff size,
-file count, or a scalar score.
-
-## Proportional assurance
-
-### Routine
-
-Routine is the default and contains only:
-
-```text
-exact request -> compact interpretation -> baseline -> implementation
--> current diff and checks -> compact Handoff -> Human Decision
-```
-
-Routine tasks do not require Conditions, Evidence Obligations, structured
-diagnosis, baseline checks, Host-policy claims, or Review Decision graphs.
-
-### Consequential
-
-Consequential assurance is enabled only by an exact Human choice or explicit
-project policy. It adds bounded Adoption Concerns describing the statement,
-adoption impact, concrete evidence requirements, and optional falsification
-design. Runtime may prevent a concern finding from exceeding the declared
-evidence path, but it cannot decide natural-language truth.
-
-More elaborate obligation graphs, independent challenge, or Host attestation
-may return only after a measured consumer proves that a simpler concern is
-insufficient.
-
-## Authority boundary
+Stetra creates task state only for an admitted coding task. Conversation-only
+work and declined tasks create no task and capture no prompt. Admission comes
+from an exact Human choice or explicit project policy: `explicit`, `ask`, or
+`required`. Runtime does not infer admission, assurance, or semantic importance
+from paths, dependencies, keywords, diff size, or counts.
 
 | Actor | Owns | Does not own |
 |---|---|---|
-| Developer | Exact requests and corrections, desired outcomes, constraints, non-goals, long-lived choices, exceptions, external effects, task admission, and adoption | Runtime observations or Agent investigation |
-| Agent | Interpretation, investigation, design, implementation, diagnosis, repair, falsification, Handoff semantics, review focus, and recommendation | Developer authority, machine facts, or adoption |
-| Runtime | Identity, ordering, frozen definitions, baseline, actual changes, Check Attempts, bounded logs, currency, persistence, and deterministic structural policy | Product meaning, engineering cause, implementation strategy, or adoption |
-| Trusted Host | Only capabilities and event identity it actually controls | Semantic truth or Human authority |
+| Developer | Exact requests and corrections, outcomes, constraints, authorization, long-lived choices, exceptions, external effects, admission, and adoption | Runtime observations or Agent analysis |
+| Coding Agent | Interpretation, investigation, design, implementation, Decision proposals, repair, implementation reports, and recommendations | Human authority or machine facts |
+| Analyzer | Semantic Assessments, candidate omissions and contradictions, uncertainty, and evidence-directed review questions | Semantic truth, Human authority, or adoption |
+| Runtime | Identity, ordering, current bindings, Observations, persistence, reference validation, and deterministic structural policy | Natural-language truth, engineering causes, or implementation strategy |
+| Trusted Host | Execution capabilities and event identity it actually controls | Semantic truth or authority it cannot attest |
 
-Human Events, Agent judgment, Runtime facts, and Host attestation cannot be
-relabelled as one another. Green checks are observations, not adoption. A Human
-exception does not erase contradictory evidence.
+Analyzer is a semantic role, not a new authority class. Its output remains
+Agent judgment, even when produced in an isolated context or by another model.
+Runtime does not own semantic truth; Stetra nevertheless provides semantic
+assessment as an explicit product capability.
 
-## Host integration
+The Human source of a constraint remains separate from the Agent's
+interpretation and application of it. Runtime can apply a policy to an explicit
+reference; it cannot prove that a natural-language change falls within that
+policy. Thin adapters label relayed Human text as unattested rather than
+manufacturing Host provenance. Green checks cannot become adoption, and a Human
+exception cannot erase contradictory facts.
 
-The dependency direction is:
+## Intent and in-work correction
+
+Intent preserves the exact admitted request beside the Agent's compact
+interpretation. Existing authorization remains effective; the Agent must not
+ask again merely because a choice is important or Stetra stores it.
+
+A later Human correction can update the current task while work is underway.
+It preserves the original request, previous interpretations, Decisions, and
+Observations. The original Git baseline is not replaced. Previous delivery
+explanations remain historical when the effective Intent changes.
+
+Changes to developer-owned outcomes, constraints, and acceptance criteria need
+Human authority. Additional investigation, implementation choices, and checks
+within the authorized task remain Agent work. Previously executed Check
+definitions and outcomes are immutable; a changed verification plan preserves
+their identity and the reason for the new plan.
+
+## Decisions during implementation
+
+A Decision represents a concrete engineering fork. The Agent explains the
+problem, viable alternatives, proposed choice, consequences, and applicable
+authority. It records an important autonomous choice or requests a Human
+resolution when existing authority is insufficient.
+
+Runtime preserves proposals and resolutions, their ordering, and their basis
+in current Intent. Human resolution binds the exact developer response to the
+proposal being resolved. A changed proposal cannot reuse approval of an older
+choice. The Agent does not relabel its own selection as Human authorization.
+
+Pending Human choices identify the work that depends on them. Investigation
+and unrelated authorized work may continue. A completion checkpoint cannot
+silently treat an unresolved choice as approved.
+
+Absence of a Decision record does not establish absence of authorization.
+Reconciliation checks the request, corrections, policy, and Decisions together.
+A retrospective explanation of code is not evidence of the implementer's
+historical motive or of an earlier Human decision.
+
+## Observations and evidence
+
+Runtime records facts needed to understand, recover, review, or adopt a change:
+
+- complete dirty and non-ignored untracked Git baseline;
+- actual file operations, modes, digests, representable patches, and binary or
+  unrepresentable markers;
+- exact argv Check definitions and ordered execution Attempts;
+- exits, signals, timeouts, spawn failures, bounded logs, and full-stream digests;
+- declared execution inputs and pre-check, post-check, and check-induced changes;
+- declared verifier-surface mutations and current-worktree currency.
+
+Checks run without a shell. Passing checks establish observed outcomes, not
+semantic coverage or acceptability. Declared verifier selectors establish only
+their stated coverage. Failed and superseded observations remain inspectable.
+Routine tasks do not require baseline check execution.
+
+Reuse existing Git, process, log, and currency infrastructure where its
+behavior remains useful. Simplifying the domain does not justify dropping
+adverse evidence or substituting an Agent report for a Runtime Check Attempt.
+
+## Semantic Assessment
+
+The implementation report explains the Coding Agent's actual change and its
+reported Decisions. A semantic Analyzer examines current Intent, Observations,
+and relevant repository context to assess the implementation's behavior. Its
+Assessment is submitted separately from the implementation report.
+
+An Assessment reconstructs the material before/after model: behavior,
+mechanism, state and resource ownership, invariants, failure and recovery,
+tradeoffs, and unknowns. Claims include inspectable references where available.
+The Analyzer can identify omissions and contradictions and request concrete
+follow-up; its conclusions remain contestable judgments.
+
+Analysis executes through the Host. Core and CLI do not call an LLM. Runtime
+provides bounded current inputs, accepts attributed results, and validates
+bindings. The Host owns model invocation, tool access, isolation, and any
+subagent execution. This does not create a Stetra model router or Agent loop.
+
+The reference integration supports a separate analysis context. Portable use
+can provide an explicitly labelled same-context Assessment or disclose that
+analysis was unavailable. A fallback must not impersonate independent review.
+Claims about isolation and execution are limited to what the Host can attest;
+an Agent-supplied label alone is not attestation.
+
+Assessment inputs are bound to effective Intent, Decision state, current
+Observations, and supplied analysis material. Relevant changes during analysis
+invalidate its use in a current Adoption Package. A failed Analyzer produces
+an explicit gap and bounded recovery, not an endless continuation loop.
+
+## Reconciliation
+
+Reconciliation connects the implementation report, Decisions, semantic
+Assessments, and Observations. Semantic matching is Agent judgment. Runtime
+validates references, current bindings, unresolved states, and explicit
+dispositions; it does not infer natural-language correspondence.
+
+| Finding | Engineering response |
+|---|---|
+| An actual change is insufficiently explained | Add an evidence-linked explanation and maintenance entry point. |
+| A change conflicts with current developer direction | Repair it or present the concrete choice needing new authority. |
+| An explanation conflicts with code or observed checks | Correct the claim, repair the implementation, or obtain missing evidence. |
+| A suspected effect lacks adequate evidence | Investigate or disclose the bounded uncertainty. |
+
+Each material finding retains its source, evidence, consequence, and explicit
+disposition. A disagreement is not erased by the implementation Agent calling
+it resolved. Updated explanations and counterevidence remain inspectable.
+Human acknowledgment can authorize adoption with a disclosed limitation; it
+does not turn a disputed Assessment into a Runtime fact.
+
+Decision coverage is a readable relation between assessed changes and their
+explanation or authority, not a percentage or a claim that every important
+change has been detected. Do not introduce scalar trust, confidence, risk,
+readiness, or quality scores.
+
+## Adoption Package and Human decision
+
+The Adoption Package is a rebuildable developer view of one exact current
+result. It presents:
+
+- intended and actual behavior;
+- important Decisions and their authority;
+- mental-model changes needed to understand and maintain the result;
+- Runtime verification and its limits;
+- semantic findings, disagreements, dispositions, and residual unknowns;
+- focused review entry points and the Agent's recommendation;
+- the exact pending Human choice.
+
+The view distinguishes delivery, observed verification, semantic assessment,
+recommendation, and Human adoption. Structural completion does not establish
+that the implementation or explanation is correct. Patches, logs, references,
+and history remain available through bounded inspection.
+
+Adoption remains an exact later Human Event bound to current Intent,
+Decisions, Observations, Assessments, and the presented Package. Acceptance
+with unresolved findings requires explicit acknowledgment. Correction,
+rejection, and deferral remain available. Edits or changed task authority
+invalidate an old Package's use for a new adoption decision without erasing
+history.
+
+Adoption does not commit, merge, publish, deploy, approve unrelated choices,
+or create project policy. Cross-task cognitive state and decision memory are
+outside this redesign.
+
+## Host integration and Agent surface
+
+The dependency direction remains:
 
 ```text
 Generated Host Adapter -> CLI Runtime -> Core
 ```
 
-The Adapter is a provider-specific bridge, not a second product entry point. It
-may install compact Skills and lifecycle Hooks, inject the current task phase,
-capture exact Host events where supported, and provide one bounded continuation
-before a Host stops an admitted unfinished task.
+Skills explain when and why to propose a Decision, preserve a correction,
+collect Observations, obtain an Assessment, and present adoption. The CLI is
+the local executable API; the developer keeps using the Host's conversation.
+The Agent never authors canonical fingerprints, persistence schemas, or
+Runtime recovery projections.
 
-Provider-neutral directives are deliberately small:
+Codex is the first supported Host for the target architecture and the reference
+integration for its analysis and lifecycle flow. Complete and verify the target
+loop in Codex first. Claude Code may be included in the same implementation
+effort as a second Host; its support and feature parity do not gate Codex
+delivery.
 
-```text
-noop | inject-context | continue-once | present
-```
+Keep domain meaning portable while mapping each adapter to its actual native
+capabilities. Adapter capabilities are specific to installed supported behavior;
+support does not mean identical enforcement or isolation across Hosts. Derive
+the Codex integration from Codex's own contracts rather than assuming another
+Host's event names or control behavior apply.
 
-A repeated unchanged Stop condition becomes a visible warning and permits the
-Host to stop. Hooks preserve continuity; they do not create task authority,
-semantic truth, or adoption.
+Hooks serve context recovery, invalidation, bounded adoption continuation, and
+specific enforceable controls for pending Human choices. Host Stop and task
+completion events must not be treated as interchangeable. Repeated unchanged
+state permits stopping with a visible gap. Hooks create neither task admission
+nor Human authority, and they do not persist every tool call.
 
-The portable fallback remains usable without Hooks. It exposes ordinary task
-operations rather than an owned Draft/Guide transport or canonical persistence
-schema. Current thin adapters cannot attest prompt identity, so schema `2`
-marks relayed Human text as `unattested-input`; it preserves and presents the
-exact submitted bytes without upgrading their provenance.
+Retain initialization's ownership manifest, marked blocks, JSON fragments,
+drift detection, and protection of unknown owner data. Plan writes before
+mutation. Host files are generated projections, not the domain source of truth.
 
-## Agent-facing surface
+## Persistence and package boundary
 
-The Agent understands the engineering workflow, not Stetra's internal data
-model. The primary operations are:
+Task artifacts remain under `.stetra/tasks/<taskId>/`. Persist admitted Human
+events, Intent revisions, Decision proposals and resolutions, Observations,
+implementation reports, Assessments and finding dispositions, and adoption
+records only when they serve the current task's control or handoff.
 
-```text
-task begin | task collect | task handoff | task inspect
-```
+Artifacts preserve history through immutable records and supersession. Task
+projection and the developer Package are rebuildable. Operational Host session
+bindings support exact recovery, not cross-task knowledge. Do not persist
+transcripts, hidden reasoning, Drafts, Guides, ordinary Hook events, or
+unchanged duplicate collections.
 
-Task amendment, verification revision, and Human decision are conditional
-operations. The Agent does not orchestrate Host Actions, reserve Drafts, bind
-fingerprints, construct canonical references, or operate Runtime recovery
-states.
+`@sovea/stetra-core` continues to own deterministic domain validation and
+transitions. `@sovea/stetra` owns IO, Git and Check collection, storage,
+sequencing, presentation, initialization, and Host integration. Core does not
+read repositories, execute commands, format CLI output, know Host files, or
+call an LLM. Exact schemas live in TypeScript.
 
-Native adapters may expose typed tools. The CLI accepts the same compact inputs
-through stdin or an external file. Core and CLI never call an LLM.
-Each authoring command exposes `--input-schema` without a repository or task.
-The schema is generated from the actual CLI input validator and examples are
-validated by that same definition. Runtime reference and evidence validation
-still applies when an input is submitted.
+The current two Core runtime exports do not constrain the target kernel.
+The product owner requested initial versions for the fresh implementation:
+paired package version `0.0.1` and protocol schema `1`. Do not add legacy
+compatibility, format recognition, migration, aliases, or dual read/write paths.
 
-## Fact Spine
+## Implementation sequence
 
-Runtime preserves only facts with an alignment, recovery, review, or adoption
-consumer:
+The [implementation plan](implementation-plan.md) specifies the proposed schema,
+Core API, CLI operations, persistence changes, Codex adapter, and engineering
+acceptance criteria. It does not describe currently executable behavior.
 
-- complete dirty and non-ignored untracked Git baseline;
-- actual file operations, modes, digests, representable patches, and binary or
-  unrepresentable markers;
-- immutable Check definitions and ordered Attempts;
-- timeout, signal, spawn failure, exit status, durations, full-stream digests,
-  and bounded logs;
-- pre-check, post-check, and check-induced worktree changes;
-- declared verifier-surface mutations;
-- declared execution-input snapshots needed for currency;
-- platform, architecture, and resolved top-level executables;
-- current-worktree currency.
+Implementation proceeds directly from this adopted design:
 
-Checks run without a shell after implementation. Schema `2` does not execute
-baseline checks; the pre-change Git snapshot establishes the actual-change
-boundary, not a claim about pre-existing behavior.
+1. Replace the domain contract with Intent, in-work Decisions and corrections,
+   Observations, Assessments, and Adoption, preserving authority boundaries.
+2. Implement task storage and current-state projection, including proposal
+   resolution, supersession, stale inputs, and interrupted-operation recovery.
+3. Connect existing Git and Check infrastructure to the new Observation path.
+4. Implement separate report and Assessment submission, Reconciliation
+   dispositions, current Adoption Packages, and Human adoption binding.
+5. Integrate Codex's analysis and lifecycle flow first, with honest portable
+   fallback and owner-safe initialization. Claude Code can be implemented
+   alongside it as a second adapter without delaying the Codex path.
+6. Complete behavior, failure/recovery, distribution, and generated-adapter
+   checks, including the Codex path and any included Claude Code path; update
+   executable workflow documentation alongside the code.
 
-Currency covers the worktree and declared local execution inputs. It does not
-attest external service availability. A non-timeout failure can be explicitly
-reobserved once per unchanged worktree and declared inputs in a delivery
-Attempt. Refresh reruns all frozen checks with their existing budgets, retains
-the preceding collection, and records the Agent-authored reason separately
-from the observed outcome. It cannot be used while a current Check is timed
-out; the existing bounded timeout-retry path applies first.
-
-Stetra does not persist Agent transcripts, every tool call, ordinary Hook
-events, repeated identical collections, prompt caches, or data without a
-decision-changing consumer.
-
-## Handoff and decision
-
-The default Handoff is a compact Agent-authored actual-change model. Optional
-fields stay optional; the Agent does not fill empty arrays to satisfy ceremony.
-Runtime adds mechanical Attention for current non-passing verification,
-verifier changes, check-induced changes, unrepresentable changes, stale facts,
-and declared concern gaps.
-
-The Developer Decision Brief leads with four separate states:
-
-```text
-delivery | evidence | Agent recommendation | Human adoption
-```
-
-It then presents the intended and actual behavior, mechanism, material
-invariants and failure paths, verification results, bounded unknowns, review
-focus, and the exact pending Human choice. Raw logs, patches, IDs, and history
-remain available through bounded inspection.
-The same current-fact projection is used by Handoff, inspection, and Host
-continuity. It includes exact task corrections in order, resolves review
-references into changed paths and Check keys, and labels declared verification
-coverage. A stale stored Handoff remains historical evidence and is not
-presented as a current Decision Brief. A recorded Human decision remains bound
-to its original facts when the worktree later changes.
-
-## Persistence
-
-Task state lives only below `.stetra/tasks/<taskId>/`. Canonical artifacts are
-immutable and task projection is rebuildable from ordered key events.
-
-Persist only:
-
-- admitted Human request and explicit corrections or decisions;
-- compiled Contract and baseline;
-- Attempts, Fact Collections, patches, and non-empty bounded logs;
-- Handoffs and Human Decisions.
-
-Do not persist Drafts, Guides, Agent transcripts, ordinary context injection,
-or unchanged duplicate facts. A generated Human view may be rebuilt from
-canonical artifacts and is not authority.
-
-Host session bindings under `.stetra/host-sessions/` store opaque session and
-task identities only. During an admitted Begin they may retain the pending task
-ID and compiled Contract fingerprint to recover publication followed by a
-failed binding write. The task-directory rename is the publication point.
-Hooks can recover this exact association without scanning for a recent task or
-creating a task. Completed sessions may bind the next admitted task; an open
-task cannot be silently replaced. This is operational session recovery, not
-cross-task decision memory.
-
-Schema `2` has no schema `1` translator, dual read/write path, or migration.
-The pre-release Git history is sufficient archival access until real user data
-proves a migration consumer.
-
-## Package and API boundary
-
-The workspace has two publishable packages:
-
-- `@sovea/stetra-core` owns deterministic authority validation, Contract
-  compilation, Fact validation, evidence ceilings, Handoff evaluation, and
-  Decision binding.
-- `@sovea/stetra` owns CLI IO, task sequencing, Git and Check collection,
-  storage, presentation, project initialization, and Host adapters.
-
-Core exposes exactly `compileDelegation` and `evaluateHandoff` as runtime
-values. It does not read repositories, execute commands, know Host files,
-format terminal output, or call an LLM.
+Do not require a prototype, user study, paired experiment, or measured
+comparison before implementing these capabilities. Engineering verification
+remains required. Later effectiveness evaluation can test adoption cost,
+understanding, decision surprises, and unnecessary interruptions. Such claims
+remain unverified until supported by the applicable evaluation protocol and a
+Human product-owner conclusion.
 
 ## Anti-goals
 
-Stetra is not:
-
-- a Coding Agent, model router, ReAct loop, chat UI, or model SDK;
-- a generic planner, task decomposer, scheduler, or multi-Agent orchestrator;
-- a replacement for Trellis or provider-native implementation workflows;
-- a repository wiki, prompt library, specification warehouse, transcript
-  store, or broad project-memory system;
-- a scalar trust, risk, readiness, confidence, complexity, or quality scorer;
-- an automatic approver, deployment tool, PR bot, or cloud analytics service.
-
-## Evolution and evidence gate
-
-Evolution order is fixed by evidence, not feature completeness:
-
-1. Prove the routine black-box path with packed packages and generated
-   Codex/Claude adapters.
-2. Prove that Runtime facts or a Cognitive Handoff improve a real review or
-   adoption decision over a strong Markdown Skill and Trellis finish flow.
-3. Add only the recovery and consequential-assurance mechanisms consumed by an
-   observed failure mode.
-4. Add another Host capability only after the provider-neutral port has a
-   measured consumer.
-5. Consider cross-task Decision Continuity last.
-
-Every persistent field, event, lifecycle state, Host capability, and authoring
-requirement must answer:
-
-1. Which alignment, recovery, review, or adoption decision can it change?
-2. Can the developer inspect that decision and distinguish authority from
-   evidence?
-3. Does it beat a simpler workflow in measured use?
-
-Remove or defer it when the answer is not concrete.
+Stetra is not a Coding Agent, generic planner, workflow engine, model SDK,
+multi-Agent orchestrator, trace platform, repository wiki, prompt library,
+automatic approver, deployment tool, or cross-task knowledge system. Do not
+restore nested Evidence Obligations or build a general assurance-plugin
+framework as part of the kernel redesign.

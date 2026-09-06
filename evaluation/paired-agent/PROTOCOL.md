@@ -10,6 +10,13 @@ It is this repository's effectiveness-test contract. It is not Runtime, a
 distributable benchmark harness, a registry of candidate tasks, or an archive
 of evaluation runs.
 
+The product owner has authorized the Decision-aware redesign without a
+prerequisite experiment. This protocol governs measured-effectiveness claims;
+it does not gate architecture or implementation. The treatment lifecycle below
+describes the current schema `2` implementation. Revise and preregister the
+applicable protocol before evaluating a later implemented lifecycle; do not
+claim that planned Decisions, Assessments, or Reconciliation have been measured.
+
 This directory contains only the protocol and reusable record templates. Active
 preregistrations, run ledgers, observations, results, source workspaces, sealed
 material, and raw evidence remain in an evaluator-owned workspace outside the
