@@ -256,6 +256,9 @@ Selecting `:read-only` for the parent analysis turn did: both child write probes
 failed with `EROFS`. This verifies that tested Host configuration, not a portable
 guarantee that a custom agent can narrow writable parent permissions.
 
+The [native Host validation record](host-validation.md) describes the permission
+probes, Vite correction, independent checks, and observed recovery costs.
+
 ## Persistence and recovery
 
 ```text
