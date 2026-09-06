@@ -48,6 +48,9 @@ for (const adapter of ['codex', 'claude'] as const) test(`${adapter} native even
     await decideAdoption({ ...input, source: { packageId: packet.current.packageId!, action: 'accepted',
       humanEvent: { content: 'I accept this exact result.' }, reason: 'Reviewed the explanation and sources.' } });
     assert.deepEqual(await hook('stop'), {});
+    const redelivered = await hook('subagent-stop', result);
+    assert.equal('decision' in redelivered, false);
+    assert.match(String(redelivered.systemMessage), /assessment-reused/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

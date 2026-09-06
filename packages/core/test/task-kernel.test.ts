@@ -246,3 +246,16 @@ test('saved Package bindings do not assert live currency without a new Runtime o
   assert.equal(saved.acceptanceStructurallyPossible, false);
   assert.equal(evaluateAdoption(h.state, currency).packageCurrent, true);
 });
+
+test('an exact Assessment redelivery after adoption is a read-only reuse, while a replacement is rejected', () => {
+  const h = harness(); h.delivered();
+  const assessment = get(h.state, 'assessment');
+  h.execute({ type: 'prepare', input: { recommendation: { action: 'accept', rationale: 'Reviewed the current result.' } } });
+  h.execute({ type: 'decide', input: { packageId: h.state.packageId!, action: 'accepted',
+    humanEvent: { content: 'Accept this result.' }, reason: 'Reviewed.' } });
+  const revision = h.state.revision;
+  assert.equal(h.execute({ type: 'assess', input: assessment.input }).status, 'unchanged');
+  assert.equal(h.state.revision, revision);
+  h.fail({ type: 'assess', input: { kind: 'unavailable', requestId: assessment.input.requestId,
+    reason: 'A replacement result.' } }, 'ASSESSMENT_EXISTS');
+});

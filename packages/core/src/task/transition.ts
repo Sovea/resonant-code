@@ -62,8 +62,25 @@ function authorTransition(state: TaskState | null, command: TaskCommand, runtime
       concernChecks: concernChecks(input.assurance, plan), reason: 'Initial Agent interpretation.' };
     return [request, plan, intent, { ...header('baseline'), kind: 'baseline', snapshot: runtime.baseline }];
   }
-  requireCondition(state && !state.closed && state.taskId === runtime.taskId,
-    'TASK_CLOSED', 'An active task with the exact identity is required.');
+  requireCondition(state && state.taskId === runtime.taskId,
+    'TASK_REQUIRED', 'A task with the exact identity is required.');
+  if (command.type === 'assess') {
+    const source = commandSchemas.assess.parse(command.input);
+    const request = record(state, 'analysis-request', source.requestId);
+    const input = bindAssessment(state, request, source);
+    const previous = records(state, 'assessment').find((item) => item.input.requestId === request.id);
+    if (previous) {
+      requireCondition(fingerprint(previous.input) === fingerprint(input), 'ASSESSMENT_EXISTS', 'A different result requires a new analysis request.');
+      return [];
+    }
+    requireCondition(!state.closed, 'TASK_CLOSED', 'A closed task cannot receive a new Assessment.');
+    return [{ ...header('assessment'), kind: 'assessment', input,
+      currentAtSubmission: request.id === state.requestId && Boolean(state.reportId && state.observationId)
+        && fingerprint(request.basis) === fingerprint(currentBasis(state)),
+      origin: runtime.analysisOrigin ?? { transport: 'agent-relay' } }];
+  }
+
+  requireCondition(!state.closed, 'TASK_CLOSED', 'An active task is required.');
   const intent = record(state, 'intent', state.intentId);
   const plan = record(state, 'verification-plan', state.planId);
   const artifacts: TaskArtifact[] = [];
@@ -181,21 +198,6 @@ function authorTransition(state: TaskState | null, command: TaskCommand, runtime
         })),
         priorFindings: openFindings(state).map((item) => item.reference),
         reason: input.reassessReason ?? 'Assess the current implementation report against the observed result.' });
-      break;
-    }
-    case 'assess': {
-      const source = commandSchemas.assess.parse(command.input);
-      const request = record(state, 'analysis-request', source.requestId);
-      const input = bindAssessment(state, request, source);
-      const previous = records(state, 'assessment').find((item) => item.input.requestId === request.id);
-      if (previous) {
-        requireCondition(fingerprint(previous.input) === fingerprint(input), 'ASSESSMENT_EXISTS', 'A different result requires a new analysis request.');
-        return [];
-      }
-      artifacts.push({ ...header('assessment'), kind: 'assessment', input,
-        currentAtSubmission: request.id === state.requestId && Boolean(state.reportId && state.observationId)
-          && fingerprint(request.basis) === fingerprint(currentBasis(state)),
-        origin: runtime.analysisOrigin ?? { transport: 'agent-relay' } });
       break;
     }
     case 'prepare': {

@@ -15,7 +15,7 @@ import type {
   VerificationInputSnapshot,
 } from '@sovea/stetra-core';
 
-import { sha256, stableFingerprint } from '../protocol.ts';
+import { compareText, sha256, stableFingerprint } from '../protocol.ts';
 
 const MAX_CAPTURED_ENTRIES = 100_000;
 const MAX_CAPTURED_BYTES = 256 * 1024 * 1024;
@@ -26,7 +26,7 @@ export function captureVerificationInputs(
 ): VerificationInputSnapshot[] {
   const projectRoot = realpathSync(resolve(projectRootInput));
   return [...definitions]
-    .sort((left, right) => left.definitionId.localeCompare(right.definitionId))
+    .sort((left, right) => compareText(left.definitionId, right.definitionId))
     .map((definition) => captureDefinitionInputs(projectRoot, definition));
 }
 
@@ -79,7 +79,7 @@ function captureSelector(
   while (pending.length) {
     const directory = pending.pop()!;
     const children = readdirSync(directory, { withFileTypes: true })
-      .sort((left, right) => left.name.localeCompare(right.name));
+      .sort((left, right) => compareText(left.name, right.name));
     for (const child of children) {
       const childPath = resolve(directory, child.name);
       if (child.isDirectory()) {
@@ -101,7 +101,7 @@ function captureSelector(
       }
     }
   }
-  entries.sort((left, right) => left.path.localeCompare(right.path));
+  entries.sort((left, right) => compareText(left.path, right.path));
   return selectorFact(selector, 'present', entries);
 }
 

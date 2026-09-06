@@ -18,7 +18,7 @@ import type {
 } from '@sovea/stetra-core';
 
 import { runBufferedCommand } from '../infrastructure/process.ts';
-import { sha256, stableFingerprint } from '../protocol.ts';
+import { compareText, sha256, stableFingerprint } from '../protocol.ts';
 
 const WORKFLOW_OUTPUT_PREFIXES = [
   '.stetra/tasks/',
@@ -179,14 +179,14 @@ export function compareGitWorktrees(
         after: item.fact,
         representation: representation(undefined, item.fact, binaryPaths.has(item.path)),
       })),
-  ].sort((left, right) => left.path.localeCompare(right.path));
+  ].sort((left, right) => compareText(left.path, right.path));
 }
 
 export function assertWorktreeSnapshot(value: unknown, label: string): asserts value is WorktreeSnapshot {
   const parsed = schemas.worktreeSnapshot.safeParse(value);
   if (!parsed.success) throw new Error(`Invalid ${label} worktree snapshot: ${parsed.error.message}`);
   const snapshot = parsed.data;
-  const ordered = [...snapshot.entries].sort((left, right) => left.path.localeCompare(right.path));
+  const ordered = [...snapshot.entries].sort((left, right) => compareText(left.path, right.path));
   if (JSON.stringify(ordered) !== JSON.stringify(snapshot.entries)
     || snapshot.fingerprint !== stableFingerprint({
       head: snapshot.head,
@@ -243,7 +243,7 @@ async function createWorktreeTree(
       captured.push(...batch.map((item, index) => ({ ...item, kind: 'file' as const, objectId: ids[index] })));
       offset = end;
     }
-    captured.sort((left, right) => left.path.localeCompare(right.path));
+    captured.sort((left, right) => compareText(left.path, right.path));
     const entries: WorktreeEntry[] = [];
     for (let offset = 0; offset < captured.length; offset += 64) {
       const batch = captured.slice(offset, offset + 64);

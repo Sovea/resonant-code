@@ -19,9 +19,11 @@ test('baseline captures dirty and untracked raw bytes without clean filters, EOL
     git(root, ['config', 'core.autocrlf', 'true']);
     writeFileSync(join(root, '.gitattributes'), 'app.txt filter=erase text\n');
     writeFileSync(join(root, 'app.txt'), 'dirty\r\n'); writeFileSync(join(root, 'untracked.txt'), 'untracked\n');
+    for (const name of ['Z.txt', 'a.txt', 'é.txt', '中文.txt']) writeFileSync(join(root, name), name);
     const index = readFileSync(join(root, '.git/index'));
     const began = await beginTask({ projectRoot: root, source: beginInput() });
     const task = loadTask(root, began.taskId), baseline = artifact(task.state, 'baseline', task.state.baselineId).snapshot;
+    assert.deepEqual(baseline.entries.map((entry) => entry.path), baseline.entries.map((entry) => entry.path).sort());
     assert.equal(baseline.entries.find((f) => f.path === 'app.txt')!.contentDigest, sha256('dirty\r\n'));
     assert.equal(baseline.entries.find((f) => f.path === 'untracked.txt')!.contentDigest, sha256('untracked\n'));
     assert.equal((await readSnapshotSource(root, baseline, join(task.taskDirectory, 'worktree-objects'), 'app.txt')).toString(), 'dirty\r\n');

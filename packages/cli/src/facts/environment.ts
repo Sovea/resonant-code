@@ -10,7 +10,7 @@ export function collectExecutionEnvironment(
     ...definition.execution.preparation.map((step) => step.argv[0]),
     definition.execution.assertion.argv[0],
   ]))]
-    .sort((left, right) => left.localeCompare(right));
+    .sort();
   return {
     platform: process.platform,
     architecture: process.arch,

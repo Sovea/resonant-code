@@ -4,6 +4,11 @@ import { schemas } from '@sovea/stetra-core';
 export const PROTOCOL = schemas.protocol;
 export const SCHEMA_VERSION = schemas.schemaVersion;
 
+/** Protocol ordering must not depend on the machine's language settings. */
+export function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export function sha256(value: string | Buffer): string {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
